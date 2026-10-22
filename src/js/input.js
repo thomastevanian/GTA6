@@ -77,6 +77,8 @@
       window.addEventListener('keydown', (e) => this._onKeyDown(e));
       window.addEventListener('keyup', (e) => this._onKeyUp(e));
       window.addEventListener('blur', () => this.releaseAll());
+      // Alt-Tab with a key held: its key-up never arrives, so let go of everything.
+      window.addEventListener('blur', () => this.releaseAll());
       document.addEventListener('visibilitychange', () => {
         if (document.hidden) this.releaseAll();
       });
@@ -196,8 +198,8 @@
     }
 
     _onMouseMove(e) {
-      // The weapon wheel (combat.js) asks for movement even without pointer lock, so it can be steered right after loading.
-      if (!this.locked && !this.wantDeltas) return;
+      // The weapon wheel works without the mouse captured too (its selection follows the mouse).
+      if (!this.locked && !(this.wheelOpen && this.enabled)) return;
       if (this._ignoreMouseUntil && performance.now() < this._ignoreMouseUntil) return;
       // Some drivers report a huge spurious jump right after locking; clamp it.
       const dx = clamp(e.movementX || 0, -300, 300);

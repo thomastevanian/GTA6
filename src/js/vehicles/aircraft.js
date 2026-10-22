@@ -860,7 +860,9 @@
           this.damage(5000, this.lastHitBy, 'crash');
           return;
         }
-        this.damage(sp * sp * 1.3 + 40, null, 'crash');
+        // Parked or crawling with a wingtip touching something (spawned next to a
+        // building, nudged into a hangar wall): no damage, just don't go further.
+        if (sp > 2) this.damage(sp * sp * 1.3 + 40, null, 'crash');
         this.pos.copy(this.prevPos);
         this.vel.multiplyScalar(-0.25);
         return;
