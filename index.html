@@ -10344,7 +10344,8 @@ void main() {
     }
 
     _onMouseMove(e) {
-      if (!this.locked) return;
+      // The weapon wheel (combat.js) asks for movement even without pointer lock, so it can be steered right after loading.
+      if (!this.locked && !this.wantDeltas) return;
       if (this._ignoreMouseUntil && performance.now() < this._ignoreMouseUntil) return;
       // Some drivers report a huge spurious jump right after locking; clamp it.
       const dx = clamp(e.movementX || 0, -300, 300);
@@ -44038,6 +44039,20 @@ ${vis}        return true;
       this._aim(this._vx, this._vy, Math.min(len, MAX_TRAVEL) >= DEADZONE);
     }
 
+    /** Keyboard: rotate the highlighted slot one place round the ring (dir = +1 clockwise). */
+    step(dir) {
+      if (!this.isOpen || !dir) return;
+      const n = this.slotIds.length;
+      const i = (this.sel + (dir > 0 ? 1 : n - 1)) % n;
+      this._setHighlight(i);
+      const deg = (i * 360) / n;
+      this._vx = Math.sin((deg * Math.PI) / 180) * MAX_TRAVEL;
+      this._vy = -Math.cos((deg * Math.PI) / 180) * MAX_TRAVEL;
+      this._pointer(this._vx, this._vy);
+      this._render();
+      this._changed('slot');
+    }
+
     stick(x, y) {
       if (!this.isOpen) return;
       const len = Math.hypot(x, y);
@@ -44737,7 +44752,10 @@ ${vis}        return true;
       // Weapon wheel.
       if (this.wheel) {
         const holding = inp.down('weaponWheel') && g.state === 'playing' && p.state !== 'dead';
+        inp.wantDeltas = holding; // steer the wheel with the mouse even before the pointer is locked
         if (holding && !this.wheel.isOpen) {
+          for (const k of ['moveRight', 'moveLeft', 'moveForward', 'moveBack']) inp.discard(k); // old key presses must not spin the wheel
+          inp.takeMouseDelta();
           this.wheel.open(this.wheelState());
           g.slowmo(9999, 0.25);
           this._wheelSlow = true;
@@ -44748,6 +44766,11 @@ ${vis}        return true;
             if (md.x || md.y) this.wheel.move(md.x, md.y);
             const wheelNotches = inp.takeWheel();
             if (wheelNotches) this.wheel.cycle(Math.sign(wheelNotches));
+            // Keys: A / D (or the arrows) turn the wheel, W / S pick a weapon within the slot.
+            if (inp.consume('moveRight')) this.wheel.step(1);
+            if (inp.consume('moveLeft')) this.wheel.step(-1);
+            if (inp.consume('moveForward')) this.wheel.cycle(1);
+            if (inp.consume('moveBack')) this.wheel.cycle(-1);
             const pad = inp.pad;
             if (pad && pad.connected && (Math.abs(pad.look.x) > 0.3 || Math.abs(pad.look.y) > 0.3)) this.wheel.stick(pad.look.x, pad.look.y);
           } else {
