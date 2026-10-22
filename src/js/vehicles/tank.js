@@ -284,7 +284,7 @@
         const want = VH.math.angleDelta(this.turretYaw, wrapAngle(this._aimYaw - this.yaw));
         this.turretYaw = wrapAngle(this.turretYaw + clamp(want, -1.1 * dt, 1.1 * dt));
         this.gunPitch = moveTowards(this.gunPitch, clamp(this._aimPitch, -0.12, 0.36), 0.7 * dt);
-      }
+      } else if (this.aiGunner && !this.wrecked) this._aiGun(dt);
       this.reload = Math.max(0, this.reload - dt);
       this._mgT -= dt;
       // Sound and the HUD.
@@ -293,6 +293,36 @@
       this.reversing = this.vF < -0.3;
       this.ax = 0;
       this._afterStep(dt);
+    }
+
+    /**
+     * An army crew (police.js sends one at five stars): the turret tracks Jay
+     * and the gun fires when it is on target and can see him. Slower to
+     * reload and a little less accurate than a player's.
+     */
+    _aiGun(dt) {
+      const g = this.sys.game;
+      const p = g.player;
+      const t = p.inVehicle ? p.vehicle : p;
+      const pv = this._pivot();
+      const dx = t.pos.x - pv.x;
+      const dz = t.pos.z - pv.z;
+      const dist = Math.hypot(dx, dz);
+      const want = VH.math.angleDelta(this.turretYaw, wrapAngle(Math.atan2(dx, dz) - this.yaw));
+      this.turretYaw = wrapAngle(this.turretYaw + clamp(want, -0.8 * dt, 0.8 * dt));
+      this.gunPitch = moveTowards(this.gunPitch, clamp(Math.atan2(t.pos.y + 1 - pv.y, dist), -0.12, 0.36), 0.5 * dt);
+      if (this.reload > 0 || Math.abs(want) > 0.06 || dist > 170 || dist < 12 || p.isDead) return;
+      if (g.police && !g.police.canSee(pv.x, pv.y, pv.z)) return;
+      const b = this._barrel(this._b || (this._b = { d: new THREE.Vector3(), m: new THREE.Vector3() }));
+      b.d.x += (Math.random() - 0.5) * 0.04;
+      b.d.y += (Math.random() - 0.5) * 0.02;
+      b.d.z += (Math.random() - 0.5) * 0.04;
+      b.d.normalize();
+      this.reload = RELOAD * 2.2;
+      this._recoilT = 1;
+      g.combat.thrown.push(new VH.Rocket(g, this, b.m, b.d, 150, 8, 200));
+      g.fx.muzzle(b.m.x, b.m.y, b.m.z, true);
+      if (g.audio.explosion) g.audio.explosion(0.4, 0);
     }
 
     /** Cars under the tracks get flattened. */

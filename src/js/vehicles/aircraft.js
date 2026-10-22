@@ -1452,6 +1452,16 @@
       const y0 = p.y;
       const z0 = p.z;
       p.addScaledVector(d, step);
+      // Fired by an AI crew (an army tank): a proximity fuse, since the shot
+      // trace doesn't test Jay himself.
+      if (this.owner && this.owner.driver !== 'player') {
+        const pl = g.player;
+        const t = pl.inVehicle ? pl.vehicle.pos : pl.pos;
+        if (Math.hypot(t.x - p.x, t.y + 1 - p.y, t.z - p.z) < 3.2) {
+          this._explode(p.x, p.y, p.z);
+          return;
+        }
+      }
       if (p.x > SEAWALL && p.y < WATER) {
         this._explode(p.x, WATER, p.z);
         return;

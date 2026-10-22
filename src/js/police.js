@@ -89,7 +89,7 @@
         v.input.accel = v.vF > 0.5 ? -1 : 0;
         v.input.steer = 0;
         v.input.handbrake = v.speed < 1 ? 1 : 0;
-        if (!this.deployed && v.speed < 2) {
+        if (!this.deployed && v.speed < 2 && v.kind !== 'tank') {
           this.deployed = true;
           pol.deployOfficers(v, v.swat ? 3 : v.army ? 2 : pol.level >= 3 ? 2 : 1);
         }
@@ -563,12 +563,18 @@
       if (!best) return;
       // 4 stars: SWAT vans join the patrol cars. 5 stars: more of them, and the army's scouts.
       let type = 'interceptor';
-      if (this.level >= 4 && Math.random() < (this.level >= 5 ? 0.4 : 0.3) && VH.Vehicle.typeSpec('bulwark')) type = 'bulwark';
+      const tanks = this.units.filter((u) => !u.removed && !u.wrecked && u.kind === 'tank').length;
+      if (this.level >= 5 && !tanks && Math.random() < 0.3 && VH.Vehicle.typeSpec('bastion')) type = 'bastion';
+      else if (this.level >= 4 && Math.random() < (this.level >= 5 ? 0.4 : 0.3) && VH.Vehicle.typeSpec('bulwark')) type = 'bulwark';
       else if (this.level >= 5 && Math.random() < 0.3 && VH.Vehicle.typeSpec('scout')) type = 'scout';
       else if (Math.random() < 0.2 && VH.Vehicle.typeSpec('unmarked')) type = 'unmarked';
       const v = game.vehicles.spawn(type, best.x, best.z, best.heading, { role: 'police' });
       v.swat = type === 'bulwark';
-      v.army = type === 'scout';
+      v.army = type === 'scout' || type === 'bastion';
+      if (type === 'bastion') {
+        v.aiGunner = true; // tank.js: the turret tracks Jay and fires
+        v.military = true;
+      }
       if (v.swat && !this._saidSwat) {
         this._saidSwat = true;
         this._dispatch('swat');
@@ -840,7 +846,7 @@
           line = pick([`SWAT is rolling. All units, hold your positions until they arrive.`, `Tactical units deployed. Suspect is considered extremely dangerous.`]);
           break;
         case 'army':
-          line = pick([`Military has been authorised. Army units are joining the pursuit.`, `Be advised, the army is on the road. Stay clear of the suspect.`]);
+          line = pick([`Military has been authorised. Army units are joining the pursuit.`, `Be advised, the army is on the road. Stay clear of the suspect.`, `Armour is rolling. Civilians, clear the streets.`]);
           break;
         case 'arrest':
           line = `Suspect in custody. Good work, everyone.`;
