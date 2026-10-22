@@ -927,12 +927,16 @@
       }
     });
     part('head', 'stubble', (g) => {
-      const sp = [[-0.03, 0, 0.78], [-0.014, 2.8, 0.78], [0.004, 2.5, 0.8], [0.02, 2.25, 0.84], [0.034, 2.0, 0.9], [0.048, 1.75, 0.96], [0.06, 1.5, 1.0]];
-      const rings = sp.map(([y, a, k], i) => {
-        const h = headAt(y);
-        return i === 0 ? { y, rx: 0, rz: 0, cz: h.cz, a0: -2.8, a1: 2.8, slot: S.skin, shade: k } : { y, rx: h.rx + 0.0016, rz: h.rz + 0.0016, cz: h.cz, a0: -a, a1: a, slot: S.skin, shade: k };
-      });
-      tube(g, rings, { seg: SEG.hair + 2 });
+      // The same footprint as a beard, hugging the skin: a darker, grainy shadow along the jaw.
+      const G = 0.0022;
+      const ring = (y, a0, a1, ex) => { const h = headAt(y); return Object.assign({ y, rx: h.rx + G, rz: h.rz + G, cz: h.cz, a0, a1, slot: S.skin, shade: 0.8, sh: (th) => 0.95 + 0.05 * Math.sin(th * 23) }, ex); };
+      const chin = [ring(-0.03, -2.8, 2.8, { rx: 0, rz: 0 }), ring(-0.018, -2.7, 2.7), ring(-0.004, -2.45, 2.45), ring(0.01, -2.2, 2.2), ring(0.022, -1.9, 1.9)];
+      tube(g, chin, { seg: SEG.hair });
+      for (const s of [1, -1]) {
+        const rings = [ring(0.012, 1.05, 2.1), ring(0.028, 0.95, 2.0), ring(0.044, 0.95, 1.85), ring(0.06, 1.1, 1.7), ring(0.074, 1.3, 1.6, { shade: 0.9 })];
+        if (s < 0) for (const r of rings) { const a = r.a0; r.a0 = -r.a1; r.a1 = -a; }
+        tube(g, rings, { seg: 5 });
+      }
     });
     part('head', 'mustache', (g) => {
       ell(g, 0.026, 0.0075, 0.0095, { seg: 6, stacks: 3, slot: S.hair, m: M(0, 0.033, faceZ(0.033) + 0.0035, 0.12) });
@@ -1052,7 +1056,16 @@
       box(g, 0.034, 0.02, 0.003, { slot: S.metal, m: M(0.0, -0.247, 0.0295) });
     });
 
-    // ---- finish: pack into joint buffers --------------------------------------
+    // ---- finish -----------------------------------------------------------------
+    // A scuffed right toe, and a faint mottling of every surface so flat colour reads as material.
+    for (const p of parts) {
+      const g = p.g;
+      if (p.joint === 'ankleR' && /^sh(Sneaker|Dress)$/.test(p.feat ? FEATS[p.feat - 1][0] : '')) occlude(g, 0, [{ x: 0.01, y: -0.02, z: 0.215, r: 0.045, k: 0.28 }]);
+      for (let i = 0; i < g.shade.length; i++) {
+        const h = Math.sin(g.pos[i * 3] * 91.7 + g.pos[i * 3 + 1] * 57.3 + g.pos[i * 3 + 2] * 131.1 + p.feat * 7.1) * 43758.5453;
+        g.shade[i] *= 0.965 + 0.07 * (h - Math.floor(h));
+      }
+    }
     return (_bp[detail] = { parts, hi });
   }
   // The 'watch' and 'tattoo' parts are only used when a look asks for them.
@@ -1589,6 +1602,42 @@ ${vis}        return true;
             T.headYaw += 0.2 * side * dance;
             break;
         }
+      }
+      // Driving: seated, hands on the wheel (s.sit 0..1).
+      const sit = s.sit || 0;
+      if (sit > 0) {
+        const L = VH.math.lerp;
+        T.hipL = L(T.hipL, 1.5, sit);
+        T.hipR = L(T.hipR, 1.5, sit);
+        T.kneeL = L(T.kneeL, 1.55, sit);
+        T.kneeR = L(T.kneeR, 1.4, sit);
+        T.ankleL = L(T.ankleL, -0.05, sit);
+        T.ankleR = L(T.ankleR, -0.2, sit);
+        T.pelvisY = L(T.pelvisY, 0.56, sit);
+        T.shoulderL = L(T.shoulderL, 0.85, sit);
+        T.shoulderR = L(T.shoulderR, 0.85, sit);
+        T.elbowL = L(T.elbowL, 1.0, sit);
+        T.elbowR = L(T.elbowR, 1.0, sit);
+        T.splay = L(T.splay, 0.12, sit);
+        T.lean = L(T.lean, -0.05, sit);
+        T.roll = L(T.roll, 0, sit);
+        T.sway = L(T.sway, 0, sit);
+      }
+      // Swimming: face down, alternate arm strokes, flutter kick (s.swim 0..1).
+      const swim = s.swim || 0;
+      if (swim > 0) {
+        const L = VH.math.lerp;
+        const ph2 = this.time * 5.5;
+        T.lean = L(T.lean, 1.25, swim);
+        T.shoulderL = L(T.shoulderL, 1.6 + 1.1 * Math.sin(ph2), swim);
+        T.shoulderR = L(T.shoulderR, 1.6 + 1.1 * Math.sin(ph2 + Math.PI), swim);
+        T.elbowL = L(T.elbowL, 0.5 + 0.5 * Math.max(0, Math.cos(ph2)), swim);
+        T.elbowR = L(T.elbowR, 0.5 + 0.5 * Math.max(0, -Math.cos(ph2)), swim);
+        T.hipL = L(T.hipL, 0.1 * Math.sin(ph2 * 1.7), swim);
+        T.hipR = L(T.hipR, -0.1 * Math.sin(ph2 * 1.7), swim);
+        T.kneeL = L(T.kneeL, 0.2 + 0.2 * Math.max(0, Math.sin(ph2 * 1.7)), swim);
+        T.kneeR = L(T.kneeR, 0.2 + 0.2 * Math.max(0, -Math.sin(ph2 * 1.7)), swim);
+        T.headPitch = L(T.headPitch || 0, -0.9, swim);
       }
       // Limp.
       if (s.dead) {
