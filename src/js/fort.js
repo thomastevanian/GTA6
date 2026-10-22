@@ -384,7 +384,7 @@
       const add = (type, x, z, yaw, color) => {
         if (!VH.Vehicle.typeSpec(type)) return;
         this.spots.push(V.addFixedSpot({
-          type, x, z, yaw, color, r: type === 'bison' ? 13 : type === 'talon' ? 12 : type === 'warden' ? 11 : type === 'kestrel' ? 8 : 6,
+          type, x, z, yaw, color, r: type === 'phantom' ? 17 : type === 'bison' ? 13 : type === 'talon' ? 12 : type === 'warden' ? 11 : type === 'kestrel' ? 8 : 6,
           onSpawn: (v) => {
             v.military = true;
           },
@@ -402,6 +402,7 @@
       add('kestrel', STRIP.x - 12, STRIP.z1 - 75, Math.PI);
       add('kestrel', STRIP.x + 12, STRIP.z1 - 75, Math.PI);
       add('bison', STRIP.x, STRIP.z1 - 120, Math.PI);
+      add('phantom', STRIP.x, STRIP.z0 + 70, 0);
       add('warden', HELIPADS[0].x, HELIPADS[0].z, -Math.PI / 2);
       this._posts = Fort._posts();
       this._buildHud();
@@ -716,6 +717,9 @@
     g.fillStyle = '#5d6b3c';
     for (const [x, z] of f.towers) R(x - 2.2, z - 2.2, x + 2.2, z + 2.2);
   });
+
+  // Shared with area51.js (the same builder kit and the same guard brain).
+  Fort.kit = { pave, asphalt, mark, solid, block, sandbags, crates, floodMast, helipad, ARMY_LOOK, soldierBrain };
 
   VH.Fort = Fort;
 })();

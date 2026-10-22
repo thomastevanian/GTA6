@@ -7,14 +7,15 @@
  *
  *   Plane  skylark (a light high-wing four-seater), albatross (a twin-jet
  *          airliner), talon (a fighter jet with a cannon and missiles),
- *          kestrel (a WWII-style warbird with guns and rockets), bison (a
+ *          kestrel (a WWII-style warbird with guns and rockets), phantom (a
+ *          flying-wing stealth bomber), bison (a
  *          rugged single-engine cargo transport).
  *          Arcade flight: the nose follows the mouse (the view is where the
  *          plane goes), or fly it on the keys. W/S throttle, A/D roll (steer
  *          on the ground), Space/Ctrl pull up/push down, Shift afterburner.
  *          Lift-off past stall speed; land gently on the wheels or crash.
  *   Heli   sparrow (a civil helicopter), warden (an army gunship with a
- *          minigun and rockets). Flies like a drone: it turns to face the
+ *          minigun and rockets), ufo (the Visitor: a hovering saucer from Area 51). Flies like a drone: it turns to face the
  *          view; W/S forward/back, A/D turn, Space up, Ctrl down, Shift fast.
  *
  * Jumping out in the air opens a parachute (vehicles._jumpOut). Models are
@@ -106,6 +107,30 @@
         camDist: 36, camLift: 4.5, camUp: 3, cockpit: { z: 6.8, y: 3.1 }, doorZ: 3.2,
         voice: 'prop', voiceRef: 34,
         probes: [[0, 2.0, 9.4], [11, 4.0, 0.8], [-11, 4.0, 0.8], [0, 6.2, -9.0], [0, 2.0, -9.6], [2.2, 0.8, 1.0], [-2.2, 0.8, 1.0]],
+      },
+    },
+    ufo: {
+      kind: 'heli', name: 'Visitor', make: 'Unknown', cls: 'heli', length: 12, width: 12, height: 4, mass: 5000, seats: 2,
+      palette: [0xb6bdc6, 0x8d96a1, 0xc9ccd0],
+      military: true,
+      air: {
+        span: 12, rotorY: 2.2, rotorZ: 0, vmax: 95, boost: 2.2, climb: 26, climbAcc: 22, acc: 24, resp: 3, yawFollow: 4, spool: 2.5, crashVs: 12,
+        camDist: 24, camLift: 2.5, camUp: 2, cockpit: { z: 0, y: 2.6 }, doorZ: 5,
+        voiceRef: 44,
+        probes: [[6, 1.5, 0], [-6, 1.5, 0], [0, 1.5, 6], [0, 1.5, -6], [0, 0.6, 0], [0, 3.4, 0]],
+      },
+    },
+    phantom: {
+      kind: 'plane', name: 'Phantom B-3', make: 'Breakwater Arsenal', cls: 'plane', length: 17, width: 5, height: 4, mass: 30000, seats: 2,
+      palette: [0x2b2f36, 0x3d4650, 0x1d2025],
+      military: true,
+      air: {
+        span: 28, stall: 52, top: 175, thrust: 8.5, pitchRate: 0.85, rollRate: 1.5, yawRate: 0.35, turnK: 2.0, align: 2.6,
+        taxiTurn: 0.5, rollRes: 0.28, brakeDecel: 4.5, crashVs: 6, crashSpeed: 22, rotateMax: 0.17,
+        camDist: 36, camLift: 3.5, camUp: 2.5, cockpit: { z: 4, y: 2.1 }, doorZ: 3.5,
+        voice: 'jet', voiceRef: 42,
+        weapons: { gunRate: 6, gunDamage: 20, gunRange: 200, gunSound: 'rifle', guns: [[0, 1.2, 8]], rocketCool: 0.7, rocketSpeed: 120, rocketBlast: 14, rocketDamage: 500, rockets: [[2, 0.8, 0], [-2, 0.8, 0], [5, 0.9, -1], [-5, 0.9, -1]] },
+        probes: [[0, 1.2, 9], [14, 1.2, -5.5], [-14, 1.2, -5.5], [0, 1.2, -7.5], [0, 2.2, 0]],
       },
     },
     sparrow: {
@@ -463,6 +488,56 @@
         strobe: [0, 6.5, -9.2],
         prop: { kit: prop, at: [0, 2.15, 9.72], disc: 2.0 },
       };
+    },
+    ufo(c) {
+      const k = new Kit();
+      const gl = new Kit();
+      const dark = 0x4a525c;
+      const cyl = (rt, rb, h, seg, y, col) => k.add(new THREE.CylinderGeometry(rt, rb, h, seg), col, mat(0, y, 0));
+      // Lower hull, rim and upper hull, stacked into a saucer.
+      cyl(3.2, 5.2, 1.0, 28, 1.0, c);
+      cyl(6.0, 6.0, 0.32, 28, 1.62, 0x8d96a1);
+      cyl(5.9, 2.6, 0.95, 28, 2.25, c);
+      cyl(2.6, 2.0, 0.5, 24, 2.95, dark);
+      cyl(2.2, 3.4, 0.35, 24, 0.55, dark); // the belly drive ring
+      cyl(1.2, 1.9, 0.22, 20, 0.28, 0x7dffb2);
+      gl.sphere(1, 1.7, 1.15, 1.7, 0, 3.15, 0);
+      // Landing feet.
+      for (const a of [0, 2.094, 4.189]) {
+        const x = Math.cos(a) * 3.4;
+        const z = Math.sin(a) * 3.4;
+        k.strut([x, 0.8, z], [x * 1.3, 0.1, z * 1.3], 0.12, dark);
+        k.box(0.9, 0.1, 0.9, x * 1.3, 0.05, z * 1.3, dark);
+      }
+      const lights = [];
+      for (let i = 0; i < 12; i++) {
+        const a = (i / 12) * Math.PI * 2;
+        lights.push([i % 2 ? 'green' : 'white', Math.cos(a) * 6.05, 1.62, Math.sin(a) * 6.05, 0.16]);
+      }
+      return { kit: k, glass: gl, lights, strobe: [0, 3.9, 0] };
+    },
+    phantom(c) {
+      const k = new Kit();
+      const gl = new Kit();
+      const edge = 0x1a1c20;
+      // A flying wing: one big lozenge with a blended fuselage hump, intakes and exhaust slots.
+      k.slab([[0, 9], [14, -5.5], [0, -7.6], [-14, -5.5]], 1.0, 1.32, c);
+      k.slab([[0, 8.6], [13.2, -5.3], [0, -7.2], [-13.2, -5.3]], 0.9, 1.0, edge);
+      k.lathe([[0.05, -5.2], [0.6, -3.2], [1.0, -0.5], [0.85, 3.0], [0.4, 6.4], [0.05, 8.2]], 16, 0, 1.28, 0, c, 1.9, 0.6);
+      gl.sphere(1, 0.5, 0.3, 1.2, 0, 1.78, 4.2, 0x000000);
+      for (const s of [1, -1]) {
+        k.box(1.3, 0.14, 1.8, s * 1.7, 1.52, -0.6, edge);
+        k.box(1.6, 0.1, 0.4, s * 1.3, 1.34, -6.9, edge);
+        k.box(0.3, 0.06, 1.4, s * 8, 1.32, -3.2, 0x3a3f45);
+      }
+      const gear = new Kit();
+      gear.strut([0, 1.0, 5.2], [0, 0.3, 5.2], 0.06, GREY);
+      gear.cyl(0.32, 0.32, 0.16, 12, 0, 0.32, 5.2, RUBBER, 0, Math.PI / 2);
+      for (const s of [1, -1]) {
+        gear.strut([s * 2.6, 1.0, -1.8], [s * 2.6, 0.45, -1.8], 0.09, GREY);
+        gear.cyl(0.45, 0.45, 0.26, 12, s * 2.6, 0.45, -1.8, RUBBER, 0, Math.PI / 2);
+      }
+      return { kit: k, glass: gl, gear, lights: [['red', 13.6, 1.2, -5.4, 0.1], ['green', -13.6, 1.2, -5.4, 0.1]], strobe: [0, 2.2, -4.0] };
     },
     sparrow(c) {
       const k = new Kit();

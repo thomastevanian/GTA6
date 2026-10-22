@@ -154,7 +154,25 @@
       const dmg = el('div', 'speedo-bar speedo-damage');
       this.damageFill = el('div', 'fill');
       dmg.append(el('span', 'bar-label', 'BODY'), this.damageFill);
+      // The gauge: a 270 degree dial with tick marks, a sweeping arc and a needle.
+      // (hud.css sizes it; --speed 0..1 is the only thing the frame loop sets.)
       this.speedArc = el('div', 'speedo-arc');
+      const at = (deg, r) => [(100 + r * Math.cos((deg * Math.PI) / 180)).toFixed(2), (100 + r * Math.sin((deg * Math.PI) / 180)).toFixed(2)];
+      let ticks = '';
+      for (let i = 0; i <= 27; i++) {
+        const deg = 135 + (i * 270) / 27;
+        const major = i % 3 === 0;
+        const a = at(deg, major ? 77 : 80);
+        const b = at(deg, 86);
+        ticks += '<line class="' + (major ? 'tk major' : 'tk') + '" x1="' + a[0] + '" y1="' + a[1] + '" x2="' + b[0] + '" y2="' + b[1] + '"/>';
+      }
+      this.speedArc.innerHTML = '<svg viewBox="0 0 200 200" aria-hidden="true">'
+        + '<defs><linearGradient id="spd-grad" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#35e0d0"/><stop offset="0.55" stop-color="#ffb347"/><stop offset="1" stop-color="#ff4f8b"/></linearGradient></defs>'
+        + '<path class="track" pathLength="100" d="M 39.2 160.8 A 86 86 0 1 1 160.8 160.8"/>'
+        + '<path class="prog" pathLength="100" d="M 39.2 160.8 A 86 86 0 1 1 160.8 160.8"/>'
+        + '<g class="ticks">' + ticks + '</g>'
+        + '<g class="needle"><polygon points="100,22 96.5,98 103.5,98"/><circle cx="100" cy="100" r="5.5"/></g>'
+        + '</svg>';
       this.speedo.append(this.speedArc, this.speedValue, this.speedUnit, this.speedGear, nitro, dmg);
       this.vehicleName = el('div', 'hud-vehicle-name');
       this.vehicleMake = el('div', 'vn-make');
