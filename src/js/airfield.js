@@ -460,6 +460,7 @@
       add('sparrow', HELIPAD.x, HELIPAD.z, Math.PI);
       this._buildAnimated();
       this.traffic = new AirTraffic(game);
+      this.race = VH.AirRace ? new VH.AirRace(game) : null; // aircraft-races.js
     }
 
     _buildAnimated() {
@@ -497,6 +498,7 @@
         this.sock.rotation.set(0, Math.PI * 0.9 + gust, -0.18 + gust * 0.6);
       }
       this.traffic.update(dt);
+      if (this.race) this.race.update(dt);
     }
 
     blips(out, missionRunning) {
@@ -507,14 +509,17 @@
         if (Math.hypot(v.pos.x - s.x, v.pos.z - s.z) > 30) continue;
         out.push({ x: v.pos.x, z: v.pos.z, type: v.kind === 'heli' ? 'heli' : 'plane', heading: v.yaw, noRim: true, label: v.name });
       }
+      if (this.race && !missionRunning) this.race.blips(out);
     }
 
     reset() {
       if (this.traffic) this.traffic.reset();
+      if (this.race) this.race.reset();
     }
 
     stop() {
       if (this.traffic) this.traffic.stopSound();
+      if (this.race) this.race.stop();
     }
   }
 
