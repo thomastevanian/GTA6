@@ -259,7 +259,7 @@
       case 12: return mulc(P.top, 0.8, 0.8, 0.8);
       case 14: return mulc(P.shoes, 0.5, 0.5, 0.5).addScalar(0.03);
       case 15: return k(0.78, 0.76, 0.72);
-      case 16: return k(0.05, 0.03, 0.02);
+      case 16: return k(0.045, 0.026, 0.016);
       case 17: return mulc(P.skin, 0.85, 0.62, 0.6);
       case 18: return mulc(P.skin, 0.35, 0.4, 0.55);
       case 19: return k(0.01, 0.014, 0.02);
@@ -767,8 +767,6 @@
           const side = [];
           for (const y of [0.36, 0.26, 0.16, 0.06]) { const t = torsoAt(y); side.push([s * (t.rx + 0.002), y, t.cz]); }
           seamLine(side);
-          const t5 = torsoAt(0.47);
-          seamLine([[s * 0.07, 0.515, 0.0], [s * 0.13, 0.5, 0.0], [s * (t5.rx + 0.004), 0.47, 0.0]]);
         }
       }
     });
@@ -850,7 +848,9 @@
       for (const s of [1, -1]) {
         const ey = 0.094, ex = s * 0.032;
         ell(g, 0.0125, 0.0092, 0.008, { seg: SEG.fine, stacks: 4, slot: S.eyeW, m: M(ex, ey, fz(ey) - 0.0045, 0, s * 0.18) });
-        annulus(g, 0, 0.0072, 1, 1, { seg: 8, slot: S.iris, m: M(ex + s * 0.0005, ey, fz(ey) + 0.0043, 0, s * 0.18) });
+        annulus(g, 0, 0.0064, 1, 1, { seg: 8, slot: S.iris, m: M(ex + s * 0.0005, ey - 0.0008, fz(ey) + 0.0043, 0, s * 0.18) });
+        // Upper lid: a calm, half-closed look instead of a stare.
+        ell(g, 0.0132, 0.0038, 0.0092, { seg: SEG.fine, stacks: 3, slot: S.skin, shade: 0.95, m: M(ex, ey + 0.0086, fz(ey) - 0.0033, -0.1, s * 0.18) });
         ell(g, 0.0205, 0.0048, 0.0075, { seg: 5, stacks: 3, slot: S.brow, m: M(ex + s * 0.002, 0.113, fz(0.113) - 0.0015, 0, s * 0.2, s * 0.05) });
         ell(g, 0.0075, 0.021, 0.014, { seg: 5, stacks: 4, slot: S.skin, shade: 0.94, m: M(s * (headAt(0.07).rx - 0.001), 0.07, headAt(0.07).cz - 0.004, 0, 0, 0) });
       }
@@ -1166,7 +1166,7 @@ ${vis}        return true;
         if (s == 12) return iTop * 0.8;
         if (s == 14) return iShoes * 0.5 + vec3(0.03);
         if (s == 15) return vec3(0.78, 0.76, 0.72);
-        if (s == 16) return vec3(0.05, 0.03, 0.02);
+        if (s == 16) return vec3(0.045, 0.026, 0.016);
         if (s == 17) return iSkin * vec3(0.85, 0.62, 0.6);
         if (s == 18) return iSkin * vec3(0.35, 0.4, 0.55);
         if (s == 19) return vec3(0.01, 0.014, 0.02);
