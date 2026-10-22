@@ -1538,18 +1538,19 @@ body.reduced-flashing .chal-timer.critical {
 
 /* --------------------------------------------------------------- driving */
 .hud-speedo {
+  --speed: 0;
   position: absolute;
-  right: 2rem;
-  bottom: 1.8rem;
-  width: 13.5rem;
-  padding: 0.9rem 1.1rem 0.8rem;
-  border-radius: 16px;
-  background: linear-gradient(160deg, rgba(10, 14, 30, 0.82), rgba(6, 8, 18, 0.66));
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.45);
+  right: 1.6rem;
+  bottom: 1.4rem;
+  width: 14rem;
+  padding: 0.5rem 0.6rem 0.7rem;
+  border-radius: 22px;
+  background: radial-gradient(circle at 50% 38%, rgba(20, 26, 48, 0.88), rgba(6, 8, 18, 0.78) 72%);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 14px 38px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.08);
   font-family: var(--vh-font-display);
   opacity: 0;
-  transform: translateY(12px);
+  transform: translateY(12px) scale(0.97);
   transition: opacity 0.35s ease, transform 0.35s ease;
   overflow: hidden;
 }
@@ -1559,67 +1560,115 @@ body.reduced-flashing .chal-timer.critical {
   transform: none;
 }
 
+/* The dial: square, centred, the number sits inside it. */
 .speedo-arc {
-  --speed: 0;
-  position: absolute;
-  left: 0;
-  top: 0;
-  height: 3px;
-  width: calc(var(--speed) * 100%);
-  background: var(--vh-sunset);
-  box-shadow: 0 0 12px rgba(255, 79, 139, 0.8);
-  transition: width 0.12s linear;
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1;
+}
+
+.speedo-arc svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.speedo-arc .track {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.1);
+  stroke-width: 9;
+  stroke-linecap: round;
+}
+
+.speedo-arc .prog {
+  fill: none;
+  stroke: url(#spd-grad);
+  stroke-width: 9;
+  stroke-linecap: round;
+  stroke-dasharray: 100;
+  stroke-dashoffset: calc(100 - 100 * var(--speed));
+  filter: drop-shadow(0 0 5px rgba(255, 130, 90, 0.7));
+  transition: stroke-dashoffset 0.12s linear;
+}
+
+.speedo-arc .tk {
+  stroke: rgba(255, 255, 255, 0.35);
+  stroke-width: 1.2;
+}
+
+.speedo-arc .tk.major {
+  stroke: rgba(255, 255, 255, 0.75);
+  stroke-width: 2;
+}
+
+.speedo-arc .needle {
+  transform-origin: 100px 100px;
+  transform: rotate(calc(-135deg + 270deg * var(--speed)));
+  transition: transform 0.12s linear;
+  fill: #ff4f8b;
+  filter: drop-shadow(0 0 4px rgba(255, 79, 139, 0.9));
+}
+
+.speedo-arc .needle circle {
+  fill: #f1f4ff;
 }
 
 .speedo-value {
-  font-size: 3.2rem;
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 5.3rem;
+  text-align: center;
+  font-size: 3.1rem;
   font-weight: 700;
   line-height: 1;
   letter-spacing: -0.02em;
   font-variant-numeric: tabular-nums;
-  text-shadow: 0 0 18px rgba(255, 122, 89, 0.35);
+  text-shadow: 0 0 20px rgba(255, 122, 89, 0.45);
 }
 
 .speedo-unit {
   position: absolute;
-  left: 1.15rem;
-  top: 4.15rem;
-  font-size: 0.72rem;
-  letter-spacing: 0.22em;
+  left: 0;
+  right: 0;
+  top: 8.35rem;
+  text-align: center;
+  font-size: 0.7rem;
+  letter-spacing: 0.3em;
   color: var(--vh-muted);
   text-transform: uppercase;
 }
 
 .speedo-gear {
   position: absolute;
-  right: 1.1rem;
-  top: 0.95rem;
-  width: 2.1rem;
-  height: 2.1rem;
+  left: 50%;
+  top: 9.6rem;
+  transform: translateX(-50%);
+  width: 2.3rem;
+  height: 2rem;
   display: grid;
   place-items: center;
-  border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  font-size: 1.25rem;
+  border-radius: 9px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  background: rgba(255, 255, 255, 0.06);
+  font-size: 1.2rem;
   font-weight: 700;
   color: var(--vh-accent-2);
 }
 
+/* Nitro and body: two thin segmented bars under the dial. */
 .speedo-bar {
   position: relative;
-  margin-top: 0.55rem;
-  height: 0.5rem;
+  margin: 1.25rem 0.6rem 0;
+  height: 0.45rem;
   border-radius: 99px;
   background: rgba(255, 255, 255, 0.08);
   overflow: visible;
 }
 
-.speedo-bar {
-  margin-top: 1.25rem;
-}
-
-.speedo-nitro {
-  margin-top: 1.8rem;
+.speedo-bar + .speedo-bar {
+  margin-top: 1.35rem;
 }
 
 .speedo-bar .fill {
@@ -1627,14 +1676,16 @@ body.reduced-flashing .chal-timer.critical {
   width: 50%;
   border-radius: 99px;
   transition: width 0.15s linear;
+  -webkit-mask: repeating-linear-gradient(90deg, #000 0 8px, transparent 8px 10px);
+  mask: repeating-linear-gradient(90deg, #000 0 8px, transparent 8px 10px);
 }
 
 .speedo-bar .bar-label {
   position: absolute;
-  right: 0;
-  top: -1.05rem;
-  font-size: 0.62rem;
-  letter-spacing: 0.22em;
+  left: 0;
+  top: -1rem;
+  font-size: 0.6rem;
+  letter-spacing: 0.24em;
   color: var(--vh-muted);
 }
 
@@ -1645,6 +1696,10 @@ body.reduced-flashing .chal-timer.critical {
 
 .hud-speedo.boosting .speedo-nitro .fill {
   animation: nitro-pulse 0.25s ease-in-out infinite alternate;
+}
+
+.hud-speedo.boosting {
+  box-shadow: 0 14px 38px rgba(0, 0, 0, 0.5), 0 0 28px rgba(74, 163, 255, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 
 @keyframes nitro-pulse {
@@ -1667,7 +1722,7 @@ body.reduced-flashing .chal-timer.critical {
 .hud-vehicle-name {
   position: absolute;
   right: 2.2rem;
-  bottom: 11.2rem; /* just above the speedometer, below the district name and radio */
+  bottom: 22.5rem; /* just above the speedometer dial, below the district name and radio */
   text-align: right;
   font-family: var(--vh-font-display);
   opacity: 0;
@@ -12434,6 +12489,7 @@ void main() {
     uniform float uTime;
     uniform float uNight;
     uniform float uEnvPass;
+    uniform vec3 uMoonDir;
     varying vec3 vDir;
 
     float hash12(vec2 p) {
@@ -12488,6 +12544,48 @@ void main() {
         float star = step(0.9965, r) * (1.0 - smoothstep(0.08, 0.32, length(fract(sp) - 0.5)));
         float twinkle = 0.65 + 0.35 * sin(uTime * (2.0 + r * 5.0) + r * 60.0);
         col += vec3(0.9, 0.95, 1.0) * star * twinkle * uNight * 2.2 * (1.0 - uCloud);
+        // A second, fainter layer of stars, in a range of colours.
+        vec3 sp2 = dir * 520.0;
+        vec3 cell2 = floor(sp2);
+        float r2 = hash13(cell2 + 17.0);
+        float star2 = step(0.993, r2) * (1.0 - smoothstep(0.05, 0.3, length(fract(sp2) - 0.5)));
+        vec3 tint = mix(vec3(1.0, 0.8, 0.6), vec3(0.7, 0.85, 1.0), hash13(cell2 + 3.0));
+        col += tint * star2 * uNight * 0.9 * (1.0 - uCloud);
+        // The Milky Way: a soft band along a great circle, broken up by dark dust lanes.
+        vec3 gal = normalize(vec3(0.35, 0.8, -0.45));
+        float gd = dot(dir, gal);
+        float band = exp(-gd * gd * 22.0);
+        vec2 gp = vec2(atan(dir.z, dir.x) * 3.0, dir.y * 6.0);
+        float dust = fbm(gp * 1.7 + 4.0);
+        float cloudy = fbm(gp * 4.5);
+        float milky = band * smoothstep(0.25, 0.8, dust) * (0.55 + 0.9 * cloudy);
+        col += vec3(0.55, 0.6, 0.85) * milky * 0.28 * uNight * (1.0 - uCloud * 0.9);
+      }
+
+      // The moon: a lit disc with maria and a phase, an earthshine-lit dark side and a halo.
+      float md = dot(dir, uMoonDir);
+      if (uMoonDir.y > -0.05) {
+        float halo = pow(max(md, 0.0), 400.0) * 0.22 + pow(max(md, 0.0), 60.0) * 0.025;
+        col += vec3(0.62, 0.7, 0.95) * halo * (0.3 + 0.7 * uNight) * (1.0 - uCloud * 0.6) * smoothstep(-0.05, 0.1, uMoonDir.y);
+        float moonR = 0.028;
+        float ang = md > 0.99 ? acos(clamp(md, -1.0, 1.0)) : 1.0;
+        if (ang < moonR && uEnvPass < 0.5) {
+          vec3 up0 = abs(uMoonDir.y) < 0.95 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
+          vec3 mt = normalize(cross(up0, uMoonDir));
+          vec3 mb = cross(uMoonDir, mt);
+          vec2 uv = vec2(dot(dir, mt), dot(dir, mb)) / sin(moonR);
+          float rr = dot(uv, uv);
+          vec3 n = vec3(uv, sqrt(max(1.0 - rr, 0.0)));
+          vec3 phaseDir = normalize(vec3(0.75, 0.25, 0.6));
+          float lit = smoothstep(-0.08, 0.12, dot(n, phaseDir));
+          float maria = fbm(uv * 2.6 + 7.0);
+          float craters = vnoise(uv * 9.0) * 0.5 + vnoise(uv * 19.0) * 0.25;
+          vec3 albedo = mix(vec3(0.82, 0.82, 0.86), vec3(0.42, 0.44, 0.5), smoothstep(0.45, 0.62, maria)) * (0.85 + 0.3 * craters);
+          vec3 moonCol = albedo * (lit * 2.4 + 0.045);
+          float edge = 1.0 - smoothstep(0.92, 1.0, sqrt(rr));
+          float vis = (1.0 - uCloud * 0.75) * smoothstep(-0.05, 0.08, uMoonDir.y) * (0.25 + 0.75 * uNight);
+          col = mix(col, moonCol, edge * vis);
+        }
       }
 
       // Clouds on a virtual plane above the city.
@@ -12572,6 +12670,7 @@ void main() {
         uCloud: { value: this.cloudCover },
         uTime: this.shared.uTime,
         uNight: { value: 0 },
+        uMoonDir: { value: new THREE.Vector3(0, -1, 0) },
       };
       const geo = new THREE.SphereGeometry(1, 48, 24);
       this.sky = new THREE.Mesh(geo, makeSkyMaterial(this.skyUniforms, false));
@@ -12663,6 +12762,8 @@ void main() {
       const maxAlt = 66 * VH.math.DEG;
       this.sunDir.set(Math.cos(t), Math.sin(t) * Math.sin(maxAlt), Math.sin(t) * Math.cos(maxAlt) * 0.8 + 0.12).normalize();
       this.shared.uSunDir.value.copy(this.sunDir);
+      // The moon rides opposite the sun, tilted a little so it isn't always dead overhead at midnight.
+      this.skyUniforms.uMoonDir.value.set(-this.sunDir.x * 0.85 + 0.12, -this.sunDir.y * 0.95 + 0.04, -this.sunDir.z * 0.85 - 0.2).normalize();
       this._applyKeys(this.sunDir.y);
       this._envDirty = true;
     }
@@ -19317,7 +19418,7 @@ void main() {
       const add = (type, x, z, yaw, color) => {
         if (!VH.Vehicle.typeSpec(type)) return;
         this.spots.push(V.addFixedSpot({
-          type, x, z, yaw, color, r: type === 'bison' ? 13 : type === 'talon' ? 12 : type === 'warden' ? 11 : type === 'kestrel' ? 8 : 6,
+          type, x, z, yaw, color, r: type === 'phantom' ? 17 : type === 'bison' ? 13 : type === 'talon' ? 12 : type === 'warden' ? 11 : type === 'kestrel' ? 8 : 6,
           onSpawn: (v) => {
             v.military = true;
           },
@@ -19335,6 +19436,7 @@ void main() {
       add('kestrel', STRIP.x - 12, STRIP.z1 - 75, Math.PI);
       add('kestrel', STRIP.x + 12, STRIP.z1 - 75, Math.PI);
       add('bison', STRIP.x, STRIP.z1 - 120, Math.PI);
+      add('phantom', STRIP.x, STRIP.z0 + 70, 0);
       add('warden', HELIPADS[0].x, HELIPADS[0].z, -Math.PI / 2);
       this._posts = Fort._posts();
       this._buildHud();
@@ -19650,6 +19752,9 @@ void main() {
     for (const [x, z] of f.towers) R(x - 2.2, z - 2.2, x + 2.2, z + 2.2);
   });
 
+  // Shared with area51.js (the same builder kit and the same guard brain).
+  Fort.kit = { pave, asphalt, mark, solid, block, sandbags, crates, floodMast, helipad, ARMY_LOOK, soldierBrain };
+
   VH.Fort = Fort;
 })();
 //# sourceURL=js/fort.js
@@ -19658,23 +19763,25 @@ void main() {
 /*
  * area51.js — Area 51, the secret desert research base (OWNER: Account B).
  *
- * Placeholder wired into the game so the slot exists. It does nothing yet;
- * replace it with the real base. The contract (same as fort.js / airfield.js):
+ * A fenced desert compound west of the airport, reached by a road from the
+ * end of the airport taxiway: a checkpoint, a 620 m runway, three hangars
+ * (the middle one holds a recovered flying saucer), two laboratories, a
+ * control tower, radar dishes, fuel tanks and a bunker with a blast door.
+ * The contract is the same as fort.js / airfield.js:
  *
  *   VH.Area51.build(world, layout)       static, world build time: geometry,
- *                                        colliders, signs, parked aircraft.
- *                                        Return the data the system needs
- *                                        (it is stored as world.area51 and
- *                                        passed to the constructor through
- *                                        game.world.area51).
- *   VH.Area51.registerPlaces(world, p)   static, optional: named places for
- *                                        the GPS / map / location banner.
- *   new VH.Area51(game)                  runtime system, built after the
- *                                        club (see WORLD_SYSTEMS in main.js).
- *        .update(dt)                     every fixed step while playing
- *        .reset() .stop()                new game / leaving the world
- *        .blips(out, onJob)              optional radar / map markers
- *        .stats() .serialize() .load()   optional (+ a saveKey string)
+ *                                        colliders, signs. Returns the data
+ *                                        stored as world.area51.
+ *   VH.Area51.registerPlaces(world, p)   named places for the GPS / map.
+ *   new VH.Area51(game)                  runtime: guards (spawned while Jay
+ *        .update(dt)                     is near), the restricted area with
+ *        .reset() .stop() .blips()       its warning and alarm, the parked
+ *                                        aircraft, the spinning radars.
+ *
+ * Rules: walking (driving, flying low) inside the fence gets a warning and
+ * three seconds to leave; stay, shoot or steal and the alarm goes: the
+ * guards open fire and the police come at four stars. Killing a guard
+ * counts for four. It builds with the fort's kit (Fort.kit).
  *
  * Reserved ground: layout.zones.area51 (citygen.js), x -1600..-1100,
  * z -1750..-480 — no outskirts trees are planted inside it.
@@ -19683,23 +19790,470 @@ void main() {
   'use strict';
 
   const VH = window.VH;
+  const F = () => VH.COLLIDE;
 
+  // ---------------------------------------------------------------- plan
+  const BASE = { x0: -1560, x1: -1110, z0: -1700, z1: -1030, h: 3 };
+  const GATE = { z0: -1377, z1: -1353 };
+  const CENTER = { x: -1335, z: -1365 };
+  const RUNWAY = { x: -1500, w: 34, z0: -1680, z1: -1060 };
+  const HANGARS = [-1640, -1560, -1480].map((z) => ({ x0: -1462, x1: -1400, z0: z, z1: z + 50, h: 13 }));
+  const LABS = [{ x0: -1340, x1: -1270, z0: -1440, z1: -1392, h: 9 }, { x0: -1340, x1: -1270, z0: -1338, z1: -1290, h: 9 }];
+  const CONTROL = { x: -1250, z: -1230 };
+  const DISHES = [[-1240, -1520], [-1190, -1490]];
+  const BUNKER = { x0: -1210, x1: -1160, z0: -1650, z1: -1612, h: 6 };
+  const FUEL = [[-1180, -1090], [-1160, -1090]];
+  const SAUCER = { x: -1431, z: -1535 };
+  const TOWERS = [[-1552, -1692], [-1552, -1038], [-1118, -1692], [-1118, -1038], [-1118, -1397], [-1118, -1333], [-1335, -1692], [-1335, -1038]];
+  const TOWER_Y = 8;
+  const SAND = 0xcdb88a;
+
+  const K = () => VH.Fort.kit;
+
+  /** A chain-link fence with a wire top (split into chunk-sized pieces). */
+  function fence(world, x0, z0, x1, z1) {
+    const alongX = Math.abs(x1 - x0) > Math.abs(z1 - z0);
+    const a0 = alongX ? Math.min(x0, x1) : Math.min(z0, z1);
+    const a1 = alongX ? Math.max(x0, x1) : Math.max(z0, z1);
+    const fixed = alongX ? z0 : x0;
+    const t = 0.1;
+    const mesh = VH.col(0x8f969c);
+    const post = VH.col(0x4d5258);
+    for (let p = a0; p < a1; p += 48) {
+      const q = Math.min(a1, p + 48);
+      const r = alongX ? [p, fixed - t, q, fixed + t] : [fixed - t, p, fixed + t, q];
+      const ctx = world.ctxAt((r[0] + r[2]) / 2, (r[1] + r[3]) / 2);
+      ctx.prop.box(r[0], 0.3, r[1], r[2], BASE.h, r[3], mesh);
+      ctx.prop.box(r[0], BASE.h, r[1], r[2], BASE.h + 0.12, r[3], post);
+      for (let s = p; s <= q; s += 6) {
+        const x = alongX ? s : fixed;
+        const z = alongX ? fixed : s;
+        ctx.prop.box(x - 0.1, 0, z - 0.1, x + 0.1, BASE.h + 0.6, z + 0.1, post);
+        // Outward-leaning barbed arms.
+        ctx.prop.box(x - 0.05, BASE.h + 0.3, z - 0.05, x + 0.05, BASE.h + 0.65, z + 0.05, post);
+      }
+    }
+    if (alongX) world.physics.addBox(a0, 0, fixed - t, a1, BASE.h + 1, fixed + t, 'wall', F().ALL);
+    else world.physics.addBox(fixed - t, 0, a0, fixed + t, BASE.h + 1, a1, 'wall', F().ALL);
+  }
+
+  /** A grey guard tower: four legs, a platform with a parapet, a roof and a searchlight. */
+  function guardTower(world, x, z) {
+    const ctx = world.ctxAt(x, z);
+    const steel = VH.col(0x565c63);
+    const grey = VH.col(0x7b8189);
+    const y = TOWER_Y;
+    for (const [dx, dz] of [[-1.7, -1.7], [1.7, -1.7], [-1.7, 1.7], [1.7, 1.7]]) {
+      ctx.prop.box(x + dx - 0.15, 0, z + dz - 0.15, x + dx + 0.15, y, z + dz + 0.15, steel);
+      world.physics.addBox(x + dx - 0.15, 0, z + dz - 0.15, x + dx + 0.15, y, z + dz + 0.15, 'pole', F().ALL);
+    }
+    ctx.prop.box(x - 2.2, y - 0.25, z - 2.2, x + 2.2, y, z + 2.2, grey, { bottom: true });
+    world.physics.addBox(x - 2.2, y - 0.25, z - 2.2, x + 2.2, y, z + 2.2, 'platform', F().ALL);
+    for (const [a, b, c, d] of [[-2.2, -2.2, 2.2, -2.05], [-2.2, 2.05, 2.2, 2.2], [-2.2, -2.2, -2.05, 2.2], [2.05, -2.2, 2.2, 2.2]]) {
+      ctx.prop.box(x + a, y, z + b, x + c, y + 1.1, z + d, grey);
+      world.physics.addBox(x + a, y, z + b, x + c, y + 1.1, z + d, 'parapet', F().SOLID | F().CAMERA);
+    }
+    for (const [dx, dz] of [[-2.1, -2.1], [2.1, -2.1], [-2.1, 2.1], [2.1, 2.1]]) ctx.prop.box(x + dx - 0.06, y, z + dz - 0.06, x + dx + 0.06, y + 2.6, z + dz + 0.06, steel);
+    ctx.prop.box(x - 2.6, y + 2.6, z - 2.6, x + 2.6, y + 2.85, z + 2.6, grey, { bottom: true });
+    ctx.screen.box(x - 0.35, y + 1.3, z - 0.35, x + 0.35, y + 1.7, z + 0.35, VH.col(0xf4f7ff, 1.8));
+  }
+
+  /** An open-fronted hangar (the open side faces the runway, -x). */
+  function hangar(world, h, i) {
+    const k = K();
+    const ctx = world.ctxAt((h.x0 + h.x1) / 2, (h.z0 + h.z1) / 2);
+    const wall = 0xb9bcc0;
+    k.pave(world, h.x0 - 8, h.z0 - 4, h.x1, h.z1 + 4, 0x9c9a92, 0.016);
+    k.solid(world, ctx.prop, h.x1 - 0.8, 0, h.z0, h.x1, h.h, h.z1, wall, null, 'building');
+    k.solid(world, ctx.prop, h.x0, 0, h.z0, h.x1, h.h, h.z0 + 0.8, wall, null, 'building');
+    k.solid(world, ctx.prop, h.x0, 0, h.z1 - 0.8, h.x1, h.h, h.z1, wall, null, 'building');
+    ctx.prop.box(h.x0 - 1.2, h.h - 1.6, h.z0 - 0.4, h.x1 + 0.4, h.h, h.z1 + 0.4, VH.col(0x6b727a)); // roof (no collider: things spawn and park inside)
+    ctx.screen.box(h.x0 + 4, h.h - 1.8, h.z0 + 4, h.x1 - 4, h.h - 1.7, h.z0 + 5, VH.col(0xfff4dc, 2.0)); // strip lights
+    ctx.screen.box(h.x0 + 4, h.h - 1.8, h.z1 - 5, h.x1 - 4, h.h - 1.7, h.z1 - 4, VH.col(0xfff4dc, 2.0));
+    ctx.prop.box(h.x1 - 0.85, 4.5, h.z0 + 8, h.x1 - 0.8, 7, h.z1 - 8, VH.col(0x2b2f36)); // dark back panel
+    (world.signs || (world.signs = [])).push({ x: h.x0 - 1.3, y: h.h - 3.2, z: (h.z0 + h.z1) / 2, yaw: -Math.PI / 2, w: 12, h: 1.6, lines: ['HANGAR ' + (i + 1)], style: 'monolith' });
+  }
+
+  /** The recovered flying saucer, resting on three legs in the middle hangar. */
+  function saucer(world, s) {
+    const ctx = world.ctxAt(s.x, s.z);
+    const hull = VH.col(0xb6bdc6);
+    const dark = VH.col(0x6a727c);
+    for (const a of [0, 2.094, 4.189]) {
+      const lx = s.x + Math.cos(a) * 4.8;
+      const lz = s.z + Math.sin(a) * 4.8;
+      ctx.prop.box(lx - 0.2, 0, lz - 0.2, lx + 0.2, 1.4, lz + 0.2, dark);
+      ctx.prop.box(lx - 0.6, 0, lz - 0.6, lx + 0.6, 0.12, lz + 0.6, dark);
+    }
+    ctx.prop.cylinder(s.x, 1.3, s.z, 3.2, 7.2, 0.9, 28, hull, true, dark);
+    ctx.prop.cylinder(s.x, 2.2, s.z, 7.6, 7.6, 0.35, 28, VH.col(0x8d96a1), true, VH.col(0x8d96a1));
+    ctx.prop.cylinder(s.x, 2.55, s.z, 7.2, 3.4, 1.0, 28, hull, true, hull);
+    ctx.prop.cylinder(s.x, 3.55, s.z, 3.4, 2.4, 0.5, 20, dark, true, dark);
+    ctx.prop.cylinder(s.x, 4.05, s.z, 2.4, 1.0, 0.6, 16, VH.col(0x9fd6e8), true, VH.col(0x9fd6e8));
+    for (let i = 0; i < 16; i++) {
+      const a = (i / 16) * Math.PI * 2;
+      const gx = s.x + Math.cos(a) * 7.62;
+      const gz = s.z + Math.sin(a) * 7.62;
+      ctx.screen.box(gx - 0.15, 2.3, gz - 0.15, gx + 0.15, 2.5, gz + 0.15, VH.col(0x7dffb2, 2.6));
+    }
+    // A scorch mark and a few warning cones.
+    k_mark(world, s.x - 9, s.z - 9, s.x + 9, s.z + 9, 0x2c2a26, 0.02);
+    world.physics.addBox(s.x - 7.5, 0, s.z - 7.5, s.x + 7.5, 4.7, s.z + 7.5, 'building', F().ALL);
+  }
+
+  function k_mark(world, x0, z0, x1, z1, color, y) {
+    K().mark(world, x0, z0, x1, z1, color, y);
+  }
+
+  /** A radar mast; the dish itself is a runtime object (it turns). */
+  function radarMast(world, x, z) {
+    const ctx = world.ctxAt(x, z);
+    ctx.concrete.box(x - 2, 0, z - 2, x + 2, 1, z + 2, VH.col(0xa9a69d));
+    ctx.prop.box(x - 0.4, 1, z - 0.4, x + 0.4, 13, z + 0.4, VH.col(0xcfd3d6));
+    world.physics.addBox(x - 2, 0, z - 2, x + 2, 13, z + 2, 'building', F().ALL);
+  }
+
+  // ----------------------------------------------------------- guards
+  // The Area 51 guards: black fatigues, same behaviour as the fort's soldiers.
+  const GUARD_LOOK = { hair: 0x16110d, top: 0x23272d, trim: 0x23272d, shirt: 0x2c3138, bottom: 0x23272d, shoes: 0x0e0e0e, cap: true, longHair: false, height: 1.02, build: 1.08 };
+
+  // ============================================================ Area 51
   class Area51 {
-    static build() {
-      return null; // nothing built yet
+    static build(world, layout) {
+      const k = K();
+      const data = { base: BASE, gate: GATE, runway: RUNWAY, hangars: HANGARS, labs: LABS, control: CONTROL, dishes: DISHES, bunker: BUNKER, fuel: FUEL, saucer: SAUCER, towers: TOWERS };
+      layout.area51 = data;
+      // Desert ground inside the fence, the runway, the access road.
+      k.pave(world, BASE.x0, BASE.z0, BASE.x1, BASE.z1, SAND, 0.008);
+      k.asphalt(world, RUNWAY.x - RUNWAY.w / 2, RUNWAY.z0, RUNWAY.x + RUNWAY.w / 2, RUNWAY.z1, 0x7d7d7d);
+      for (let z = RUNWAY.z0 + 30; z < RUNWAY.z1 - 30; z += 36) k.mark(world, RUNWAY.x - 0.4, z, RUNWAY.x + 0.4, z + 20, 0xf4f4ef);
+      k.mark(world, RUNWAY.x - RUNWAY.w / 2 + 1, RUNWAY.z0, RUNWAY.x - RUNWAY.w / 2 + 1.7, RUNWAY.z1, 0xf4f4ef);
+      k.mark(world, RUNWAY.x + RUNWAY.w / 2 - 1.7, RUNWAY.z0, RUNWAY.x + RUNWAY.w / 2 - 1, RUNWAY.z1, 0xf4f4ef);
+      for (let z = RUNWAY.z0; z <= RUNWAY.z1; z += 60) for (const x of [RUNWAY.x - RUNWAY.w / 2 - 1.2, RUNWAY.x + RUNWAY.w / 2 + 1.2]) {
+        world.ctxAt(x, z).screen.box(x - 0.12, 0.1, z - 0.12, x + 0.12, 0.3, z + 0.12, VH.col(0xfff4dc, 2.2));
+      }
+      k.asphalt(world, RUNWAY.x + RUNWAY.w / 2, GATE.z0, BASE.x1 + 26, GATE.z1, 0x8a8a8a); // the main road, gate to runway
+      k.asphalt(world, BASE.x1 + 26, GATE.z0, -960, GATE.z1, 0x8a8a8a); // out to the airport taxiway
+      k.asphalt(world, CONTROL.x - 8, -1365 + 12, CONTROL.x + 8, CONTROL.z - 8, 0x8a8a8a);
+      // The fence and the gate.
+      fence(world, BASE.x0, BASE.z0, BASE.x1, BASE.z0);
+      fence(world, BASE.x0, BASE.z1, BASE.x1, BASE.z1);
+      fence(world, BASE.x0, BASE.z0, BASE.x0, BASE.z1);
+      fence(world, BASE.x1, BASE.z0, BASE.x1, GATE.z0);
+      fence(world, BASE.x1, GATE.z1, BASE.x1, BASE.z1);
+      const gctx = world.ctxAt(BASE.x1, CENTER.z);
+      k.solid(world, gctx.prop, BASE.x1 - 9, 0, GATE.z1 + 2, BASE.x1 - 3, 3, GATE.z1 + 7, 0xc5c8cc, null, 'building');
+      gctx.screen.box(BASE.x1 - 3.02, 1.2, GATE.z1 + 2.6, BASE.x1 - 2.98, 2.3, GATE.z1 + 6.4, VH.col(0xfff1d8, 1.0));
+      gctx.prop.box(BASE.x1 - 9.3, 3, GATE.z1 + 1.7, BASE.x1 - 2.7, 3.3, GATE.z1 + 7.3, VH.col(0x565c63), { bottom: true });
+      gctx.prop.box(BASE.x1 + 1.2, 0, GATE.z1 - 0.4, BASE.x1 + 1.8, 1.1, GATE.z1 + 0.2, VH.col(0xe0b12e));
+      gctx.prop.box(BASE.x1 + 1.43, 1.0, GATE.z1 - 0.2, BASE.x1 + 1.57, 9, GATE.z1 - 0.06, VH.col(0xd8262e)); // barrier, up
+      for (let z = GATE.z0 + 1; z < GATE.z1 - 0.5; z += 2.4) gctx.prop.box(BASE.x1 + 8, 0, z, BASE.x1 + 8.6, 0.25, z + 1.2, VH.col(0xe0b12e));
+      const signs = world.signs || (world.signs = []);
+      signs.push({ x: BASE.x1 + 0.35, y: 2.4, z: GATE.z0 - 16, yaw: Math.PI / 2, w: 12, h: 3, lines: ['AREA 51', 'RESTRICTED AREA', 'NO PHOTOGRAPHY'], style: 'brand' });
+      signs.push({ x: BASE.x1 + 0.35, y: 2.4, z: GATE.z1 + 16, yaw: Math.PI / 2, w: 12, h: 3, lines: ['WARNING', 'USE OF DEADLY FORCE', 'AUTHORISED'], style: 'brand' });
+      for (const [x, z] of TOWERS) guardTower(world, x, z);
+      // Hangars and the saucer.
+      HANGARS.forEach((h, i) => hangar(world, h, i));
+      saucer(world, SAUCER);
+      // Laboratories.
+      LABS.forEach((l, i) => {
+        k.block(world, l.x0, l.z0, l.x1, l.z1, l.h, i ? 0xd6dadd : 0xcfd4d8, 2, 41 + i);
+        signs.push({ x: (l.x0 + l.x1) / 2, y: l.h - 1.8, z: i ? l.z0 - 0.12 : l.z1 + 0.12, yaw: i ? Math.PI : 0, w: 12, h: 1.4, lines: [i ? 'LEVEL 4 · BIOLOGY' : 'LEVEL 4 · PROPULSION'], style: 'monolith' });
+      });
+      // The control tower: shaft, glass cab, a beacon.
+      const tctx = world.ctxAt(CONTROL.x, CONTROL.z);
+      tctx.concrete.box(CONTROL.x - 3, 0, CONTROL.z - 3, CONTROL.x + 3, 16, CONTROL.z + 3, VH.col(0xc9ccd0));
+      tctx.prop.box(CONTROL.x - 5, 16, CONTROL.z - 5, CONTROL.x + 5, 16.6, CONTROL.z + 5, VH.col(0x565c63), { bottom: true });
+      tctx.screen.box(CONTROL.x - 4.6, 16.6, CONTROL.z - 4.6, CONTROL.x + 4.6, 19, CONTROL.z + 4.6, VH.col(0x9fd6e8, 0.9));
+      tctx.prop.box(CONTROL.x - 5.2, 19, CONTROL.z - 5.2, CONTROL.x + 5.2, 19.5, CONTROL.z + 5.2, VH.col(0x565c63), { bottom: true });
+      tctx.screen.box(CONTROL.x - 0.3, 19.6, CONTROL.z - 0.3, CONTROL.x + 0.3, 20.4, CONTROL.z + 0.3, VH.col(0xff3030, 2.6));
+      world.physics.addBox(CONTROL.x - 3, 0, CONTROL.z - 3, CONTROL.x + 3, 20, CONTROL.z + 3, 'building', F().ALL);
+      // Radar masts, fuel tanks, the bunker.
+      for (const [x, z] of DISHES) radarMast(world, x, z);
+      world.area51Radars = DISHES.map(([x, z]) => ({ x, y: 13, z }));
+      for (const [x, z] of FUEL) {
+        const ctx = world.ctxAt(x, z);
+        ctx.prop.cylinder(x, 0, z, 6, 6, 8, 20, VH.col(0xd0d3d6), true, VH.col(0xb6b9bc));
+        world.physics.addBox(x - 5, 0, z - 5, x + 5, 8, z + 5, 'tank', F().ALL);
+      }
+      const bctx = world.ctxAt((BUNKER.x0 + BUNKER.x1) / 2, (BUNKER.z0 + BUNKER.z1) / 2);
+      for (let i = 0; i < 4; i++) bctx.concrete.box(BUNKER.x0 - i * 2.5, 0, BUNKER.z0 - i * 1.5, BUNKER.x1 + i * 2.5, BUNKER.h - i * 1.4, BUNKER.z1 + i * 1.5, VH.col(i % 2 ? 0x9a978d : 0xa8a59a), { skip: { s: i > 0, n: i > 0 } });
+      bctx.prop.box(BUNKER.x1 - 0.05, 0, (BUNKER.z0 + BUNKER.z1) / 2 - 3, BUNKER.x1 + 0.4, 5, (BUNKER.z0 + BUNKER.z1) / 2 + 3, VH.col(0x2b2f36)); // blast door
+      world.physics.addBox(BUNKER.x0 - 7.5, 0, BUNKER.z0 - 4.5, BUNKER.x1 + 7.5, BUNKER.h, BUNKER.z1 + 4.5, 'building', F().ALL);
+      signs.push({ x: BUNKER.x1 + 0.6, y: 6.2, z: (BUNKER.z0 + BUNKER.z1) / 2, yaw: Math.PI / 2, w: 8, h: 1.2, lines: ['SUBLEVEL 3 · NO ACCESS'], style: 'monolith' });
+      // Clutter and light.
+      k.crates(world, -1385, -1180, 8, 51);
+      k.crates(world, -1300, -1580, 6, 52);
+      k.sandbags(world, BASE.x1 - 16, GATE.z0 - 8, Math.PI / 2);
+      k.sandbags(world, BASE.x1 - 16, GATE.z1 + 12, Math.PI / 2);
+      for (const [x, z] of [[-1190, -1365], [-1335, -1200], [-1335, -1530], [-1400, -1420], [-1400, -1300], [-1200, -1220], [-1200, -1480]]) k.floodMast(world, x, z, 34);
+      return data;
     }
 
+    static registerPlaces(world, places) {
+      if (!world.area51) return;
+      places.add('area51_gate', { name: 'The gate of Area 51', x: BASE.x1 + 30, z: GATE.z1 + 14, yaw: -Math.PI / 2, kind: 'fort', district: 'fort' });
+      places.add('area51_hangar', { name: 'Hangar 2, Area 51', x: -1396, z: SAUCER.z, yaw: -Math.PI / 2, kind: 'fort', district: 'fort' });
+      places.add('area51_runway', { name: 'The runway, Area 51', x: RUNWAY.x + RUNWAY.w / 2 + 6, z: -1500, yaw: -Math.PI / 2, kind: 'fort', district: 'fort' });
+    }
+
+    // ------------------------------------------------------------ runtime
     constructor(game) {
       this.game = game;
       this.ok = !!game.world.area51;
+      if (!this.ok) return;
+      this.saveKey = null;
+      this.guards = [];
+      this.alarm = false;
+      this.warn = -1;
+      this._clearT = 0;
+      this._sawT = 0;
+      this._t = 0;
+      this.spots = [];
+      const add = (type, x, z, yaw, color) => {
+        if (!VH.Vehicle.typeSpec(type)) return;
+        this.spots.push(game.vehicles.addFixedSpot({
+          type, x, z, yaw, color, r: type === 'bison' ? 13 : type === 'phantom' ? 17 : type === 'ufo' ? 10 : 8,
+          onSpawn: (v) => {
+            v.military = true;
+          },
+        }));
+      };
+      add('kestrel', RUNWAY.x + 24, RUNWAY.z0 + 90, 0, 0x9aa1a8);
+      add('kestrel', RUNWAY.x + 24, RUNWAY.z0 + 120, 0, 0x9aa1a8);
+      add('bison', RUNWAY.x + 28, RUNWAY.z0 + 180, 0, 0x4b5320);
+      add('ufo', -1431, -1455, -Math.PI / 2, 0xb6bdc6);
+      add('phantom', RUNWAY.x - 4, RUNWAY.z1 - 110, Math.PI, 0x2b2f36);
+      this._posts = Area51._posts();
+      this._buildHud();
+      this._buildAnimated();
+      this._bind();
     }
 
-    update() {}
+    /** Where the guards stand or walk. */
+    static _posts() {
+      const posts = [
+        { x: BASE.x1 - 6, z: GATE.z0 - 4, heading: Math.PI / 2 },
+        { x: BASE.x1 - 6, z: GATE.z1 + 4, heading: Math.PI / 2 },
+        { x: -1395, z: SAUCER.z - 20, heading: -Math.PI / 2 },
+        { x: -1395, z: SAUCER.z + 20, heading: -Math.PI / 2 },
+        { x: -1265, z: -1365, heading: Math.PI / 2 },
+        { x: -1250, z: -1255, heading: 0 },
+        { x: -1190, z: -1590, heading: Math.PI },
+        { x: -1335, z: -1365, route: [[-1335, -1450], [-1335, -1280], [-1260, -1280], [-1260, -1450]] },
+        { x: RUNWAY.x + 22, z: -1660, route: [[RUNWAY.x + 22, -1660], [RUNWAY.x + 22, -1080]] },
+        { x: -1430, z: -1620, route: [[-1430, -1620], [-1430, -1420], [-1370, -1420], [-1370, -1620]] },
+        { x: -1160, z: -1060, route: [[-1160, -1060], [-1160, -1180], [-1280, -1180], [-1280, -1060]] },
+      ];
+      for (const [x, z] of TOWERS) posts.push({ x, z, hold: true, tower: true, heading: Math.atan2(CENTER.x - x, CENTER.z - z) + Math.PI });
+      return posts;
+    }
 
-    reset() {}
+    _bind() {
+      VH.events.on('agent:died', (e) => {
+        if (!this.ok || !e.agent || e.agent.faction !== 'area51' || e.source !== 'player') return;
+        const pol = this.game.police;
+        if (pol) {
+          pol.crime('killSoldier', e.agent.pos.x, e.agent.pos.z);
+          if (!(this.game.missions && this.game.missions.suppressHeat) && pol.level < 4) {
+            pol.setLevel(4, 'military');
+            pol._sawPlayer();
+          }
+        }
+        this._raise();
+      });
+      VH.events.on('gunshot', (e) => {
+        if (!this.ok || !e.byPlayer) return;
+        if (this._inside(e.x, e.z, 40)) this._raise();
+      });
+      VH.events.on('agent:hurt', (e) => {
+        if (this.ok && e.agent && e.agent.faction === 'area51' && e.source === 'player') this._raise();
+      });
+      VH.events.on('vehicle:enter', (e) => {
+        if (!this.ok || !e.v.military || !e.v.fixedSpot || !this._inside(e.v.pos.x, e.v.pos.z, 0)) return;
+        this._raise();
+        const pol = this.game.police;
+        if (pol && !(this.game.missions && this.game.missions.suppressHeat) && pol.level < 4) {
+          pol.setLevel(4, 'military');
+          pol._sawPlayer();
+        }
+      });
+    }
 
-    stop() {}
+    _inside(x, z, pad) {
+      const p = pad || 0;
+      return x > BASE.x0 - p && x < BASE.x1 + p && z > BASE.z0 - p && z < BASE.z1 + p;
+    }
+
+    /** Sound the alarm: every guard fights. */
+    _raise() {
+      if (this.alarm) return;
+      this.alarm = true;
+      this.warn = -1;
+      this._hud(false);
+      for (const s of this.guards) {
+        if (s.a.dead || s.a.removed) continue;
+        s.a.brain.hostile = true;
+        s.a.brain.setAlert(s.a);
+      }
+      this.game.hud.notify({ title: 'Area 51', text: 'Security breach. Guards are shooting on sight.', icon: '⚠', tone: 'bad' });
+    }
+
+    _buildHud() {
+      const el = document.createElement('div');
+      el.className = 'vh-restricted';
+      el.innerHTML = '<div class="vh-restricted-title">AREA 51 · RESTRICTED</div><div class="vh-restricted-sub">Leave now <span class="vh-restricted-count">3</span></div>';
+      this.game.hud.root.appendChild(el);
+      this.hudEl = el;
+      this.countEl = el.querySelector('.vh-restricted-count');
+    }
+
+    _hud(on, n) {
+      if (!this.hudEl) return;
+      this.hudEl.classList.toggle('visible', !!on);
+      if (on && this.countEl.textContent !== String(n)) this.countEl.textContent = String(n);
+    }
+
+    _buildAnimated() {
+      const g = this.game;
+      this.dishes = [];
+      for (const r of g.world.area51Radars || []) {
+        const dish = new THREE.Group();
+        const m = new THREE.MeshStandardMaterial({ color: 0xe4e7ea, roughness: 0.55, side: THREE.DoubleSide });
+        const bowl = new THREE.Mesh(new THREE.SphereGeometry(4.2, 18, 8, 0, Math.PI * 2, 0, Math.PI / 3.2), m);
+        bowl.rotation.x = Math.PI / 2 + 0.55;
+        bowl.position.y = 2.6;
+        dish.add(bowl);
+        dish.add(new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.5, 2.6, 8).translate(0, 1.3, 0), m));
+        dish.position.set(r.x, r.y, r.z);
+        g.scene.add(dish);
+        this.dishes.push(dish);
+      }
+    }
+
+    // ------------------------------------------------------------- frame
+    update(dt) {
+      if (!this.ok) return;
+      const g = this.game;
+      this._t += dt;
+      this.dishes.forEach((d, i) => { d.rotation.y += dt * (0.7 + i * 0.25); });
+      const p = g.player;
+      const v = p.vehicle;
+      const pos = p.pos;
+      const d = Math.hypot(pos.x - CENTER.x, pos.z - CENTER.z);
+      if (d < 360 && this.guards.length === 0) this._spawnGuards();
+      else if (d > 450 && this.guards.length) this._clearGuards();
+      const alt = v && v.flying ? v.altitude || 0 : 0;
+      const inside = this._inside(pos.x, pos.z) && alt < 120 && !p.isDead && g.state === 'playing';
+      const jobArea = g.missions && g.missions.run && g.missions.suppressHeat;
+      if (inside && !jobArea) {
+        if (!this.alarm) {
+          if (this.warn < 0) this.warn = 3;
+          this.warn -= dt;
+          this._hud(true, Math.max(1, Math.ceil(this.warn)));
+          if (this.warn <= 0) this._raise();
+        }
+        if (this.alarm) {
+          this._sawT -= dt;
+          if (this._sawT <= 0) {
+            this._sawT = 1;
+            const pol = g.police;
+            if (pol && pol.level < 4) pol.setLevel(4, 'military');
+            if (pol) pol._sawPlayer();
+          }
+        }
+      } else if (this.warn >= 0) {
+        this.warn = -1;
+        this._hud(false);
+      }
+      if (this.alarm && d > 480 && (!g.police || g.police.level === 0)) {
+        this._clearT += dt;
+        if (this._clearT > 20) {
+          this.alarm = false;
+          this._clearT = 0;
+        }
+      } else this._clearT = 0;
+    }
+
+    _spawnGuards() {
+      const g = this.game;
+      const Brain = K().soldierBrain();
+      for (const post of this._posts) {
+        const look = Object.assign({}, GUARD_LOOK, { skin: VH.Crowd.randomLook().skin });
+        const a = g.crowd.spawn(post.x, post.z, { look, faction: 'area51', role: 'enemy', persistent: true, health: 130, armor: 70, heading: post.heading || 0, name: 'Guard' });
+        a.weapon = 'rifle';
+        const opts = { weapon: 'rifle', accuracy: post.tower ? 0.45 : 0.55, hostile: this.alarm, alert: this.alarm, guard: post.tower ? { x: post.x, z: post.z, r: 0.6 } : { x: post.x, z: post.z, r: post.route ? 120 : 14 } };
+        a.brain = new Brain(g.combat, opts, this, post);
+        if (post.tower) {
+          a.pos.y = TOWER_Y;
+          a.pos.x = post.x;
+          a.pos.z = post.z;
+        }
+        this.guards.push({ a, post });
+      }
+    }
+
+    _clearGuards() {
+      for (const s of this.guards) if (!s.a.removed) this.game.crowd.remove(s.a);
+      this.guards = [];
+    }
+
+    blips(out) {
+      if (!this.ok) return;
+      for (const s of this.spots) {
+        const v = s.v;
+        if (!v || v.removed || v.wrecked || v.driver) continue;
+        if (Math.hypot(v.pos.x - s.x, v.pos.z - s.z) > 30) continue;
+        out.push({ x: v.pos.x, z: v.pos.z, type: v.kind === 'plane' ? 'plane' : 'car', heading: v.yaw, noRim: true, label: v.name });
+      }
+      if (this.alarm) {
+        for (const s of this.guards) if (!s.a.dead && !s.a.removed) out.push({ x: s.a.pos.x, z: s.a.pos.z, type: 'enemy', noRim: true });
+      }
+    }
+
+    stop() {
+      if (!this.ok) return;
+      this._hud(false);
+    }
+
+    reset() {
+      if (!this.ok) return;
+      this.stop();
+      this._clearGuards();
+      this.alarm = false;
+      this.warn = -1;
+      this._clearT = 0;
+    }
   }
+
+  // ------------------------------------------------------------------ map
+  VH.MapPainters = VH.MapPainters || [];
+  VH.MapPainters.push((g, layout, o) => {
+    const a = layout.area51;
+    if (!a) return;
+    const R = o.R;
+    g.fillStyle = 'rgba(205, 184, 138, 0.45)';
+    R(a.base.x0, a.base.z0, a.base.x1, a.base.z1);
+    g.fillStyle = '#4d5157';
+    R(a.runway.x - a.runway.w / 2, a.runway.z0, a.runway.x + a.runway.w / 2, a.runway.z1);
+    g.fillStyle = '#62666b';
+    R(a.runway.x + a.runway.w / 2, a.gate.z0, -960, a.gate.z1);
+    const bld = (x0, z0, x1, z1, col) => {
+      g.fillStyle = 'rgba(0, 0, 0, 0.3)';
+      R(x0 + 2, z0 + 2, x1 + 2, z1 + 2);
+      g.fillStyle = col;
+      R(x0, z0, x1, z1);
+    };
+    for (const h of a.hangars) bld(h.x0, h.z0, h.x1, h.z1, '#b9bcc0');
+    for (const l of a.labs) bld(l.x0, l.z0, l.x1, l.z1, '#cfd4d8');
+    bld(a.bunker.x0, a.bunker.z0, a.bunker.x1, a.bunker.z1, '#9a978d');
+    for (const [x, z] of a.fuel) {
+      g.fillStyle = '#d0d3d6';
+      o.circle(x, z, 6);
+    }
+    g.fillStyle = '#6b727a';
+    for (const [x, z] of a.towers) R(x - 2.2, z - 2.2, x + 2.2, z + 2.2);
+  });
 
   VH.Area51 = Area51;
 })();
@@ -33297,14 +33851,15 @@ void main() {
  *
  *   Plane  skylark (a light high-wing four-seater), albatross (a twin-jet
  *          airliner), talon (a fighter jet with a cannon and missiles),
- *          kestrel (a WWII-style warbird with guns and rockets), bison (a
+ *          kestrel (a WWII-style warbird with guns and rockets), phantom (a
+ *          flying-wing stealth bomber), bison (a
  *          rugged single-engine cargo transport).
  *          Arcade flight: the nose follows the mouse (the view is where the
  *          plane goes), or fly it on the keys. W/S throttle, A/D roll (steer
  *          on the ground), Space/Ctrl pull up/push down, Shift afterburner.
  *          Lift-off past stall speed; land gently on the wheels or crash.
  *   Heli   sparrow (a civil helicopter), warden (an army gunship with a
- *          minigun and rockets). Flies like a drone: it turns to face the
+ *          minigun and rockets), ufo (the Visitor: a hovering saucer from Area 51). Flies like a drone: it turns to face the
  *          view; W/S forward/back, A/D turn, Space up, Ctrl down, Shift fast.
  *
  * Jumping out in the air opens a parachute (vehicles._jumpOut). Models are
@@ -33396,6 +33951,30 @@ void main() {
         camDist: 36, camLift: 4.5, camUp: 3, cockpit: { z: 6.8, y: 3.1 }, doorZ: 3.2,
         voice: 'prop', voiceRef: 34,
         probes: [[0, 2.0, 9.4], [11, 4.0, 0.8], [-11, 4.0, 0.8], [0, 6.2, -9.0], [0, 2.0, -9.6], [2.2, 0.8, 1.0], [-2.2, 0.8, 1.0]],
+      },
+    },
+    ufo: {
+      kind: 'heli', name: 'Visitor', make: 'Unknown', cls: 'heli', length: 12, width: 12, height: 4, mass: 5000, seats: 2,
+      palette: [0xb6bdc6, 0x8d96a1, 0xc9ccd0],
+      military: true,
+      air: {
+        span: 12, rotorY: 2.2, rotorZ: 0, vmax: 95, boost: 2.2, climb: 26, climbAcc: 22, acc: 24, resp: 3, yawFollow: 4, spool: 2.5, crashVs: 12,
+        camDist: 24, camLift: 2.5, camUp: 2, cockpit: { z: 0, y: 2.6 }, doorZ: 5,
+        voiceRef: 44,
+        probes: [[6, 1.5, 0], [-6, 1.5, 0], [0, 1.5, 6], [0, 1.5, -6], [0, 0.6, 0], [0, 3.4, 0]],
+      },
+    },
+    phantom: {
+      kind: 'plane', name: 'Phantom B-3', make: 'Breakwater Arsenal', cls: 'plane', length: 17, width: 5, height: 4, mass: 30000, seats: 2,
+      palette: [0x2b2f36, 0x3d4650, 0x1d2025],
+      military: true,
+      air: {
+        span: 28, stall: 52, top: 175, thrust: 8.5, pitchRate: 0.85, rollRate: 1.5, yawRate: 0.35, turnK: 2.0, align: 2.6,
+        taxiTurn: 0.5, rollRes: 0.28, brakeDecel: 4.5, crashVs: 6, crashSpeed: 22, rotateMax: 0.17,
+        camDist: 36, camLift: 3.5, camUp: 2.5, cockpit: { z: 4, y: 2.1 }, doorZ: 3.5,
+        voice: 'jet', voiceRef: 42,
+        weapons: { gunRate: 6, gunDamage: 20, gunRange: 200, gunSound: 'rifle', guns: [[0, 1.2, 8]], rocketCool: 0.7, rocketSpeed: 120, rocketBlast: 14, rocketDamage: 500, rockets: [[2, 0.8, 0], [-2, 0.8, 0], [5, 0.9, -1], [-5, 0.9, -1]] },
+        probes: [[0, 1.2, 9], [14, 1.2, -5.5], [-14, 1.2, -5.5], [0, 1.2, -7.5], [0, 2.2, 0]],
       },
     },
     sparrow: {
@@ -33753,6 +34332,56 @@ void main() {
         strobe: [0, 6.5, -9.2],
         prop: { kit: prop, at: [0, 2.15, 9.72], disc: 2.0 },
       };
+    },
+    ufo(c) {
+      const k = new Kit();
+      const gl = new Kit();
+      const dark = 0x4a525c;
+      const cyl = (rt, rb, h, seg, y, col) => k.add(new THREE.CylinderGeometry(rt, rb, h, seg), col, mat(0, y, 0));
+      // Lower hull, rim and upper hull, stacked into a saucer.
+      cyl(3.2, 5.2, 1.0, 28, 1.0, c);
+      cyl(6.0, 6.0, 0.32, 28, 1.62, 0x8d96a1);
+      cyl(5.9, 2.6, 0.95, 28, 2.25, c);
+      cyl(2.6, 2.0, 0.5, 24, 2.95, dark);
+      cyl(2.2, 3.4, 0.35, 24, 0.55, dark); // the belly drive ring
+      cyl(1.2, 1.9, 0.22, 20, 0.28, 0x7dffb2);
+      gl.sphere(1, 1.7, 1.15, 1.7, 0, 3.15, 0);
+      // Landing feet.
+      for (const a of [0, 2.094, 4.189]) {
+        const x = Math.cos(a) * 3.4;
+        const z = Math.sin(a) * 3.4;
+        k.strut([x, 0.8, z], [x * 1.3, 0.1, z * 1.3], 0.12, dark);
+        k.box(0.9, 0.1, 0.9, x * 1.3, 0.05, z * 1.3, dark);
+      }
+      const lights = [];
+      for (let i = 0; i < 12; i++) {
+        const a = (i / 12) * Math.PI * 2;
+        lights.push([i % 2 ? 'green' : 'white', Math.cos(a) * 6.05, 1.62, Math.sin(a) * 6.05, 0.16]);
+      }
+      return { kit: k, glass: gl, lights, strobe: [0, 3.9, 0] };
+    },
+    phantom(c) {
+      const k = new Kit();
+      const gl = new Kit();
+      const edge = 0x1a1c20;
+      // A flying wing: one big lozenge with a blended fuselage hump, intakes and exhaust slots.
+      k.slab([[0, 9], [14, -5.5], [0, -7.6], [-14, -5.5]], 1.0, 1.32, c);
+      k.slab([[0, 8.6], [13.2, -5.3], [0, -7.2], [-13.2, -5.3]], 0.9, 1.0, edge);
+      k.lathe([[0.05, -5.2], [0.6, -3.2], [1.0, -0.5], [0.85, 3.0], [0.4, 6.4], [0.05, 8.2]], 16, 0, 1.28, 0, c, 1.9, 0.6);
+      gl.sphere(1, 0.5, 0.3, 1.2, 0, 1.78, 4.2, 0x000000);
+      for (const s of [1, -1]) {
+        k.box(1.3, 0.14, 1.8, s * 1.7, 1.52, -0.6, edge);
+        k.box(1.6, 0.1, 0.4, s * 1.3, 1.34, -6.9, edge);
+        k.box(0.3, 0.06, 1.4, s * 8, 1.32, -3.2, 0x3a3f45);
+      }
+      const gear = new Kit();
+      gear.strut([0, 1.0, 5.2], [0, 0.3, 5.2], 0.06, GREY);
+      gear.cyl(0.32, 0.32, 0.16, 12, 0, 0.32, 5.2, RUBBER, 0, Math.PI / 2);
+      for (const s of [1, -1]) {
+        gear.strut([s * 2.6, 1.0, -1.8], [s * 2.6, 0.45, -1.8], 0.09, GREY);
+        gear.cyl(0.45, 0.45, 0.26, 12, s * 2.6, 0.45, -1.8, RUBBER, 0, Math.PI / 2);
+      }
+      return { kit: k, glass: gl, gear, lights: [['red', 13.6, 1.2, -5.4, 0.1], ['green', -13.6, 1.2, -5.4, 0.1]], strobe: [0, 2.2, -4.0] };
     },
     sparrow(c) {
       const k = new Kit();
@@ -36599,6 +37228,9 @@ void main() {
       this._flashT = 0;
       this._flashPeak = 0;
 
+      this.blasts = []; // { x, y, z, s, t } explosions still billowing
+      this.rings = []; // expanding shockwave rings: { mesh, t, r }
+      this._ringGeo = new THREE.RingGeometry(0.86, 1, 56).rotateX(-Math.PI / 2);
       this.debris = [];
       this.fires = []; // { x, y, z, t, dur, scale } burning spots (molotovs, wrecks)
       this.geysers = []; // broken hydrants
@@ -36885,36 +37517,102 @@ void main() {
 
     explosion(x, y, z, scale) {
       const s = scale || 1;
-      // Fireball.
-      for (let i = 0; i < 70 * s; i++) {
+      // Fireball core: fast, hot, HDR (blooms), then it cools to red.
+      for (let i = 0; i < 90 * s; i++) {
         const a = Math.random() * Math.PI * 2;
-        const e = Math.random() * 0.9 - 0.1;
-        const sp = 3 + Math.random() * 9 * s;
+        const e = Math.random() * 1.1 - 0.1;
+        const sp = 3 + Math.random() * 11 * s;
         this.glow.emit({
           x, y: y + 0.5, z,
           vx: Math.cos(a) * Math.cos(e) * sp, vy: Math.sin(e) * sp + 3, vz: Math.sin(a) * Math.cos(e) * sp,
-          life: 0.5 + Math.random() * 0.7, size: 2.5 * s, size1: 0.6,
-          r: 9, g: 4.2, b: 1.2, r1: 4, g1: 0.6, b1: 0.1, a: 0.85, drag: 2.6, grav: -2,
+          life: 0.5 + Math.random() * 0.8, size: 3.2 * s, size1: 0.8,
+          r: 10, g: 4.6, b: 1.2, r1: 4, g1: 0.5, b1: 0.08, a: 0.85, drag: 2.6, grav: -2,
         });
       }
-      // Flash.
-      this.glow.emit({ x, y: y + 1, z, life: 0.18, size: 16 * s, size1: 4, r: 12, g: 9, b: 6, a: 1 });
-      // Debris sparks.
-      this.sparks(x, y + 0.8, z, 0, 0, 40, 14);
-      // Smoke column and shock dust.
-      for (let i = 0; i < 40 * s; i++) {
+      // The flash that lights the street, plus a white-hot heart.
+      this.glow.emit({ x, y: y + 1, z, life: 0.22, size: 22 * s, size1: 6, r: 14, g: 10, b: 6, a: 1 });
+      this.glow.emit({ x, y: y + 1.2, z, life: 0.5, size: 9 * s, size1: 14 * s, r: 7, g: 3.6, b: 1.2, r1: 2.5, g1: 0.5, b1: 0.1, a: 0.9, drag: 1 });
+      // Flying debris: hot chunks that arc out and fall.
+      for (let i = 0; i < 50 * s; i++) {
         const a = Math.random() * Math.PI * 2;
-        const sp = 1 + Math.random() * 5;
-        this.soft.emit({
-          x: x + Math.cos(a) * 0.5, y: y + 0.5 + Math.random() * 1.5, z: z + Math.sin(a) * 0.5,
-          vx: Math.cos(a) * sp, vy: 2 + Math.random() * 4, vz: Math.sin(a) * sp,
-          life: 3 + Math.random() * 3, size: 1.5 * s, size1: 7 * s,
-          r: 0.1, g: 0.09, b: 0.09, a: 0.55, drag: 1.3, grav: -0.35,
+        const sp = 6 + Math.random() * 16 * s;
+        this.glow.emit({
+          x, y: y + 0.8, z, vx: Math.cos(a) * sp, vy: 6 + Math.random() * 14 * s, vz: Math.sin(a) * sp,
+          life: 0.9 + Math.random() * 1.4, size: 0.45 + Math.random() * 0.35, size1: 0.12, r: 6, g: 2.4, b: 0.5, r1: 1.2, g1: 0.2, b1: 0.05, a: 1, drag: 0.35, grav: 14,
         });
       }
-      this.dust(x, 0.1, z, 16);
-      this._pulse(x, y + 2, z, 60 * s, 0xff9040, 0.9, 60);
-      this.fires.push({ x, y: y + 0.4, z, t: 0, dur: 6, scale: 1.3 });
+      this.sparks(x, y + 0.8, z, 0, 0, 50, 16);
+      // Hot smoke ball: orange where the fire lights it, charring to black.
+      for (let i = 0; i < 26 * s; i++) {
+        const a = Math.random() * Math.PI * 2;
+        const sp = 1 + Math.random() * 6 * s;
+        this.soft.emit({
+          x: x + Math.cos(a) * 0.8, y: y + 0.6 + Math.random() * 1.5, z: z + Math.sin(a) * 0.8,
+          vx: Math.cos(a) * sp, vy: 2 + Math.random() * 5, vz: Math.sin(a) * sp,
+          life: 1.0 + Math.random() * 1.2, size: 3 * s, size1: 9 * s,
+          r: 1.9, g: 0.85, b: 0.25, r1: 0.12, g1: 0.1, b1: 0.09, a: 0.75, drag: 1.5, grav: -1.5,
+        });
+      }
+      this.dust(x, 0.1, z, 22);
+      this._pulse(x, y + 2, z, 90 * s, 0xff9040, 1.1, 80);
+      this.fires.push({ x, y: y + 0.4, z, t: 0, dur: 7, scale: 1.4 });
+      // The rest (rising smoke column, secondary fire puffs) is emitted over the next couple of seconds.
+      this.blasts.push({ x, y, z, s, t: 0 });
+      // Shockwave: a ring of compressed air racing out along the ground.
+      const mat = new THREE.MeshBasicMaterial({ color: new THREE.Color(1.6, 1.25, 0.9), transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
+      const mesh = new THREE.Mesh(this._ringGeo, mat);
+      mesh.position.set(x, y + 0.2, z);
+      mesh.renderOrder = 9;
+      mesh.frustumCulled = false;
+      this.scene.add(mesh);
+      this.rings.push({ mesh, mat, t: 0, r: 16 * s });
+    }
+
+    _updateBlasts(dt) {
+      for (const b of this.blasts) {
+        b.t += dt;
+        const s = b.s;
+        // Secondary fire puffs rolling up in the first half second.
+        if (b.t < 0.55) {
+          for (let i = 0; i < Math.ceil(dt * 90); i++) {
+            const a = Math.random() * Math.PI * 2;
+            const r = Math.random() * 2.2 * s;
+            this.glow.emit({
+              x: b.x + Math.cos(a) * r, y: b.y + 0.8 + b.t * 6, z: b.z + Math.sin(a) * r,
+              vx: Math.cos(a) * 2, vy: 4 + Math.random() * 5, vz: Math.sin(a) * 2,
+              life: 0.45 + Math.random() * 0.4, size: 3.5 * s, size1: 1.2, r: 7, g: 3, b: 0.8, r1: 2, g1: 0.3, b1: 0.05, a: 0.7, drag: 1.8,
+            });
+          }
+        }
+        // The smoke column: dark, buoyant, long-lived, spreading into a cap as it climbs.
+        if (b.t < 2.4) {
+          for (let i = 0; i < Math.ceil(dt * 36 * s); i++) {
+            const a = Math.random() * Math.PI * 2;
+            const r = Math.random() * 2.5 * s;
+            const climb = b.t * (7 + 3 * s);
+            this.soft.emit({
+              x: b.x + Math.cos(a) * r, y: b.y + 1.5 + climb * 0.6 + Math.random() * 2, z: b.z + Math.sin(a) * r,
+              vx: Math.cos(a) * (0.6 + b.t * 0.8), vy: 4.5 + Math.random() * 4.5, vz: Math.sin(a) * (0.6 + b.t * 0.8),
+              life: 5 + Math.random() * 5, size: 3 * s, size1: (9 + b.t * 3) * s,
+              r: 0.13, g: 0.115, b: 0.105, r1: 0.2, g1: 0.19, b1: 0.18, a: 0.5, drag: 0.9, grav: -0.15,
+            });
+          }
+        }
+      }
+      this.blasts = this.blasts.filter((b) => b.t < 2.4);
+      for (const ring of this.rings) {
+        ring.t += dt;
+        const k = Math.min(1, ring.t / 0.6);
+        const e = 1 - (1 - k) * (1 - k);
+        ring.mesh.scale.setScalar(Math.max(0.5, e * ring.r));
+        ring.mat.opacity = 0.8 * (1 - k) * (1 - k);
+        if (k >= 1) {
+          this.scene.remove(ring.mesh);
+          ring.mat.dispose();
+          ring.done = true;
+        }
+      }
+      this.rings = this.rings.filter((r) => !r.done);
     }
 
     /** A patch of burning ground (molotov) or a burning wreck. */
@@ -37051,6 +37749,7 @@ void main() {
         this.water(gy.x, gy.y, gy.z, Math.max(0, 1 - gy.t / gy.dur));
       }
       this.geysers = this.geysers.filter((g) => g.t < g.dur);
+      this._updateBlasts(dt);
       this.soft.update(dt, true);
       this.glow.update(dt, false);
       this.bloodDecals.update(dt);
@@ -39742,7 +40441,15 @@ void main() {
         for (const id of Object.keys(data.inventory)) this.inventory[id] = data.inventory[id];
       }
       this.current = data && data.current && this.inventory[data.current] ? data.current : 'fists';
+      if (data === null) this.starterKit(); // a brand new game (main.js newGame passes null)
       this._attachModel();
+    }
+
+    /** A new game starts with the guns and grenades already in the weapon wheel (fists stay selected). */
+    starterKit() {
+      for (const id of ['pistol', 'revolver', 'smg', 'shotgun', 'rifle', 'sniper', 'bat', 'knife']) this.giveWeapon(id, undefined, true);
+      this.giveWeapon('grenade', 10, true);
+      this.giveWeapon('molotov', 6, true);
     }
   }
 
@@ -39788,6 +40495,8 @@ void main() {
   const HELI_FUEL = 75; // seconds over the city before it goes back to refuel...
   const HELI_REFUEL = 40; // ...and how long until the next one is up
 
+  const SWAT_LOOK = { skin: 0xc68c64, hair: 0x101010, top: 0x15181d, trim: 0x15181d, shirt: 0x1d2128, bottom: 0x15181d, shoes: 0x0a0a0a, cap: true, longHair: false, height: 1.04, build: 1.15 };
+  const ARMY_COP_LOOK = { skin: 0xc68c64, hair: 0x16110d, top: 0x4b5320, trim: 0x4b5320, shirt: 0x3f4a26, bottom: 0x3d4a2a, shoes: 0x1a1a14, cap: true, longHair: false, height: 1.02, build: 1.12 };
   const COP_LOOK = { skin: 0xc68c64, hair: 0x16110d, top: 0x1c2a4a, trim: 0x1c2a4a, shirt: 0x2a3b61, bottom: 0x141c30, shoes: 0x0e0e0e, cap: true, longHair: false, height: 1.02, build: 1.05 };
 
   // ------------------------------------------------------ pursuit driver
@@ -39845,7 +40554,7 @@ void main() {
         v.input.handbrake = v.speed < 1 ? 1 : 0;
         if (!this.deployed && v.speed < 2) {
           this.deployed = true;
-          pol.deployOfficers(v, pol.level >= 3 ? 2 : 1);
+          pol.deployOfficers(v, v.swat ? 3 : v.army ? 2 : pol.level >= 3 ? 2 : 1);
         }
         return;
       }
@@ -39942,9 +40651,11 @@ void main() {
 
   // ---------------------------------------------------- officers on foot
   class OfficerBrain {
-    constructor(police, car) {
+    constructor(police, car, opts) {
       this.police = police;
       this.car = car;
+      this.weapon = (opts && opts.weapon) || 'pistol'; // SWAT and soldiers carry rifles
+      this.reach = (opts && opts.reach) || 32;
       this._fireT = 1 + Math.random();
       this._strafe = Math.random() < 0.5 ? 1 : -1;
       this._strafeT = 0;
@@ -39971,12 +40682,12 @@ void main() {
         if (this.car && !this.car.removed) a.heading = VH.math.dampAngle(a.heading, Math.atan2(this.car.pos.x - a.pos.x, this.car.pos.z - a.pos.z), 5, dt);
         return;
       }
-      const armed = pol.level >= 3 || pol.playerArmed;
-      if (armed && d < 32 && pol.canSee(a.pos.x, a.pos.y + 1.5, a.pos.z)) {
+      const armed = pol.level >= 3 || pol.playerArmed || this.weapon !== 'pistol';
+      if (armed && d < this.reach && pol.canSee(a.pos.x, a.pos.y + 1.5, a.pos.z)) {
         // Shoot from where they stand, sidestepping now and then.
         a.heading = VH.math.dampAngle(a.heading, face, 8, dt);
         a.anim.aim = 1;
-        a.anim.weaponPose = 'pistol';
+        a.anim.weaponPose = this.weapon === 'rifle' ? 'rifle' : 'pistol';
         this._strafeT -= dt;
         if (this._strafeT <= 0) {
           this._strafeT = 1.5 + Math.random() * 2;
@@ -39989,8 +40700,8 @@ void main() {
         }
         this._fireT -= dt;
         if (this._fireT <= 0) {
-          this._fireT = 0.55 + Math.random() * 0.7;
-          if (game.combat) game.combat.npcFire(a, tgt, 'pistol');
+          this._fireT = this.weapon === 'rifle' ? 0.3 + Math.random() * 0.5 : 0.55 + Math.random() * 0.7;
+          if (game.combat) game.combat.npcFire(a, tgt, this.weapon);
         }
         return;
       }
@@ -40024,6 +40735,8 @@ void main() {
       this._spawnT = 0;
       this._blockT = 20;
       this._reports = [];
+      this.strips = []; // spike strips laid at roadblocks
+      this._backupT = 0;
       this._sayT = 0;
       this._lastLine = '';
       this.enabled = true;
@@ -40044,9 +40757,16 @@ void main() {
       VH.events.on('ped:hitByCar', (e) => {
         if (e.v.driver === 'player' && e.speed > 5) this.crime(e.agent.dead ? 'killPed' : 'hitPed', e.agent.pos.x, e.agent.pos.z);
       });
+      // An officer shot at: the rest call for backup (at most every 12 s).
+      VH.events.on('agent:hurt', (e) => {
+        if (e.source === 'player' && e.agent && e.agent.faction === 'police') this._backup(e.agent.pos.x, e.agent.pos.z);
+      });
       VH.events.on('agent:died', (e) => {
         if (e.source !== 'player') return;
-        if (e.agent.faction === 'police') this.crime('killCop', e.agent.pos.x, e.agent.pos.z);
+        if (e.agent.faction === 'police') {
+          this.crime('killCop', e.agent.pos.x, e.agent.pos.z);
+          this._backup(e.agent.pos.x, e.agent.pos.z);
+        }
         else if (e.agent.faction === 'civilian') this.crime('killPed', e.agent.pos.x, e.agent.pos.z);
       });
       VH.events.on('gunshot', (e) => {
@@ -40175,10 +40895,15 @@ void main() {
       for (let i = 0; i < n; i++) {
         const side = i % 2 ? -1 : 1;
         const w = car.localToWorld(side * (car.hx + 0.8), 0.3, {});
-        const look = Object.assign({}, COP_LOOK, { skin: VH.Crowd.randomLook().skin });
-        const a = crowd.spawn(w.x, w.z, { look, faction: 'police', role: 'cop', health: 100, armor: 50, heading: car.yaw });
-        a.brain = new OfficerBrain(this, car);
-        a.weapon = 'pistol';
+        // SWAT (from a Bulwark van) wear black and carry rifles; soldiers (from an army scout) wear olive.
+        const swat = !!car.swat;
+        const army = !!car.army;
+        const base = swat ? SWAT_LOOK : army ? ARMY_COP_LOOK : COP_LOOK;
+        const look = Object.assign({}, base, { skin: VH.Crowd.randomLook().skin });
+        const a = crowd.spawn(w.x, w.z, { look, faction: 'police', role: 'cop', health: swat || army ? 140 : 100, armor: swat ? 120 : army ? 90 : 50, heading: car.yaw });
+        const weapon = swat || army ? 'rifle' : 'pistol';
+        a.brain = new OfficerBrain(this, car, { weapon, reach: swat || army ? 48 : 32 });
+        a.weapon = weapon;
         this.officers.push(a);
       }
     }
@@ -40277,6 +41002,7 @@ void main() {
         }
       }
       this._updateHeli(dt, this.level >= 4);
+      this._updateStrips(dt);
       this._updateBust(dt);
     }
 
@@ -40298,8 +41024,21 @@ void main() {
         break;
       }
       if (!best) return;
-      const type = this.level >= 5 && Math.random() < 0.35 && VH.Vehicle.typeSpec('bulwark') ? 'bulwark' : Math.random() < 0.2 && VH.Vehicle.typeSpec('unmarked') ? 'unmarked' : 'interceptor';
+      // 4 stars: SWAT vans join the patrol cars. 5 stars: more of them, and the army's scouts.
+      let type = 'interceptor';
+      if (this.level >= 4 && Math.random() < (this.level >= 5 ? 0.4 : 0.3) && VH.Vehicle.typeSpec('bulwark')) type = 'bulwark';
+      else if (this.level >= 5 && Math.random() < 0.3 && VH.Vehicle.typeSpec('scout')) type = 'scout';
+      else if (Math.random() < 0.2 && VH.Vehicle.typeSpec('unmarked')) type = 'unmarked';
       const v = game.vehicles.spawn(type, best.x, best.z, best.heading, { role: 'police' });
+      v.swat = type === 'bulwark';
+      v.army = type === 'scout';
+      if (v.swat && !this._saidSwat) {
+        this._saidSwat = true;
+        this._dispatch('swat');
+      } else if (v.army && !this._saidArmy) {
+        this._saidArmy = true;
+        this._dispatch('army');
+      }
       v.role = 'police';
       v.driver = 'ai';
       v.isPolice = true;
@@ -40307,6 +41046,59 @@ void main() {
       v.controller = new PursuitDriver(this, v);
       v.setSpeed(12);
       this.units.push(v);
+    }
+
+    /** An officer is down or under fire: radio for backup and send two more units now. */
+    _backup() {
+      if (this.level === 0 || this.game.time - this._backupT < 12) return;
+      this._backupT = this.game.time;
+      const p = this.game.player;
+      const t = p.inVehicle ? p.vehicle.pos : p.pos;
+      this._dispatch('backup');
+      this._spawnUnit(t);
+      this._spawnUnit(t);
+    }
+
+    /** A spike strip across the road at (x, z); `along` is the road's axis. */
+    _layStrip(x, z, axis, width) {
+      const geo = new THREE.BoxGeometry(axis === 'z' ? width : 1.0, 0.06, axis === 'z' ? 1.0 : width);
+      const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: 0x2a2d31, roughness: 0.5, metalness: 0.5 }));
+      m.position.set(x, 0.05, z);
+      // A row of bright teeth along the strip.
+      const teeth = new THREE.Mesh(new THREE.BoxGeometry(axis === 'z' ? width : 0.12, 0.12, axis === 'z' ? 0.12 : width), new THREE.MeshStandardMaterial({ color: 0xc9ccd0, roughness: 0.3, metalness: 0.8 }));
+      teeth.position.y = 0.07;
+      m.add(teeth);
+      m.castShadow = true;
+      this.game.scene.add(m);
+      this.strips.push({ x, z, axis, half: width / 2, mesh: m, t: 0 });
+    }
+
+    _updateStrips(dt) {
+      const p = this.game.player;
+      const v = p.inVehicle ? p.vehicle : null;
+      this.strips = this.strips.filter((s) => {
+        s.t += dt;
+        let hit = false;
+        if (v && !v.flying && v.speed > 2 && !v.flatTyres) {
+          const dx = Math.abs(v.pos.x - s.x);
+          const dz = Math.abs(v.pos.z - s.z);
+          hit = s.axis === 'z' ? dx < s.half && dz < 1.6 : dz < s.half && dx < 1.6;
+        }
+        if (hit) {
+          // The tyres go: the car can't get above half speed any more.
+          v.flatTyres = true;
+          v.topSpeedBoost = 0.45;
+          this.game.hud.notify({ title: 'Spike strip', text: 'Your tyres are shredded. Get a new car.', icon: '⚠', tone: 'bad' });
+          if (this.game.audio.crash) this.game.audio.crash(0.6);
+        }
+        const far = Math.hypot(s.x - p.pos.x, s.z - p.pos.z) > 420;
+        if (hit || far || this.level === 0 || s.t > 120) {
+          this.game.scene.remove(s.mesh);
+          s.mesh.geometry.dispose();
+          return false;
+        }
+        return true;
+      });
     }
 
     _roadblock(pv) {
@@ -40347,6 +41139,9 @@ void main() {
         this.units.push(v);
         this.deployOfficers(v, 1);
       }
+      // A spike strip on the approach, ahead of the two cars.
+      const back = 11 * lp.dir;
+      this._layStrip(lp.road.axis === 'z' ? center.x : center.x - back, lp.road.axis === 'z' ? center.z - back : center.z, lp.road.axis, lp.road.width);
       this._dispatch('roadblock', { street: lp.road.name });
     }
 
@@ -40402,6 +41197,13 @@ void main() {
       this.bust = 0;
       this.kills = 0;
       this._reports.length = 0;
+      this._saidSwat = false;
+      this._saidArmy = false;
+      for (const s of this.strips) {
+        this.game.scene.remove(s.mesh);
+        s.mesh.geometry.dispose();
+      }
+      this.strips.length = 0;
       for (const v of this.units) {
         v.siren = false;
         if (hard && v.driver !== 'player') this.game.vehicles.remove(v);
@@ -40492,7 +41294,16 @@ void main() {
           line = pick([`Suspect has evaded pursuit. All units, return to patrol.`, `No sign of him. Dispatch, we're calling it off.`, `Damn it, he's gone. Units resume patrol.`]);
           break;
         case 'roadblock':
-          line = `Roadblock set on ${info.street}. Nobody gets through.`;
+          line = `Roadblock and spike strips set on ${info.street}. Nobody gets through.`;
+          break;
+        case 'backup':
+          line = pick([`Officer down! Officer down! Send everything we have to ${street}!`, `Shots at officers, requesting immediate backup on ${street}.`, `All available units, officers under fire on ${street}. Backup, now.`]);
+          break;
+        case 'swat':
+          line = pick([`SWAT is rolling. All units, hold your positions until they arrive.`, `Tactical units deployed. Suspect is considered extremely dangerous.`]);
+          break;
+        case 'army':
+          line = pick([`Military has been authorised. Army units are joining the pursuit.`, `Be advised, the army is on the road. Stay clear of the suspect.`]);
           break;
         case 'arrest':
           line = `Suspect in custody. Good work, everyone.`;
@@ -64842,7 +65653,25 @@ void main() {
       const dmg = el('div', 'speedo-bar speedo-damage');
       this.damageFill = el('div', 'fill');
       dmg.append(el('span', 'bar-label', 'BODY'), this.damageFill);
+      // The gauge: a 270 degree dial with tick marks, a sweeping arc and a needle.
+      // (hud.css sizes it; --speed 0..1 is the only thing the frame loop sets.)
       this.speedArc = el('div', 'speedo-arc');
+      const at = (deg, r) => [(100 + r * Math.cos((deg * Math.PI) / 180)).toFixed(2), (100 + r * Math.sin((deg * Math.PI) / 180)).toFixed(2)];
+      let ticks = '';
+      for (let i = 0; i <= 27; i++) {
+        const deg = 135 + (i * 270) / 27;
+        const major = i % 3 === 0;
+        const a = at(deg, major ? 77 : 80);
+        const b = at(deg, 86);
+        ticks += '<line class="' + (major ? 'tk major' : 'tk') + '" x1="' + a[0] + '" y1="' + a[1] + '" x2="' + b[0] + '" y2="' + b[1] + '"/>';
+      }
+      this.speedArc.innerHTML = '<svg viewBox="0 0 200 200" aria-hidden="true">'
+        + '<defs><linearGradient id="spd-grad" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#35e0d0"/><stop offset="0.55" stop-color="#ffb347"/><stop offset="1" stop-color="#ff4f8b"/></linearGradient></defs>'
+        + '<path class="track" pathLength="100" d="M 39.2 160.8 A 86 86 0 1 1 160.8 160.8"/>'
+        + '<path class="prog" pathLength="100" d="M 39.2 160.8 A 86 86 0 1 1 160.8 160.8"/>'
+        + '<g class="ticks">' + ticks + '</g>'
+        + '<g class="needle"><polygon points="100,22 96.5,98 103.5,98"/><circle cx="100" cy="100" r="5.5"/></g>'
+        + '</svg>';
       this.speedo.append(this.speedArc, this.speedValue, this.speedUnit, this.speedGear, nitro, dmg);
       this.vehicleName = el('div', 'hud-vehicle-name');
       this.vehicleMake = el('div', 'vn-make');
