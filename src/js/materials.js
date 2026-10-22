@@ -142,8 +142,8 @@
         float vhN = vhWNoise(vhRc * vec2(1.0, 1.0) + 7.0) * 0.65 + vhWNoise(vhRc * vec2(2.7, 1.6)) * 0.35;
         float vhBlob = smoothstep(0.5, 0.8, vhN);
         float vhHueN = vhWNoise(vhRc * vec2(0.8, 0.5) + 41.0);
-        vec3 vhHue = mix(vec3(1.0, 0.62, 0.3), vhHueN > 0.62 ? vec3(0.25, 0.7, 1.0) : vec3(1.0, 0.25, 0.5), smoothstep(0.42, 0.62, vhHueN));
-        totalEmissiveRadiance += vhHue * vhBlob * (0.1 + vhFres) * vhRefl * uWetGlow * 0.55 * exp(-vhDist * 0.012);
+        vec3 vhHue = mix(vec3(1.0, 0.64, 0.34), vhHueN > 0.62 ? vec3(0.4, 0.75, 1.0) : vec3(1.0, 0.42, 0.6), smoothstep(0.42, 0.62, vhHueN));
+        totalEmissiveRadiance += vhHue * vhBlob * (0.1 + vhFres) * vhRefl * uWetGlow * 0.45 * smoothstep(2.5, 22.0, vhDist) * exp(-vhDist * 0.012);
       }
     }
   `;
