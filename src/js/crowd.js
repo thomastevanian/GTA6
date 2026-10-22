@@ -23,7 +23,7 @@
   const { clamp, lerp, smoothstep, dampAngle } = VH.math;
 
   const MAX_RAGDOLLS = 14; // bodies simulated at once; any more just fall flat
-  const SLOTS = { skin: 0, hair: 1, top: 2, trim: 3, shirt: 4, bottom: 5, belt: 6, shoes: 7, sole: 8, dark: 9, stubble: 10, metal: 11, cap: 12, hairLong: 13, bag: 14 };
+  const SLOTS = { skin: 0, hair: 1, top: 2, trim: 3, shirt: 4, bottom: 5, belt: 6, shoes: 7, sole: 8, dark: 9, stubble: 10, metal: 11, cap: 12, bag: 14 };
   const JOINTS = ['pelvis', 'spine', 'neck', 'head', 'shoulderL', 'elbowL', 'shoulderR', 'elbowR', 'hipL', 'kneeL', 'ankleL', 'hipR', 'kneeR', 'ankleR'];
 
   // Looks. sRGB hex.
@@ -39,14 +39,37 @@
     const pick = (a) => a[Math.floor(r() * a.length)];
     const skin = pick(SKINS);
     const top = pick(TOPS);
-    return {
+    const longHair = r() < 0.38;
+    const look = {
       skin, hair: pick(HAIRS), top, trim: top, shirt: r() < 0.5 ? pick(TOPS) : top, bottom: pick(BOTTOMS), shoes: pick(SHOES),
-      cap: r() < 0.16, longHair: r() < 0.38, height: 0.93 + r() * 0.12, build: 0.92 + r() * 0.2,
+      cap: r() < 0.16, longHair, height: 0.93 + r() * 0.12, build: 0.92 + r() * 0.2,
     };
+    // Cut and style: women lean to long hair, skirts and dresses; men get beards, glasses, buzz cuts.
+    const k = r();
+    look.hairStyle = longHair ? (k < 0.18 ? 'pony' : k < 0.4 ? 'bob' : 'long') : k < 0.5 ? 'short' : k < 0.66 ? 'buzz' : k < 0.76 ? 'bald' : k < 0.84 ? 'pony' : k < 0.93 ? 'afro' : 'mohawk';
+    if (look.hairStyle === 'pony' && !longHair) look.hairStyle = 'short';
+    const o = r();
+    look.outfit = o < 0.3 ? 'tee' : o < 0.5 ? 'shirt' : o < 0.64 ? 'jacket' : o < 0.77 ? 'hoodie' : o < 0.89 ? 'polo' : 'tank';
+    const b = r();
+    look.bottomStyle = longHair && b < 0.45 ? 'skirt' : b > 0.82 ? 'shorts' : 'jeans';
+    const sh = r();
+    look.shoeStyle = sh < 0.6 ? 'sneaker' : sh < 0.8 ? 'dress' : 'boot';
+    if (!longHair) {
+      const f = r();
+      look.beard = f < 0.1 ? 'full' : f < 0.2 ? 'stubble' : false;
+      look.mustache = f > 0.96;
+    } else look.beard = false;
+    const g = r();
+    look.glasses = g < 0.1 ? true : g < 0.17 ? 'sun' : false;
+    if (look.cap) look.hat = r() < 0.2 ? 'beanie' : 'cap';
+    return look;
   }
 
   // ----------------------------------------------------- the crowd shader
   function patchCrowdShader(shader, depthOnly) {
+    // The slot colours, feature visibility and material response live with the
+    // geometry in humanoid.js (crowdShader).
+    const chunk = VH.Humanoid.crowdShader();
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', `#include <common>
         attribute float aSlot;
@@ -58,35 +81,22 @@
         attribute vec3 iBottom;
         attribute vec3 iShoes;
         attribute vec4 iStyle;
-        ${depthOnly ? '' : 'varying vec3 vCrowd;'}`)
+        ${chunk.common}
+        ${depthOnly ? '' : 'varying vec3 vCrowd; varying float vRough; varying float vMetal;'}`)
       .replace('#include <begin_vertex>', `#include <begin_vertex>
-        float slot = floor(aSlot + 0.5);
-        // Style parts only exist on instances that have them.
-        if ((slot == 12.0 && iStyle.x < 0.5) || (slot == 13.0 && iStyle.y < 0.5) || (slot == 14.0 && iStyle.z < 0.5)) transformed = vec3(0.0);
-        if (slot == 1.0 && iStyle.x > 0.5) transformed = vec3(0.0); // the cap replaces the hair cap
+        ${chunk.main}
         ${depthOnly ? '' : `
-        vec3 c = vec3(1.0);
-        if (slot == 0.0) c = iSkin;
-        else if (slot == 1.0 || slot == 13.0) c = iHair;
-        else if (slot == 2.0) c = iTop;
-        else if (slot == 3.0) c = iTop * 0.55;
-        else if (slot == 4.0) c = iShirt;
-        else if (slot == 5.0) c = iBottom;
-        else if (slot == 6.0) c = vec3(0.03, 0.025, 0.02);
-        else if (slot == 7.0) c = iShoes;
-        else if (slot == 8.0) c = vec3(0.35, 0.25, 0.14);
-        else if (slot == 9.0) c = vec3(0.01);
-        else if (slot == 10.0) c = iSkin * 0.8;
-        else if (slot == 11.0) c = vec3(0.3);
-        else if (slot == 12.0) c = iTop * 0.7 + vec3(0.02);
-        else if (slot == 14.0) c = iShoes * 0.5 + vec3(0.03);
-        vCrowd = c * aShade;`}`);
+        vCrowd = vhSlotColor(vhSlot) * (aShade * 1.08);
+        vRough = vhRough(vhSlot);
+        vMetal = vhMetal(vhSlot);`}`);
     if (!depthOnly) {
       if (VH.Humanoid && VH.Humanoid.nightFill) shader.uniforms.uNightFill = VH.Humanoid.nightFill;
       else shader.uniforms.uNightFill = { value: 0 };
       shader.fragmentShader = shader.fragmentShader
-        .replace('#include <common>', '#include <common>\nvarying vec3 vCrowd;\nuniform float uNightFill;')
+        .replace('#include <common>', '#include <common>\nvarying vec3 vCrowd;\nvarying float vRough;\nvarying float vMetal;\nuniform float uNightFill;')
         .replace('#include <color_fragment>', '#include <color_fragment>\n diffuseColor.rgb *= vCrowd;')
+        .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\n roughnessFactor = vRough;')
+        .replace('#include <metalnessmap_fragment>', '#include <metalnessmap_fragment>\n metalnessFactor = vMetal;')
         .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n totalEmissiveRadiance += diffuseColor.rgb * uNightFill;');
     }
   }
@@ -96,44 +106,26 @@
       this.max = max;
       this.scene = scene;
       this.meshes = [];
-      const template = new VH.Humanoid({}, { rigOnly: true });
-      this._addStyleParts(template);
-      template.root.updateMatrixWorld(true);
+      const blueprint = VH.Humanoid.crowdBlueprint();
       // Palette attributes shared by every joint mesh.
       const attr = (n) => new THREE.InstancedBufferAttribute(new Float32Array(max * n), n).setUsage(THREE.DynamicDrawUsage);
       this.pal = { iSkin: attr(3), iHair: attr(3), iTop: attr(3), iShirt: attr(3), iBottom: attr(3), iShoes: attr(3), iStyle: attr(4) };
       const mat = new THREE.MeshStandardMaterial({ roughness: 0.78, metalness: 0 });
       mat.onBeforeCompile = (sh) => patchCrowdShader(sh, false);
-      mat.customProgramCacheKey = () => 'vh-crowd';
+      mat.customProgramCacheKey = () => 'vh-crowd2';
       const depth = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
       depth.onBeforeCompile = (sh) => patchCrowdShader(sh, true);
-      depth.customProgramCacheKey = () => 'vh-crowd-depth';
+      depth.customProgramCacheKey = () => 'vh-crowd2-depth';
       this.material = mat;
       for (const name of JOINTS) {
-        const joint = template.joints[name] || (name === 'head' ? template.headGroup : null);
-        const parts = template.parts.filter((p) => this._jointOf(p, template) === name);
-        if (!parts.length) continue;
-        const geos = [];
-        for (const p of parts) {
-          p.stand.updateMatrix();
-          // Transform from the part to its joint (parts may sit under sub-groups).
-          const m = new THREE.Matrix4();
-          let o = p.stand;
-          while (o && o !== joint) {
-            o.updateMatrix();
-            m.premultiply(o.matrix);
-            o = o.parent;
-          }
-          const g = p.geo.index ? p.geo.toNonIndexed() : p.geo.clone();
-          g.applyMatrix4(m);
-          for (const key of Object.keys(g.attributes)) if (key !== 'position' && key !== 'normal') g.deleteAttribute(key);
-          const n = g.attributes.position.count;
-          const slot = SLOTS[p.slot] !== undefined ? SLOTS[p.slot] : 0;
-          g.setAttribute('aSlot', new THREE.BufferAttribute(new Float32Array(n).fill(slot), 1));
-          g.setAttribute('aShade', new THREE.BufferAttribute(new Float32Array(n).fill(1), 1));
-          geos.push(g);
-        }
-        const merged = CrowdRenderer.merge(geos);
+        const bp = blueprint[name];
+        if (!bp) continue;
+        const merged = new THREE.BufferGeometry();
+        merged.setAttribute('position', new THREE.BufferAttribute(bp.position, 3));
+        merged.setAttribute('normal', new THREE.BufferAttribute(bp.normal, 3));
+        merged.setAttribute('aSlot', new THREE.BufferAttribute(bp.aSlot, 1));
+        merged.setAttribute('aShade', new THREE.BufferAttribute(bp.aShade, 1));
+        merged.setIndex(new THREE.BufferAttribute(bp.index, 1));
         for (const k of Object.keys(this.pal)) merged.setAttribute(k, this.pal[k]);
         const mesh = new THREE.InstancedMesh(merged, mat, max);
         mesh.customDepthMaterial = depth;
@@ -147,55 +139,6 @@
         this.meshes.push({ name, mesh });
       }
       this.count = 0;
-    }
-
-    _jointOf(part, template) {
-      let o = part.parent;
-      while (o) {
-        if (JOINTS.includes(o.name)) return o.name;
-        if (o === template.headGroup) return 'head';
-        o = o.parent;
-      }
-      return 'pelvis';
-    }
-
-    /** Extra parts that only some people have: a cap, long hair, a shoulder bag. */
-    _addStyleParts(h) {
-      const head = h.headGroup;
-      const cap = new THREE.SphereGeometry(0.124, 16, 10, 0, Math.PI * 2, 0, Math.PI * 0.5);
-      cap.scale(0.95, 0.8, 1.02);
-      h._mesh(cap, 'cap', head, 0, 0.1, -0.005);
-      const brim = new THREE.CylinderGeometry(0.1, 0.1, 0.012, 12, 1, false, -Math.PI / 2, Math.PI);
-      brim.scale(1, 1, 1.5);
-      h._mesh(brim, 'cap', head, 0, 0.105, 0.1);
-      const longHair = new THREE.CylinderGeometry(0.11, 0.1, 0.22, 12, 1, true, Math.PI * 0.55, Math.PI * 0.9);
-      h._mesh(longHair, 'hairLong', head, 0, 0.0, -0.02);
-      const bag = new THREE.BoxGeometry(0.06, 0.28, 0.22);
-      h._mesh(bag, 'bag', h.joints.pelvis, 0.2, 0.02, 0.0);
-    }
-
-    static merge(geos) {
-      let total = 0;
-      for (const g of geos) total += g.attributes.position.count;
-      const pos = new Float32Array(total * 3);
-      const nor = new Float32Array(total * 3);
-      const slot = new Float32Array(total);
-      const shade = new Float32Array(total);
-      let o = 0;
-      for (const g of geos) {
-        const n = g.attributes.position.count;
-        pos.set(g.attributes.position.array, o * 3);
-        if (g.attributes.normal) nor.set(g.attributes.normal.array, o * 3);
-        slot.set(g.attributes.aSlot.array, o);
-        shade.set(g.attributes.aShade.array, o);
-        o += n;
-      }
-      const out = new THREE.BufferGeometry();
-      out.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-      out.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
-      out.setAttribute('aSlot', new THREE.BufferAttribute(slot, 1));
-      out.setAttribute('aShade', new THREE.BufferAttribute(shade, 1));
-      return out;
     }
 
     /** Write the visible agents into the instance buffers. */
@@ -221,7 +164,8 @@
           set(pal.iShirt, L.shirt);
           set(pal.iBottom, L.bottom);
           set(pal.iShoes, L.shoes);
-          pal.iStyle.setXYZW(i, L.cap ? 1 : 0, L.longHair ? 1 : 0, L.bag ? 1 : 0, 0);
+          VH.Humanoid.packStyle(VH.Humanoid.styleOf(L, a.faction), CrowdRenderer._st);
+          pal.iStyle.setXYZW(i, CrowdRenderer._st[0], CrowdRenderer._st[1], CrowdRenderer._st[2], CrowdRenderer._st[3]);
           a._slot = i;
           a._paletteDirty = false;
           this._palDirty = true;
@@ -249,6 +193,8 @@
       return c;
     }
   }
+
+  CrowdRenderer._st = [0, 0, 0, 0];
 
   // ------------------------------------------------------------- agents
   let nextId = 1;
@@ -381,9 +327,16 @@
         if (!(g.missions && g.missions.ejectDriver && g.missions.ejectDriver(v, e.side))) {
           if (v.isPolice && g.police) g.police.deployOfficers(v, 1);
           else {
-            const w = v.localToWorld((e.side || 1) * (v.hx + 1.1), v.hz * 0.1, {});
-            const a = this.spawn(w.x, w.z, { y: v.pos.y, heading: v.yaw + (e.side || 1) * Math.PI / 2 });
-            this._flee(a, v.pos.x, v.pos.z, 6 + Math.random() * 3);
+            // Hauled out of the seat and thrown clear: he lands in a heap by the door, then scrambles away.
+            const side = e.side || 1;
+            const seat = v.model && v.model.anchors && v.model.anchors.driverSeat;
+            const w = v.localToWorld(side * (v.hx - 0.15), seat ? seat.z : v.hz * 0.1, {});
+            const a = this.spawn(w.x, w.z, { y: v.pos.y + 0.3, heading: v.yaw + side * Math.PI / 2 });
+            const ox = side * Math.cos(v.yaw);
+            const oz = -side * Math.sin(v.yaw);
+            a.down = { t: 0, vx: ox * 4.6 + v.vel.x * 0.5, vy: 3.4, vz: oz * 4.6 + v.vel.z * 0.5, spin: (Math.random() - 0.5) * 5, rest: false, flip: 0 };
+            a.state = 'down';
+            a.grounded = false;
           }
         }
         this.threat(e.x, e.z, 14, 'jack');
@@ -739,6 +692,7 @@
 
       const cam = game.renderer.camera.position;
       const player = game.player;
+      const aim = this._aimRay(player);
       for (const a of this.agents) {
         const dist = Math.hypot(a.pos.x - cam.x, a.pos.z - cam.z);
         a.camDist = dist;
@@ -748,6 +702,7 @@
         else if (a.state === 'flee') this._fleeStep(a, dt);
         else if (a.walk) this._walkerStep(a, dt);
         else this._rejoinWalk(a);
+        if (!a.brain && a.state !== 'down' && !a.dead) this._aimReaction(a, dt, aim, player);
         if (a.state !== 'down') {
           this._move(a, dt);
           this._carCheck(a);
@@ -759,6 +714,59 @@
       this._separate(dt);
       if (player && !player.inVehicle) this._scareNearCars();
       this.renderer.draw(this.agents);
+    }
+
+    /** The camera ray when Jay is on foot with a gun raised (else null). */
+    _aimRay(player) {
+      const g = this.game;
+      if (!player || player.inVehicle || !player.aiming || player.state === 'dead' || !g.combat) return null;
+      const w = g.combat.weapon;
+      if (!w || w.kind === 'melee') return null;
+      const cam = g.renderer.camera;
+      if (!this._aim) this._aim = { x: 0, y: 0, z: 0, dx: 0, dy: 0, dz: 0 };
+      const r = this._aim;
+      cam.updateMatrixWorld();
+      cam.getWorldDirection(this._aimV || (this._aimV = new THREE.Vector3()));
+      r.x = cam.position.x; r.y = cam.position.y; r.z = cam.position.z;
+      r.dx = this._aimV.x; r.dy = this._aimV.y; r.dz = this._aimV.z;
+      return r;
+    }
+
+    /**
+     * People with a gun pointed at them freeze and put their hands up; if he
+     * lowers it they back away, and if he holds it on them for long they bolt.
+     */
+    _aimReaction(a, dt, aim, player) {
+      const an = a.anim;
+      let target = 0;
+      if (aim && a.state !== 'flee') {
+        const dx = a.pos.x - aim.x;
+        const dy = a.pos.y + 1.2 - aim.y;
+        const dz = a.pos.z - aim.z;
+        const d = Math.hypot(dx, dy, dz);
+        if (d < 20 && d > 0.8 && (dx * aim.dx + dy * aim.dy + dz * aim.dz) / d > 0.975) {
+          a.aimT = (a.aimT || 0) + dt;
+          target = 1;
+        }
+      }
+      if (target === 0) a.aimT = Math.max(0, (a.aimT || 0) - dt * 1.5);
+      const hold = (a.aimT || 0) > 0.3;
+      if (hold) {
+        a.scared = true;
+        a.moveSpeed = 0;
+        a.heading = dampAngle(a.heading, Math.atan2(player.pos.x - a.pos.x, player.pos.z - a.pos.z), 8, dt);
+        if (a.aimT > 7) {
+          a.aimT = 0;
+          this._flee(a, player.pos.x, player.pos.z, 6);
+        }
+      } else if (a.scared && (a.aimT || 0) <= 0) {
+        // He lowered the gun: they scatter.
+        a.scared = false;
+        if (an.handsUp > 0.4) this._flee(a, player.pos.x, player.pos.z, 5 + Math.random() * 3);
+      }
+      const want = hold ? 1 : 0;
+      an.handsUp += (want - an.handsUp) * Math.min(1, dt * 6);
+      if (an.handsUp < 0.01) an.handsUp = 0;
     }
 
     _move(a, dt) {
@@ -980,6 +988,7 @@
           beat: an.beat,
           beatN: an.beatN,
           dead: a.dead,
+          weaponPose: an.weaponPose,
         });
         a._animAcc = 0;
       }

@@ -38,3 +38,14 @@ Page exceptions fail the run. Always check there are no new `[pageerror]` / `[co
 - Keep per-frame allocations out of update loops; reuse temp vectors.
 - Anything heavy must respect the quality presets in `settings.js` (low/medium/high/ultra) and `effects: 'low'` (no post-processing).
 - New gameplay/visual features should degrade gracefully: wrap optional systems so a failure doesn't stop the game from booting.
+
+## People (`humanoid.js`)
+
+Everyone (Jay, pedestrians, cops, soldiers) is a `VH.Humanoid`: the same 14-joint rig, bodies built from smooth lofted
+parts (see the header of `humanoid.js`). A *look* is data; besides the colours (`skin hair top trim shirt bottom shoes`) it
+may carry `hairStyle` (bald short long buzz pony afro mohawk bob), `hat` (cap helmet beanie police bandana), `outfit`
+(tee shirt jacket hoodie tank cop soldier polo), `bottomStyle` (jeans shorts skirt), `shoeStyle` (sneaker boot dress),
+`beard`, `mustache`, `glasses` (`true` or `'sun'`), `tattoo`. Looks without them get a stable variety derived from their
+colours and the faction (`police`, `army`, anything else non-civilian = thug), see `Humanoid.styleOf`.
+Jay is built into a few vertex-coloured meshes; the crowd uploads the whole blueprint once (`Humanoid.crowdBlueprint`) and
+hides the features an instance lacks in the vertex shader (`Humanoid.crowdShader`). Face detail is only drawn within 24 m.

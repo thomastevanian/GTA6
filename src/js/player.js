@@ -102,6 +102,8 @@
       this.spawnPoint = { x: 0, y: 0.2, z: 0, yaw: Math.PI };
       this.vehicle = null; // the car Jay is driving (vehicles.js), or null
       this.enteringVehicle = false;
+      this.entry = null; // pose driver for the car door animations: { board, reach, pull }
+      this.visualLift = 0; // raises the model while he is climbing into a seat
       this.parachute = null; // { t, open } after jumping out of an aircraft
       this._canopy = null;
       this._knockT = 0;
@@ -736,8 +738,8 @@
       // Alive again by any route (a job retry, a checkpoint, bail, a teleport),
       // not only the hospital: stand up straight, don't keep the ragdoll's pose.
       if (this._ragdoll && this.state !== 'dead') this._clearRagdoll();
-      root.position.set(rp.x, rp.y + this._stepOffset, rp.z);
-      if (this.state === 'vehicle') {
+      root.position.set(rp.x, rp.y + this._stepOffset + (this.visualLift || 0), rp.z);
+      if (this.state === 'vehicle' && !this.entry) {
         root.visible = false;
         return rp;
       }
@@ -790,7 +792,7 @@
       const facingZ = Math.cos(this.heading);
       const backwards = this.aiming && (this.vel.x * facingX + this.vel.z * facingZ) < -0.3;
       this.model.animate(dt, {
-        speed: this.state === 'climb' ? 0 : hSpeed,
+        speed: this.entry && this.entry.speed !== undefined ? this.entry.speed : this.state === 'climb' ? 0 : hSpeed,
         grounded: this.grounded || this.state === 'climb',
         vy: this.vel.y,
         crouch: this.crouchAmount,
@@ -812,6 +814,10 @@
         recoil: this._recoil || 0,
         swing: this._meleeSwing || 0,
         handsUp: this.parachute && this.parachute.open ? 0.85 : 0,
+        // Getting into / out of a car or hauling a driver out (vehicles.js sets this.entry).
+        board: this.entry ? this.entry.board : undefined,
+        reach: this.entry ? this.entry.reach || 0 : 0,
+        pull: this.entry ? this.entry.pull || 0 : 0,
       });
       this._updateCanopy(dt);
       if (this._recoil > 0) this._recoil = Math.max(0, this._recoil - dt * 9);

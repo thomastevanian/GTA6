@@ -24,7 +24,11 @@
   'use strict';
 
   const VH = window.VH;
-  const { clamp, lerp, smoothstep } = VH.math;
+  const { clamp, lerp, smoothstep, lerpAngle } = VH.math;
+  // The animated door panel (entering and leaving a car): how far it swings, and its materials.
+  const DOOR_OPEN = 1.1;
+  const DOOR_LINER = new THREE.MeshStandardMaterial({ color: 0x2b2e33, roughness: 0.85, metalness: 0.1 });
+  const DOOR_GLASS = new THREE.MeshStandardMaterial({ color: 0x16212b, roughness: 0.08, metalness: 0.7, transparent: true, opacity: 0.62 });
 
   /** Street furniture a car ploughs through: minimum speed, speed kept, car damage. */
   const SMASH = {
@@ -69,6 +73,8 @@
       this.nitro = 0.6;
       this.player = game.player;
       this.entering = null;
+      this.exiting = null; // Jay climbing out of a car (see _exitStep)
+      this._doors = []; // door panels currently swinging
       this._hits = [];
       this._nearMiss = new Map();
       this._streamTimer = 0;
@@ -135,6 +141,8 @@
       const pv = this.playerVehicle;
       if (pv) this._playerControls(pv, dt);
       if (this.entering) this._enterStep(dt);
+      if (this.exiting) this._exitStep(dt);
+      if (this._doors.length) this._updateDoors(dt);
       for (const v of this.list) {
         if (v.controller && v.driver === 'ai' && !v.wrecked) v.controller.update(v, dt);
       }
@@ -580,17 +588,96 @@
       return v.localToWorld(side * lx, v.doorZ !== undefined ? v.doorZ : v.hz * 0.1, into);
     }
 
-    /** Start getting into a car (F). */
+    // ------------------------------------------------ doors (visual panels)
+    /**
+     * The car's own doors are part of its merged body, so for the entry and
+     * exit animations a separate painted door panel (with a window and a dark
+     * liner) swings open on the body's hinge side and closes again.
+     */
+    _canAnimate(v) {
+      return v.kind === 'car' && !v.flying && !v.removed && v.model && v.model.paintMesh && v.model.anchors && v.model.anchors.driverSeat;
+    }
+
+    _doorEntry(v, side, create) {
+      let d = this._doors.find((o) => o.v === v && o.side === side);
+      if (d || !create) return d;
+      const A = v.model.anchors;
+      const seat = A.driverSeat;
+      const len = clamp(v.hz * 2 * 0.26, 0.9, 1.35);
+      const sill = seat.y - 0.34;
+      const bottom = 0.3;
+      const lowerH = Math.max(0.25, sill - bottom + 0.05);
+      const glassH = clamp(Math.min(0.5, v.height - sill - 0.18), 0.22, 0.5);
+      const hingeZ = seat.z + len * 0.5 + 0.1;
+      const pivot = new THREE.Group();
+      pivot.position.set(side * (v.hx - 0.015), 0, hingeZ);
+      const lower = new THREE.Mesh(new THREE.BoxGeometry(0.07, lowerH, len), v.model.paintMesh.material);
+      lower.position.set(side * 0.035, bottom + lowerH / 2, -len / 2);
+      const liner = new THREE.Mesh(new THREE.BoxGeometry(0.03, lowerH - 0.06, len - 0.1), DOOR_LINER);
+      liner.position.set(-side * 0.012, bottom + lowerH / 2, -len / 2);
+      const glass = new THREE.Mesh(new THREE.BoxGeometry(0.04, glassH, len - 0.12), DOOR_GLASS);
+      glass.position.set(side * 0.02, bottom + lowerH + glassH / 2 - 0.02, -len / 2 + 0.03);
+      const handle = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.035, 0.16), DOOR_LINER);
+      handle.position.set(side * 0.085, bottom + lowerH - 0.07, -len * 0.78);
+      for (const m of [lower, liner, glass, handle]) {
+        m.castShadow = true;
+        pivot.add(m);
+      }
+      pivot.visible = false;
+      v.model.body.add(pivot);
+      d = { v, side, pivot, angle: 0, target: 0, parts: [lower, liner, glass, handle] };
+      this._doors.push(d);
+      return d;
+    }
+
+    /** How far Jay's feet are lifted when he sits: his hips on the seat, his head under the roof. */
+    _seatLift(v) {
+      const seat = v.model.anchors.driverSeat;
+      const hip = clamp(v.height - 0.95, 0.35, seat.y);
+      return Math.max(0, hip - 0.56);
+    }
+
+    _setDoor(v, side, open) {
+      if (!this._canAnimate(v)) return;
+      const d = this._doorEntry(v, side, open);
+      if (d) d.target = open ? 1 : 0;
+    }
+
+    _updateDoors(dt) {
+      for (let i = this._doors.length - 1; i >= 0; i--) {
+        const d = this._doors[i];
+        if (d.v.removed) {
+          this._doors.splice(i, 1);
+          continue;
+        }
+        const rate = d.target > d.angle ? 4.2 : 5.5;
+        d.angle = d.target > d.angle ? Math.min(d.target, d.angle + rate * dt) : Math.max(d.target, d.angle - rate * dt);
+        const k = d.angle * d.angle * (3 - 2 * d.angle);
+        d.pivot.rotation.y = -d.side * DOOR_OPEN * k;
+        d.pivot.visible = d.angle > 0.004;
+        if (d.target === 0 && d.angle <= 0.004) {
+          d.v.model.body.remove(d.pivot);
+          for (const m of d.parts) m.geometry.dispose();
+          this._doors.splice(i, 1);
+        }
+      }
+    }
+
+    // ----------------------------------------------------- getting in
+    /** Start getting into a car (F): walk to the door, open it, (haul the driver out,) climb in, shut it. */
     beginEnter(target) {
+      if (this.exiting || this.entering) return;
       const p = this.player;
       const v = target.v;
       const occupied = v.driver === 'ai';
+      const anim = this._canAnimate(v) && !(this.game.missions && this.game.missions.cinematic);
       this.entering = {
-        v, side: target.side, t: 0, phase: 'walk', jacked: occupied,
+        v, side: target.side, t: 0, phase: 'walk', jacked: occupied, anim, jackSent: false, doorShut: false,
         fromX: p.pos.x, fromZ: p.pos.z, toX: target.x, toZ: target.z,
       };
       p.frozen = true;
       p.enteringVehicle = true;
+      p.entry = anim ? { board: -1, reach: 0, pull: 0, speed: 0 } : null;
       if (occupied) {
         v.controller = v.controller && v.controller.onJacked ? v.controller.onJacked(v) || null : null;
         v.input.accel = 0;
@@ -605,42 +692,111 @@
       const p = this.player;
       const v = e.v;
       if (v.removed || v.wrecked) {
-        this.entering = null;
-        p.frozen = false;
-        p.enteringVehicle = false;
+        this._endEntry();
         return;
       }
       e.t += dt;
       // Keep the target door where the car is now.
       const door = this._doorPoint(v, e.side, 0.45, this._tmp);
+      const ease = (k) => k * k * (3 - 2 * k);
+      const en = p.entry;
+      if (!e.anim) {
+        // Aircraft and tanks: the plain, quick version.
+        if (e.phase === 'walk') {
+          const k = smoothstep(0, 0.32, e.t);
+          p.pos.x = lerp(e.fromX, door.x, k);
+          p.pos.z = lerp(e.fromZ, door.z, k);
+          p.heading = Math.atan2(v.pos.x - p.pos.x, v.pos.z - p.pos.z);
+          if (e.t >= 0.32) {
+            e.phase = e.jacked ? 'jack' : 'in';
+            e.t = 0;
+            VH.events.emit('vehicle:door', { v, open: true });
+            if (e.jacked) VH.events.emit('vehicle:jack', { v, side: e.side, x: door.x, z: door.z });
+          }
+        } else if (e.phase === 'jack') {
+          if (e.t >= 0.75) {
+            e.phase = 'in';
+            e.t = 0;
+          }
+        } else if (e.phase === 'in') {
+          if (e.t >= 0.22) this._finishEnter();
+        }
+        return;
+      }
+      const seat = v.model.anchors.driverSeat;
       if (e.phase === 'walk') {
-        const k = smoothstep(0, 0.32, e.t);
+        const dur = clamp(Math.hypot(e.fromX - door.x, e.fromZ - door.z) / 3.4, 0.2, 0.55);
+        const k = smoothstep(0, dur, e.t);
         p.pos.x = lerp(e.fromX, door.x, k);
         p.pos.z = lerp(e.fromZ, door.z, k);
         p.heading = Math.atan2(v.pos.x - p.pos.x, v.pos.z - p.pos.z);
-        if (e.t >= 0.32) {
+        en.speed = e.t < dur ? 3.4 : 0; // a walking gait while he crosses the pavement
+        if (e.t >= dur) {
+          e.phase = 'open';
+          e.t = 0;
+          this._setDoor(v, e.side, true);
+          VH.events.emit('vehicle:door', { v, open: true });
+        }
+      } else if (e.phase === 'open') {
+        p.pos.x = door.x;
+        p.pos.z = door.z;
+        p.heading = Math.atan2(v.pos.x - p.pos.x, v.pos.z - p.pos.z);
+        en.reach = ease(clamp(e.t / 0.2, 0, 1));
+        en.speed = 0;
+        if (e.t >= 0.24) {
           e.phase = e.jacked ? 'jack' : 'in';
           e.t = 0;
-          VH.events.emit('vehicle:door', { v, open: true });
-          if (e.jacked) VH.events.emit('vehicle:jack', { v, side: e.side, x: door.x, z: door.z });
         }
       } else if (e.phase === 'jack') {
-        if (e.t >= 0.75) {
+        // Both hands on the driver: grab, heave, and the driver goes flying.
+        en.pull = clamp(e.t / 0.85, 0, 1);
+        en.reach = Math.max(0, en.reach - dt * 6);
+        p.pos.x = door.x;
+        p.pos.z = door.z;
+        p.heading = Math.atan2(v.pos.x - p.pos.x, v.pos.z - p.pos.z);
+        if (!e.jackSent && e.t >= 0.34) {
+          e.jackSent = true;
+          VH.events.emit('vehicle:jack', { v, side: e.side, x: door.x, z: door.z });
+        }
+        if (e.t >= 0.85) {
           e.phase = 'in';
           e.t = 0;
+          en.pull = 0;
         }
       } else if (e.phase === 'in') {
-        if (e.t >= 0.22) this._finishEnter();
+        const dur = 0.55;
+        const k = clamp(e.t / dur, 0, 1);
+        const sw = v.localToWorld(seat.x, seat.z, this._tmp2);
+        const m = ease(smoothstep(0.1, 0.9, k));
+        p.pos.x = lerp(door.x, sw.x, m);
+        p.pos.z = lerp(door.z, sw.z, m);
+        p.heading = lerpAngle(p.heading, v.yaw, clamp(dt * 7, 0, 1));
+        en.reach = Math.max(0, en.reach - dt * 6);
+        en.board = ease(k);
+        p.visualLift = this._seatLift(v) * ease(smoothstep(0.2, 0.95, k));
+        if (!e.doorShut && k > 0.62) {
+          e.doorShut = true;
+          this._setDoor(v, e.side, false);
+        }
+        if (e.t >= dur) this._finishEnter();
       }
+    }
+
+    _endEntry() {
+      const p = this.player;
+      this.entering = null;
+      p.frozen = false;
+      p.enteringVehicle = false;
+      p.entry = null;
+      p.visualLift = 0;
     }
 
     _finishEnter() {
       const e = this.entering;
       const p = this.player;
       const v = e.v;
-      this.entering = null;
-      p.frozen = false;
-      p.enteringVehicle = false;
+      if (e.anim && !e.doorShut) this._setDoor(v, e.side, false);
+      this._endEntry();
       p.vehicle = v;
       p.state = 'vehicle';
       p.model.setVisible(false);
@@ -658,6 +814,53 @@
       }
       VH.events.emit('vehicle:door', { v, open: false });
       VH.events.emit('vehicle:enter', { v, jacked: e.jacked });
+    }
+
+    // ------------------------------------------------------ getting out
+    /** Jay climbs out of the seat, the door swings open and shuts behind him. */
+    _exitStep(dt) {
+      const x = this.exiting;
+      const p = this.player;
+      const v = x.v;
+      // Anything else took charge of Jay (a teleport, a job, another car): stop animating.
+      if (v.removed || p.vehicle || p.state !== 'ground' || Math.hypot(p.pos.x - x.lastX, p.pos.z - x.lastZ) > 1.5) {
+        this._endExit(false);
+        return;
+      }
+      x.t += dt;
+      const ease = (k) => k * k * (3 - 2 * k);
+      const dur = 0.62;
+      const k = clamp(x.t / dur, 0, 1);
+      const m = ease(smoothstep(0.15, 0.95, k));
+      p.pos.x = lerp(x.seat.x, x.spot.x, m);
+      p.pos.z = lerp(x.seat.z, x.spot.z, m);
+      p.pos.y = x.spot.y;
+      p.prevPos.copy(p.pos);
+      p.entry.board = 1 - ease(k);
+      p.entry.speed = k > 0.7 ? 1.6 * (k - 0.7) / 0.3 : 0;
+      p.visualLift = x.lift * (1 - ease(smoothstep(0.1, 0.8, k)));
+      p.heading = lerpAngle(p.heading, v.yaw + x.side * Math.PI / 2, clamp(dt * 8, 0, 1));
+      p.prevHeading = p.heading;
+      x.lastX = p.pos.x;
+      x.lastZ = p.pos.z;
+      if (!x.shut && k > 0.78) {
+        x.shut = true;
+        this._setDoor(v, x.side, false);
+        VH.events.emit('vehicle:door', { v, open: false });
+      }
+      if (k >= 1) this._endExit(true);
+    }
+
+    _endExit(done) {
+      const x = this.exiting;
+      const p = this.player;
+      this.exiting = null;
+      p.entry = null;
+      p.visualLift = 0;
+      p.frozen = false;
+      p.enteringVehicle = false;
+      if (x && !x.shut) this._setDoor(x.v, x.side, false);
+      if (done && x) p.teleport(x.spot.x, x.spot.z, p.heading, x.spot.y);
     }
 
     /** Get out (F). Bails out when moving fast. */
@@ -695,7 +898,22 @@
       v.persistent = !!(v.missionOwned || v.keep);
       p.state = 'ground';
       p.model.setVisible(true);
-      p.teleport(spot.x, spot.z, v.yaw + (fast ? 0 : Math.PI / 2), spot.y);
+      // Parked or crawling: climb out of the seat with the door swinging open (GTA style).
+      const lx = v.worldToLocal(spot.x, spot.z, {}).x;
+      const animate = !fast && v.speed < 2.5 && Math.abs(lx) > v.hx && this._canAnimate(v) && !(this.game.state !== 'playing') && !document.body.classList.contains('cutscene');
+      if (animate) {
+        const side = lx > 0 ? 1 : -1;
+        const seat = v.model.anchors.driverSeat;
+        const sw = v.localToWorld(seat.x, seat.z, {});
+        p.teleport(sw.x, sw.z, v.yaw, spot.y);
+        p.heading = p.prevHeading = v.yaw;
+        p.frozen = true;
+        p.enteringVehicle = true;
+        p.entry = { board: 1, reach: 0, pull: 0, speed: 0 };
+        p.visualLift = this._seatLift(v);
+        this.exiting = { v, side, t: 0, seat: sw, spot, lift: p.visualLift, shut: false, lastX: sw.x, lastZ: sw.z };
+        this._setDoor(v, side, true);
+      } else p.teleport(spot.x, spot.z, v.yaw + (fast ? 0 : Math.PI / 2), spot.y);
       if (fast) {
         // Bail out: tumble clear of the car, carrying some of its speed.
         p.vel.x = v.vel.x * 0.45 + Math.cos(v.yaw) * 3;

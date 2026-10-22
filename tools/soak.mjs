@@ -19,7 +19,7 @@ if (!html) {
 }
 html = path.resolve(html);
 const only = args.only && args.only !== true ? String(args.only).split(',') : ['weapons', 'vehicles', 'police', 'sky', 'places'];
-// 'missions' is opt-in (slow): --only missions
+// 'missions' and 'long' are opt-in (slow): --only missions / --only long
 
 const pwDir = [process.env.PLAYWRIGHT_DIR, '/opt/node-tools/node_modules/playwright'].filter(Boolean).find((d) => fs.existsSync(d));
 const { chromium } = pwDir ? await import(pathToFileURL(path.join(pwDir, 'index.mjs')).href) : await import('playwright');
@@ -91,7 +91,7 @@ if (only.includes('vehicles')) {
       if (!v) throw new Error('spawn returned nothing');
       const d = vs._doorPoint(v, 1, 0.5, {});
       vs.beginEnter({ v, side: 1, x: d.x, z: d.z });
-      g.advance(1.2);
+      g.advance(1.8);
       if (p.vehicle !== v && vs.entering && vs.entering.v === v) { vs.entering.phase = 'in'; vs._finishEnter(); } // big aircraft have their door elsewhere
       if (p.vehicle !== v) throw new Error('could not get in');
       v.input.accel = 1; v.input.steer = 0.3;
@@ -100,7 +100,7 @@ if (only.includes('vehicles')) {
       g.advance(2);
       for (const k of ['x', 'y', 'z']) if (!Number.isFinite(v.pos[k])) throw new Error('NaN position ' + k);
       g.renderOnce();
-      vs.exitVehicle(); g.advance(1);
+      vs.exitVehicle(); g.advance(1.2);
       v.damage && v.damage(99999, 'player', 'test'); g.advance(2);
       vs.remove(v); g.advance(0.2);
       return { speed: +v.speed.toFixed(1) };
@@ -148,6 +148,20 @@ if (only.includes('places')) {
       if (!Number.isFinite(g.player.pos.y)) throw new Error('NaN y');
       return { y: +g.player.pos.y.toFixed(1), fps: g.fps };
     }), [name, x, z]);
+  }
+}
+
+if (only.includes('long')) {
+  // Ten simulated minutes in town with the weather director running: look for exceptions and for things that only ever grow.
+  for (let i = 0; i < 10; i++) {
+    await run('long', (i) => window.__soak('minute ' + (i + 1), () => {
+      const g = VH.game;
+      if (i === 0) { g.player.teleport(0, -250, 0); g.settings.set('gameplay.weather', 'auto'); }
+      g.advance(60);
+      g.renderOnce();
+      const info = g.renderer.renderer.info;
+      return { scene: g.scene.children.length, geos: info.memory.geometries, tex: info.memory.textures, agents: g.crowd.agents.length, cars: g.vehicles.list.length, heap: performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) : 0 };
+    }), i);
   }
 }
 
