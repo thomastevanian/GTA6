@@ -340,7 +340,9 @@
       this.shadowMapSize = tier.mapSize;
       // Exponential fog reaching ~95% at the draw distance.
       const dd = this.settings.get('graphics.drawDistance');
-      this.scene.fog.density = 1.75 / dd;
+      this.baseFogDensity = 1.75 / dd;
+      this._fogAlt = -1; // force the altitude blend to be applied again
+      this.scene.fog.density = this.baseFogDensity;
       if (this.vhRenderer.post) this.vhRenderer.post.fogDensity = this.scene.fog.density;
     }
 
@@ -463,6 +465,15 @@
         this._envLast = now;
       }
 
+      // Seen from the air the haze thins out (most of it hugs the ground), so a
+      // pilot can see the city and the desert instead of a milky wall.
+      const alt = this.vhRenderer.camera.position.y;
+      if (Math.abs(alt - this._fogAlt) > 2 && this.baseFogDensity) {
+        this._fogAlt = alt;
+        const k = 1 - 0.6 * smoothstep(25, 380, alt);
+        this.scene.fog.density = this.baseFogDensity * k;
+        if (this.vhRenderer.post) this.vhRenderer.post.fogDensity = this.scene.fog.density;
+      }
       this.sky.position.copy(focus);
       if (this.sun.castShadow) this._placeShadow(focus);
       else {

@@ -76,11 +76,11 @@ for (const s of scenario) {
     g.advance(s.settle === undefined ? 1.5 : s.settle);
     if (s.cam) {
       g.world.update(1, new THREE.Vector3(...s.cam.pos));
-      g.environment.update(0, p.renderPos);
       const cam = g.renderer.camera;
       cam.position.set(...s.cam.pos); cam.lookAt(...s.cam.look);
       if (s.cam.fov) { cam.fov = s.cam.fov; cam.updateProjectionMatrix(); }
       cam.updateMatrixWorld(true);
+      g.environment.update(0, p.renderPos);
       g.renderer.render(g.scene, 1 / 60); // twice: the first primes temporal effects (motion blur)
       g.renderer.render(g.scene, 1 / 60);
     } else { g.renderOnce(); g.renderOnce(); }
