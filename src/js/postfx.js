@@ -250,6 +250,8 @@
     uniform float uSharpen;
     uniform float uFringe;
     uniform float uBlur;
+    uniform float uDof;
+    uniform float uFocus;
     uniform mat4 uReproj;
     varying vec2 vUv;
 
@@ -284,8 +286,37 @@
       bool isSky = depth > SKY_DEPTH;
       vec3 scene = texture2D(tScene, vUv).rgb;
 
+      // Depth of field (photo mode): a golden-angle gather whose radius follows
+      // how far each pixel is from the focus distance.
+      if (uDof > 0.0) {
+        float dist0 = isSky ? 4000.0 : -viewPosAt(vUv, depth).z;
+        float coc = clamp(abs(dist0 - uFocus) / max(dist0, 1.0) * uDof, 0.0, 1.0);
+        if (coc > 0.015) {
+          vec3 acc = scene;
+          float wsum = 1.0;
+          float rad = coc * 0.015;
+          float rot = hash(gl_FragCoord.xy) * 6.2831853;
+          for (int i = 1; i <= 20; i++) {
+            float fi = float(i);
+            float r = sqrt(fi / 20.0);
+            float a = fi * 2.399963 + rot;
+            vec2 suv = vUv + vec2(cos(a) * uResolution.y / uResolution.x, sin(a)) * r * rad;
+            float sd = texture2D(tDepth, suv).x;
+            float sdist = sd > SKY_DEPTH ? 4000.0 : -viewPosAt(suv, sd).z;
+            float scoc = clamp(abs(sdist - uFocus) / max(sdist, 1.0) * uDof, 0.0, 1.0);
+            // Sharp things in front of the blur don't smear into it; bright points bloom out.
+            float w = (sdist < dist0 ? min(1.0, scoc / max(coc, 0.02)) : 1.0) + 0.0001;
+            vec3 s = texture2D(tScene, suv).rgb;
+            w *= 1.0 + max(0.0, luma3(s) - 1.5) * 0.5;
+            acc += s * w;
+            wsum += w;
+          }
+          scene = acc / wsum;
+        }
+      }
+
       // Motion blur: smear along the screen-space velocity of this pixel.
-      if (uBlur > 0.0) {
+      if (uBlur > 0.0 && uDof <= 0.0) {
         vec4 cur = vec4(vUv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
         vec4 prev = uReproj * cur;
         vec2 vel = (cur.xy - prev.xy / prev.w) * 0.5 * uBlur;
@@ -301,7 +332,7 @@
       }
 
       // Sharpen (contrast-adaptive: never overshoots the neighbourhood).
-      if (uSharpen > 0.0) {
+      if (uSharpen > 0.0 && uDof <= 0.0) { // (the clamp to the sharp neighbours would undo a blur)
         vec2 px = 1.0 / uResolution;
         vec3 n0 = texture2D(tScene, vUv + vec2(px.x, 0.0)).rgb;
         vec3 n1 = texture2D(tScene, vUv - vec2(px.x, 0.0)).rgb;
@@ -317,8 +348,9 @@
       if (uFringe > 0.0) {
         vec2 dir = (vUv - 0.5);
         vec2 off = dir * dot(dir, dir) * uFringe;
-        scene.r = texture2D(tScene, vUv + off).r;
-        scene.b = texture2D(tScene, vUv - off).b;
+        // Added as a difference so it also works on top of a blurred base (DoF, motion blur).
+        scene.r += texture2D(tScene, vUv + off).r - texture2D(tScene, vUv).r;
+        scene.b += texture2D(tScene, vUv - off).b - texture2D(tScene, vUv).b;
       }
 
       // Ambient occlusion darkens creases and contact points.
@@ -442,6 +474,8 @@
       this.shafts = false;
       this.motionBlur = 0;
       this.lens = false;
+      this.dofAmount = 0; // set by photo mode: 0 = off
+      this.dofFocus = 20; // metres
       this._prevVP = new THREE.Matrix4();
       this._havePrev = false;
       this._vp = new THREE.Matrix4();
@@ -493,7 +527,7 @@
         uAOAmount: { value: 0 }, uShafts: { value: 0 }, uHaze: { value: 0 }, uFogDensity: { value: 0.0015 },
         uSunColor: { value: new THREE.Vector3(1, 1, 1) }, uSunViewDir: { value: new THREE.Vector3(0, 0, -1) },
         uSunUV: { value: new THREE.Vector2(0.5, 0.5) }, uFlare: { value: 0 }, uSharpen: { value: 0 },
-        uFringe: { value: 0 }, uBlur: { value: 0 },
+        uFringe: { value: 0 }, uBlur: { value: 0 }, uDof: { value: 0 }, uFocus: { value: 20 },
       });
       this.fxaaMat = mat(FXAA_FRAGMENT, { tSrc: { value: null }, uResolution: { value: new THREE.Vector2(1, 1) } });
       this.aoMat = null;
@@ -720,8 +754,10 @@
         c.uShafts.value = this.sunAmount * Math.min(1, facing * 1.6) * 0.45;
       }
       c.uFlare.value = this.lens && sunOn && sunUvX > -0.2 && sunUvX < 1.2 && sunUvY > -0.2 && sunUvY < 1.2 ? this.sunAmount * Math.min(1, facing * 2.0) * 0.22 : 0;
+      c.uDof.value = this.dofAmount;
+      c.uFocus.value = this.dofFocus;
       c.uSharpen.value = this.lens ? 0.35 : 0;
-      c.uFringe.value = this.lens ? 0.012 : 0;
+      c.uFringe.value = this.lens ? 0.006 : 0;
 
       // Motion blur from how far the camera moved since the last frame. A cut
       // (teleport, respawn, a new cutscene shot) must not smear the old view in.

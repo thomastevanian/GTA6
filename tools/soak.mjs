@@ -19,6 +19,7 @@ if (!html) {
 }
 html = path.resolve(html);
 const only = args.only && args.only !== true ? String(args.only).split(',') : ['weapons', 'vehicles', 'police', 'sky', 'places'];
+// 'missions' is opt-in (slow): --only missions
 
 const pwDir = [process.env.PLAYWRIGHT_DIR, '/opt/node-tools/node_modules/playwright'].filter(Boolean).find((d) => fs.existsSync(d));
 const { chromium } = pwDir ? await import(pathToFileURL(path.join(pwDir, 'index.mjs')).href) : await import('playwright');
@@ -147,6 +148,27 @@ if (only.includes('places')) {
       if (!Number.isFinite(g.player.pos.y)) throw new Error('NaN y');
       return { y: +g.player.pos.y.toFixed(1), fps: g.fps };
     }), [name, x, z]);
+  }
+}
+
+if (only.includes('missions')) {
+  const ids = await page.evaluate(() => Array.from(VH.game.missions.all.keys()));
+  console.log(`missions (${ids.length})`);
+  for (const id of ids) {
+    await run('mission', (id) => window.__soak(id, () => {
+      const g = VH.game, m = g.missions.all.get(id);
+      g.police.reset();
+      g.missions.start(m);
+      g.advance(8);
+      const run = g.missions.run;
+      const info = { running: !!run, step: run && (run.stepIndex !== undefined ? run.stepIndex : run.i) };
+      g.missions._abort = null; g.missions.cinematic = null; g.dialogue.stop();
+      document.body.classList.remove('cutscene'); g.player.frozen = false; g.frozenControls = false;
+      if (run) { g.missions._clearWaiters(run); g.missions._pass(run); }
+      g.advance(2);
+      g.missions.reset && 0;
+      return info;
+    }), id);
   }
 }
 

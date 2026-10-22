@@ -22,8 +22,8 @@
   const VH = window.VH;
   const FIXED_DT = 1 / 60;
   // World systems constructed after the club, in this order (each optional):
-  // stores.js, airfield.js, fort.js, area51.js, horizon.js, ambient.js.
-  const WORLD_SYSTEMS = ['Stores', 'Airfield', 'Fort', 'Area51', 'Horizon', 'Ambient'];
+  // stores.js, airfield.js, fort.js, area51.js, horizon.js, photo.js, ambient.js.
+  const WORLD_SYSTEMS = ['Stores', 'Airfield', 'Fort', 'Area51', 'Horizon', 'PhotoMode', 'Ambient'];
   const SEEN_KEY = 'vicehaven.seen.map-v1.1'; // set once the player has opened the new map
   const CDN_THREE = 'https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js';
 
@@ -33,6 +33,7 @@
     'Tip: Crouch is a toggle — tap Ctrl or C.',
     'Tip: Scroll the mouse wheel to move the camera closer or further away.',
     'Tip: F8 opens the developer overlay with FPS and a command console.',
+    'Tip: F9 opens photo mode: a free camera with depth of field, time of day and colour looks, and Enter saves the picture.',
     'Vicehaven: 312 days of sunshine a year. The other 53 are complicated.',
     'Tip: Settings → Graphics → Quality "Low" helps on older laptops.',
     'Harbor Point hotels offer a sea view, a pool and absolutely no questions.',
