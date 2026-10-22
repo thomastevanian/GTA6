@@ -727,7 +727,7 @@
       if (!this.wheel || !this.wheel.isOpen) return;
       const g = this.game;
       const pick = this.wheel.close();
-      g.input.wantDeltas = false;
+      g.input.wheelOpen = false;
       if (this._wheelSlow) {
         g._slowT = 0; // time speeds back up on its own
         this._wheelSlow = false;
@@ -741,35 +741,44 @@
       const p = g.player;
       if (!this.wheel) return;
       const holding = inp.down('weaponWheel') && g.state === 'playing' && p.state !== 'dead';
-      inp.wantDeltas = holding; // steer the wheel with the mouse even before the pointer is locked
-      if (holding && !this.wheel.isOpen) {
-        for (const k of ['moveRight', 'moveLeft', 'moveForward', 'moveBack']) inp.discard(k); // old key presses must not spin the wheel
-        for (let i = 1; i <= 8; i++) inp.discard('weapon' + i);
-        inp.takeMouseDelta();
-        inp.takeWheel();
+      if (!holding) this._wheelLatch = false; // a click-equip keeps it shut until Tab is let go
+      if (holding && !this.wheel.isOpen && !this._wheelLatch) {
         this._cancelActions(); // a cooked grenade can't wait while you browse
         this.wheel.open(this.wheelState());
+        inp.wheelOpen = true; // input.js: follow the mouse even when it isn't captured
+        for (const a of ['moveLeft', 'moveRight', 'moveForward', 'moveBack', 'fire', 'weapon1', 'weapon2', 'weapon3', 'weapon4', 'weapon5', 'weapon6', 'weapon7', 'weapon8']) inp.discard(a);
+        inp.takeMouseDelta();
+        inp.takeWheel();
         // Slow motion for the wheel, whatever the cinematic slow-mo setting says: it is a gameplay feature.
         g._slowT = 9999;
         g.timeScale = Math.min(g.timeScale, 0.25);
         this._wheelSlow = true;
       } else if (this.wheel.isOpen) {
-        if (holding) {
+        // A click on the wheel equips the highlighted weapon at once.
+        const clicked = holding && inp.consume('fire');
+        if (holding && !clicked) {
           // The camera ignores the mouse while the wheel is open; the wheel gets it.
           const md = inp.takeMouseDelta();
           if (md.x || md.y) this.wheel.move(md.x, md.y);
           const wheelNotches = inp.takeWheel();
           if (wheelNotches) this.wheel.cycle(Math.sign(wheelNotches));
-          // Keys: A / D (or the arrows) turn the wheel, W / S pick a weapon within the slot, 1-8 jump to a slot.
-          if (inp.consume('moveRight')) this.wheel.step(1);
-          if (inp.consume('moveLeft')) this.wheel.step(-1);
-          if (inp.consume('moveForward')) this.wheel.cycle(1);
-          if (inp.consume('moveBack')) this.wheel.cycle(-1);
-          for (let i = 1; i <= 8; i++) if (inp.consume('weapon' + i)) this.wheel.setSlot(i - 1);
           const pad = inp.pad;
           if (pad && pad.connected && (Math.abs(pad.look.x) > 0.3 || Math.abs(pad.look.y) > 0.3)) this.wheel.stick(pad.look.x, pad.look.y);
-        } else this.closeWheel(false);
+          // Keys: A/D (or the arrows) step round the wheel, W/S pick a weapon within the slot, 1-8 jump to a slot.
+          if (inp.consume('moveLeft')) this.wheel.step(-1);
+          if (inp.consume('moveRight')) this.wheel.step(1);
+          if (inp.consume('moveForward')) this.wheel.cycle(1);
+          if (inp.consume('moveBack')) this.wheel.cycle(-1);
+          for (let i = 1; i <= 8; i++) if (inp.consume('weapon' + i)) this.wheel.pick(i - 1);
+        } else {
+          if (clicked) {
+            inp.discard('fire'); // that click was for the wheel, not a shot
+            this._wheelLatch = true;
+          }
+          this.closeWheel(false);
+        }
       }
+      if (!this.wheel.isOpen) inp.wheelOpen = false; // closed some other way (pause, death)
     }
 
     /**
@@ -1839,7 +1848,14 @@
         this.mags.clear();
         this.holes.clear();
       }
-      if (data === null) this.starterKit(); // a brand new game (main.js newGame passes null)
+      // A brand new game (main.js newGame passes null), or a save from before the starter kit existed
+      // (nothing but fists): hand over the kit.
+      const firearms = Object.keys(this.inventory).filter((id) => {
+        const w = def(id);
+        return w && w.kind !== 'melee' && id !== 'fists';
+      });
+      if (data === null || firearms.length === 0) this.starterKit();
+      if (data === null) this.current = 'pistol';
       const w = def(this.current);
       if (w) this.lastBySlot[w.slot] = w.id;
       this._attachModel();
