@@ -2632,9 +2632,9 @@
         ctx.rect('left', 0, 0.255, 1.9, 0.05, { round: 0.5, color: 0x101113, rm: RM.satin, nu: 8, off: 0.003, thick: 0.01, mirror: true });
         ctx.rect('left', 0.02, 0.29, 1.9, 0.01, { color: 0xc0121b, rm: RM.gloss, nu: 8, off: 0.006, mirror: true, lod0: true });
         ctx.mirrors(0.6, 0.97, { color: 0x111214, sy: 0.085, sz: 0.15 });
-        const y = ctx.roofY(-1.76, 0);
-        ctx.box('paint', 0, y + 0.02, -1.84, 1.3, 0.05, 0.24, 0.02, 'body', null, { rx: 0.2 });
-        ctx.box('paint', 0.66, y - 0.02, -1.84, 0.03, 0.12, 0.22, 0.01, 'body', null, { mirror: true, lod0: true });
+        const y = ctx.roofY(-1.5, 0);
+        ctx.box('paint', 0, y + 0.02, -1.62, 1.3, 0.05, 0.24, 0.02, 'body', null, { rx: 0.2 });
+        ctx.box('paint', 0.66, y - 0.02, -1.62, 0.03, 0.12, 0.22, 0.01, 'body', null, { mirror: true, lod0: true });
       },
     };
   })();
