@@ -555,6 +555,7 @@
         const holding = inp.down('weaponWheel') && g.state === 'playing' && p.state !== 'dead';
         if (holding && !this.wheel.isOpen) {
           this.wheel.open(this.wheelState());
+          inp.wheelOpen = true; // input.js: follow the mouse even when it isn't captured
           g.slowmo(9999, 0.25);
           this._wheelSlow = true;
         } else if (this.wheel.isOpen) {
@@ -568,6 +569,7 @@
             if (pad && pad.connected && (Math.abs(pad.look.x) > 0.3 || Math.abs(pad.look.y) > 0.3)) this.wheel.stick(pad.look.x, pad.look.y);
           } else {
             const pick = this.wheel.close();
+            inp.wheelOpen = false;
             if (this._wheelSlow) {
               g._slowT = 0;
               this._wheelSlow = false;
@@ -576,6 +578,7 @@
           }
         }
       }
+      if (this.wheel && !this.wheel.isOpen) inp.wheelOpen = false; // closed some other way (pause, death)
       for (let i = 1; i <= 8; i++) {
         if (inp.consume('weapon' + i)) {
           const slot = SLOT_ORDER[i - 1];
@@ -1083,7 +1086,13 @@
         for (const id of Object.keys(data.inventory)) this.inventory[id] = data.inventory[id];
       }
       this.current = data && data.current && this.inventory[data.current] ? data.current : 'fists';
-      if (data === null) this.starterKit(); // a brand new game (main.js newGame passes null)
+      // A brand new game (main.js newGame passes null), or a save from before
+      // the starter kit existed (nothing but fists): hand over the kit.
+      const firearms = Object.keys(this.inventory).filter((id) => {
+        const w = def(id);
+        return w && w.kind !== 'melee' && id !== 'fists';
+      });
+      if (data === null || firearms.length === 0) this.starterKit();
       this._attachModel();
     }
 

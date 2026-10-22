@@ -196,7 +196,8 @@
     }
 
     _onMouseMove(e) {
-      if (!this.locked) return;
+      // The weapon wheel works without the mouse captured too (its selection follows the mouse).
+      if (!this.locked && !(this.wheelOpen && this.enabled)) return;
       if (this._ignoreMouseUntil && performance.now() < this._ignoreMouseUntil) return;
       // Some drivers report a huge spurious jump right after locking; clamp it.
       const dx = clamp(e.movementX || 0, -300, 300);
