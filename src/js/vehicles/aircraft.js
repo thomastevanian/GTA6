@@ -6,7 +6,9 @@
  * and the radar all just work; this file adds what a car hasn't got.
  *
  *   Plane  skylark (a light high-wing four-seater), albatross (a twin-jet
- *          airliner), talon (a fighter jet with a cannon and missiles).
+ *          airliner), talon (a fighter jet with a cannon and missiles),
+ *          kestrel (a WWII-style warbird with guns and rockets), bison (a
+ *          rugged single-engine cargo transport).
  *          Arcade flight: the nose follows the mouse (the view is where the
  *          plane goes), or fly it on the keys. W/S throttle, A/D roll (steer
  *          on the ground), Space/Ctrl pull up/push down, Shift afterburner.
@@ -80,6 +82,30 @@
         voice: 'jet', voiceRef: 40,
         weapons: { gunRate: 16, gunDamage: 30, gunRange: 320, gunSound: 'rifle', guns: [[0.75, 1.9, 5.5], [-0.75, 1.9, 5.5]], rocketCool: 1.1, rocketSpeed: 150, rocketBlast: 9, rocketDamage: 300, rockets: [[3, 1.3, -0.6], [-3, 1.3, -0.6]] },
         probes: [[0, 1.8, 8], [5, 1.7, -3.8], [-5, 1.7, -3.8], [1.4, 4.5, -7], [-1.4, 4.5, -7], [0, 1.8, -8]],
+      },
+    },
+    kestrel: {
+      kind: 'plane', name: 'Kestrel F1', make: 'Breakwater Arsenal', cls: 'plane', length: 10, width: 1.4, height: 3.3, mass: 3500, seats: 1,
+      palette: [0x5f6f3a, 0x9aa1a8, 0xb89a4a, 0x2f4f86],
+      military: true,
+      air: {
+        span: 11, stall: 30, top: 112, thrust: 8.5, pitchRate: 1.6, rollRate: 3.2, yawRate: 0.7, turnK: 2.8, align: 3.4,
+        taxiTurn: 0.9, rollRes: 0.32, brakeDecel: 5.5, crashVs: 6.5, crashSpeed: 24, fixedGear: true,
+        camDist: 17, camLift: 1.8, camUp: 1.3, cockpit: { z: 0.4, y: 2.15 }, doorZ: 0.8,
+        voice: 'prop', voiceRef: 30,
+        weapons: { gunRate: 14, gunDamage: 22, gunRange: 280, gunSound: 'rifle', guns: [[2.3, 1.12, 1.8], [-2.3, 1.12, 1.8]], rocketCool: 1.4, rocketSpeed: 130, rocketBlast: 8, rocketDamage: 250, rockets: [[3.7, 0.95, 0.3], [-3.7, 0.95, 0.3]] },
+        probes: [[0, 1.25, 4.6], [5.5, 1.15, -0.5], [-5.5, 1.15, -0.5], [0, 3.0, -4.7], [0, 1.3, -5.0], [0, 2.1, 0.4]],
+      },
+    },
+    bison: {
+      kind: 'plane', name: 'Bison C1', make: 'Meridian Aero', cls: 'plane', length: 19, width: 3.4, height: 6.4, mass: 14000, seats: 14,
+      palette: [0x4b5320, 0xd8d6cc, 0xc4561f, 0x2a6a3a],
+      air: {
+        span: 22, stall: 30, top: 82, thrust: 5.4, pitchRate: 0.7, rollRate: 1.1, yawRate: 0.3, turnK: 1.9, align: 2.4,
+        taxiTurn: 0.55, rollRes: 0.3, brakeDecel: 3.6, crashVs: 5.5, crashSpeed: 22, rotateMax: 0.15, fixedGear: true,
+        camDist: 36, camLift: 4.5, camUp: 3, cockpit: { z: 6.8, y: 3.1 }, doorZ: 3.2,
+        voice: 'prop', voiceRef: 34,
+        probes: [[0, 2.0, 9.4], [11, 4.0, 0.8], [-11, 4.0, 0.8], [0, 6.2, -9.0], [0, 2.0, -9.6], [2.2, 0.8, 1.0], [-2.2, 0.8, 1.0]],
       },
     },
     sparrow: {
@@ -336,6 +362,106 @@
         kit: k, glass: gl, gear,
         lights: [['red', 5.0, 1.65, -4.0, 0.08], ['green', -5.0, 1.65, -4.0, 0.08]],
         burner: [0, 1.8, -8.45],
+      };
+    },
+    kestrel(c) {
+      const k = new Kit();
+      const gl = new Kit();
+      const belly = 0xcfd3d6;
+      const roundel = (x, z) => {
+        const ring = (r, col, y) => k.slab(Array.from({ length: 12 }, (_, i) => [x + Math.cos(i * Math.PI / 6) * r, z + Math.sin(i * Math.PI / 6) * r]), y, y + 0.012, col);
+        ring(0.5, 0x1d4fb8, 1.152);
+        ring(0.3, 0xf1f2ef, 1.165);
+        ring(0.14, 0xc8262e, 1.178);
+      };
+      // Fuselage, raised rear deck and the belly in a paler colour.
+      k.lathe([[0.04, -5.0], [0.17, -4.6], [0.33, -3.3], [0.5, -1.7], [0.62, -0.2], [0.64, 1.2], [0.6, 2.4], [0.54, 3.3], [0.5, 3.8], [0.04, 3.9]], 16, 0, 1.25, 0, c, 1, 1.05);
+      k.box(0.78, 0.26, 2.2, 0, 1.82, -1.4, c);
+      k.box(0.6, 0.12, 5.6, 0, 0.72, -0.6, belly);
+      // Cockpit glass: bubble canopy and a raked windscreen.
+      gl.sphere(1, 0.4, 0.36, 1.25, 0, 1.92, 0.15, 0x000000);
+      gl.box(0.72, 0.36, 0.5, 0, 1.96, 1.45, 0x000000, -0.6);
+      // Radial engine cowling, spinner and exhaust stacks.
+      k.cyl(0.72, 0.66, 0.85, 18, 0, 1.25, 3.85, 0x3a3f45);
+      k.cyl(0.62, 0.72, 0.14, 18, 0, 1.25, 4.34, GREY);
+      k.sphere(0.26, 1, 1, 1.4, 0, 1.25, 4.5, c, 10, 8);
+      for (const s of [1, -1]) for (const z of [3.4, 3.65, 3.9]) k.box(0.1, 0.1, 0.18, s * 0.55, 1.05, z, 0x2a2a2a);
+      // Low wings with gun barrels, wheel bulges and tip colour.
+      for (const s of [1, -1]) {
+        k.slab([[s * 0.5, 1.2], [s * 0.5, -0.9], [s * 5.4, -1.1], [s * 5.55, -0.3]], 1.0, 1.14, c);
+        k.slab([[s * 4.7, -1.05], [s * 5.4, -1.1], [s * 5.55, -0.3], [s * 4.8, -0.25]], 1.0, 1.145, 0xf2c500);
+        k.slab([[s * 0.5, 1.2], [s * 0.5, -0.9], [s * 2.6, -0.95], [s * 2.6, 1.0]], 0.92, 1.0, belly);
+        k.cyl(0.035, 0.035, 1.2, 6, s * 2.3, 1.12, 1.3, DARK);
+        k.cyl(0.035, 0.035, 1.2, 6, s * 2.55, 1.12, 1.25, DARK);
+        k.cyl(0.07, 0.07, 1.4, 6, s * 3.7, 0.9, 0.3, GREY);
+        roundel(s * 3.4, -0.35);
+      }
+      // Tail: stabilisers, fin and rudder.
+      k.slab([[-1.7, -4.95], [1.7, -4.95], [1.35, -3.85], [-1.35, -3.85]], 1.34, 1.43, c);
+      k.slab([[-3.7, 1.4], [-4.5, 1.4], [-5.05, 2.95], [-4.45, 3.0]], -0.045, 0.045, c, 'zy');
+      k.slab([[-4.5, 1.4], [-5.0, 1.4], [-5.15, 2.9], [-5.05, 2.95]], -0.05, 0.05, belly, 'zy');
+      // Fixed main gear and a tail wheel.
+      for (const s of [1, -1]) {
+        k.strut([s * 1.3, 1.0, 0.6], [s * 1.5, 0.34, 0.8], 0.055, GREY);
+        k.cyl(0.34, 0.34, 0.2, 12, s * 1.5, 0.34, 0.8, RUBBER, 0, Math.PI / 2);
+      }
+      k.strut([0, 1.1, -4.4], [0, 0.22, -4.6], 0.04, GREY);
+      k.cyl(0.18, 0.18, 0.1, 10, 0, 0.2, -4.6, RUBBER, 0, Math.PI / 2);
+      // The propeller: two crossed pairs of blades.
+      const prop = new Kit();
+      prop.box(0.15, 2.5, 0.05, 0, 0, 0, DARK);
+      prop.box(2.5, 0.15, 0.05, 0, 0, 0, DARK, 0, 0, 0.0);
+      prop.cyl(0.14, 0.14, 0.14, 8, 0, 0, 0, GREY);
+      return {
+        kit: k, glass: gl,
+        lights: [['red', 5.5, 1.14, -0.6, 0.07], ['green', -5.5, 1.14, -0.6, 0.07], ['white', 0, 3.0, -5.05, 0.06]],
+        strobe: [0, 3.1, -4.9],
+        prop: { kit: prop, at: [0, 1.25, 4.62], disc: 1.25 },
+      };
+    },
+    bison(c) {
+      const k = new Kit();
+      const gl = new Kit();
+      const pale = 0xd8d6cc;
+      // A deep, slab-sided hold, a tapering tail boom and a big nose engine.
+      k.lathe([[0.06, -9.8], [0.35, -9.4], [0.8, -7.6], [1.35, -4.6], [1.7, -1.8], [1.72, 5.2], [1.55, 7.0], [1.3, 8.0], [0.9, 8.6], [0.06, 8.9]], 18, 0, 2.15, 0, pale, 1, 1.0);
+      k.box(1.78, 0.45, 15, 0, 2.55, 0, c); // the cheat line
+      k.box(1.5, 0.9, 1.1, 0, 1.0, -7.4, c, 0.3); // the rear loading ramp
+      // Cockpit and cabin glass.
+      gl.box(1.5, 0.62, 1.7, 0, 3.15, 6.5, 0x000000, -0.45);
+      gl.box(1.76, 0.4, 7.5, 0, 2.95, 0.8, 0x000000);
+      // Engine, cowl and spinner.
+      k.cyl(1.05, 1.0, 1.7, 18, 0, 2.15, 8.55, 0x3a3f45);
+      k.cyl(0.95, 1.05, 0.16, 18, 0, 2.15, 9.45, GREY);
+      k.sphere(0.4, 1, 1, 1.3, 0, 2.15, 9.6, c, 10, 8);
+      // High wing with strut bracing, and tip colour.
+      for (const s of [1, -1]) {
+        k.slab([[s * 1.6, 2.4], [s * 1.6, -1.1], [s * 10.8, -1.0], [s * 11, 1.0]], 4.0, 4.22, pale);
+        k.slab([[s * 9.4, -1.0], [s * 10.8, -1.0], [s * 11, 1.0], [s * 9.5, 1.1]], 4.0, 4.225, c);
+        k.strut([s * 1.7, 1.2, 0.8], [s * 5.6, 4.0, 0.6], 0.09, GREY);
+        k.strut([s * 1.7, 1.2, 0.2], [s * 5.6, 4.0, 0.4], 0.07, GREY);
+        k.strut([s * 5.6, 4.0, 0.5], [s * 9.2, 4.0, 0.5], 0.05, GREY);
+      }
+      // Tail: braced stabiliser and a tall fin.
+      k.slab([[-4.8, -9.8], [4.8, -9.8], [4.2, -7.5], [-4.2, -7.5]], 3.0, 3.14, pale);
+      for (const s of [1, -1]) k.strut([s * 3.2, 3.0, -8.6], [s * 0.9, 1.9, -7.6], 0.05, GREY);
+      k.slab([[-7.0, 2.9], [-9.7, 2.9], [-10.1, 6.3], [-8.5, 6.3]], -0.1, 0.1, c, 'zy');
+      // Fixed main gear on struts, and a tail wheel.
+      for (const s of [1, -1]) {
+        k.strut([s * 1.2, 1.2, 1.2], [s * 2.1, 0.62, 1.4], 0.1, GREY);
+        k.cyl(0.62, 0.62, 0.4, 14, s * 2.1, 0.62, 1.4, RUBBER, 0, Math.PI / 2);
+      }
+      k.strut([0, 1.2, -8.8], [0, 0.35, -9.2], 0.07, GREY);
+      k.cyl(0.3, 0.3, 0.2, 10, 0, 0.32, -9.2, RUBBER, 0, Math.PI / 2);
+      const prop = new Kit();
+      prop.box(0.24, 4.0, 0.08, 0, 0, 0, DARK);
+      prop.box(4.0, 0.24, 0.08, 0, 0, 0, DARK);
+      prop.cyl(0.22, 0.22, 0.2, 8, 0, 0, 0, GREY);
+      return {
+        kit: k, glass: gl,
+        lights: [['red', 11, 4.25, 0.1, 0.1], ['green', -11, 4.25, 0.1, 0.1], ['white', 0, 6.3, -9.9, 0.08]],
+        strobe: [0, 6.5, -9.2],
+        prop: { kit: prop, at: [0, 2.15, 9.72], disc: 2.0 },
       };
     },
     sparrow(c) {
