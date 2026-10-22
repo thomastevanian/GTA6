@@ -1170,7 +1170,7 @@
       if (seen) return;
       this.hud.notify({
         title: 'New in Vicehaven ' + VH.VERSION.replace(/\.0$/, ''),
-        text: 'Press ' + this.input.labelFor('map') + ' for the map: the airport, the army base, the Northgate skyscrapers and 14 corner shops are on it. Click a place to set your GPS.',
+        text: 'Press ' + this.input.labelFor('map') + ' for the map: the airport, the army base, the Northgate skyscrapers, Area 51 and ' + ((this.layout && this.layout.stores) || []).length + ' shops (including gun shops, jewellers and a bank) are on it. Click a place to set your GPS.',
         icon: '★',
         duration: 14000,
       });

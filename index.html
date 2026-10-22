@@ -23264,6 +23264,11 @@ void main() {
  *                                       petrol stations a canopy and pumps
  *   new VH.Stores(game)                 the clerks and the hold-ups
  *
+ * Kinds: corner shops and petrol stations, plus liquor stores, pawn shops,
+ * jewellers (an armed guard), a bank downtown (two guards, four stars) and
+ * Breakwater Arms, the gun shop, which sells ammo and body armour and whose
+ * owner always fights back.
+ *
  * A hold-up: aim a gun at the clerk from inside the shop. His hands go up
  * and the meter fills while you keep him covered, paying out as it goes.
  * Someone always hits the silent alarm (two stars a few seconds later),
@@ -23286,6 +23291,8 @@ void main() {
   const GLASS_H = 2.9; // shop windows below the brand fascia
   const T = 0.3; // wall thickness
   const REFILL = 480; // seconds of play before a till is worth robbing again
+  const AMMO_PRICE = 150; // Breakwater Arms: +100 rounds for every gun you own, +4 grenades
+  const ARMOR_PRICE = 400;
   // The plan's shuffle. This one leaves alone the car parks the story already
   // uses (places.js steps past a shop lot anyway, but then a place would move).
   const SALT = 'shops-60';
@@ -23297,13 +23304,34 @@ void main() {
     hilo: { name: 'Hi-Lo Market', sign: ['HI-LO MARKET'], bg: ['#2fa84f', '#1c6e33'], fg: '#fff6d8', band: 0x23843f, trim: 0xfff2c4, shirt: 0x23843f },
     kwikpik: { name: 'Kwik Pik', sign: ['KWIK PIK', 'COLD DRINKS'], bg: ['#2457d6', '#16348c'], fg: '#ffd84a', band: 0x2050c0, trim: 0xffd84a, shirt: 0x2050c0 },
     tidal: { name: 'Tidal Fuel', sign: ['TIDAL FUEL', 'FOOD MART'], bg: ['#0f8fd6', '#0a4f8c'], fg: '#ffffff', band: 0x0f7fc4, trim: 0xf5c400, shirt: 0x0f6fb0, gas: true },
+    // The specialist shops (same building, their own fittings and their own hold-up).
+    bottlebay: { name: 'Bottle Bay Liquor', sign: ['BOTTLE BAY', 'LIQUOR · WINE'], bg: ['#7a1f3d', '#4a0f24'], fg: '#ffe9b0', band: 0x6e1c38, trim: 0xe8c27a, shirt: 0x6e1c38, kind: 'liquor' },
+    arms: { name: 'Breakwater Arms', sign: ['BREAKWATER ARMS', 'GUNS · AMMO'], bg: ['#3a3f45', '#1c1f23'], fg: '#ff5a3c', band: 0x2e3237, trim: 0xff5a3c, shirt: 0x4b5320, kind: 'guns' },
+    pawn: { name: 'Lucky Strike Pawn', sign: ['LUCKY STRIKE', 'PAWN · CASH 4 GOLD'], bg: ['#d4a017', '#9a6f0a'], fg: '#1a1a1a', band: 0xc4920f, trim: 0x1a1a1a, shirt: 0x6b4a2e, kind: 'pawn' },
+    lustre: { name: 'Lustre Jewellers', sign: ['LUSTRE', 'FINE JEWELLERY'], bg: ['#f4f0e6', '#cfc6b0'], fg: '#1d2b4a', band: 0xe9e3d3, trim: 0x1d2b4a, shirt: 0x1d2b4a, kind: 'jewel' },
+    coastline: { name: 'Coastline Savings', sign: ['COASTLINE SAVINGS', 'BANK · ATM'], bg: ['#1d4fb8', '#0f2f73'], fg: '#ffffff', band: 0x1d4fb8, trim: 0xf2c94c, shirt: 0x1c2a44, kind: 'bank' },
   };
+  // How each kind of shop is held up: cash (base + up to extra), seconds of
+  // covering the clerk to empty it, the stars the alarm brings, the chance the
+  // clerk fights back, and armed guards on the floor.
+  const ROB = {
+    mart: { base: 260, extra: 300, secs: 5.5, heat: 2, fight: 0.2, guards: 0 },
+    gas: { base: 420, extra: 380, secs: 5.5, heat: 2, fight: 0.2, guards: 0 },
+    liquor: { base: 450, extra: 400, secs: 6, heat: 2, fight: 0.35, guards: 0 },
+    pawn: { base: 900, extra: 700, secs: 8, heat: 3, fight: 0.4, guards: 0 },
+    guns: { base: 700, extra: 500, secs: 7, heat: 3, fight: 1, guards: 0 },
+    jewel: { base: 1800, extra: 1400, secs: 9, heat: 3, fight: 0, guards: 1 },
+    bank: { base: 3500, extra: 3000, secs: 12, heat: 4, fight: 0, guards: 2 },
+  };
+  const kindOf = (s) => BRANDS[s.brand].kind || (s.gas ? 'gas' : 'mart');
+  // Dealt over the non-mart shops (every other one), in this order.
+  const SPECIALS = ['arms', 'lustre', 'pawn', 'bottlebay', 'arms', 'pawn', 'bottlebay', 'lustre', 'bottlebay', 'arms'];
   const MARTS = ['sunrise', 'gullmart', 'hilo', 'kwikpik'];
   // Shops per district (the docks and estates have their own builders).
-  const QUOTA = { oldmarket: 5, harborpoint: 4, palmcrescent: 3, downtown: 2 };
+  const QUOTA = { oldmarket: 9, harborpoint: 9, palmcrescent: 6, downtown: 4 };
   const GAS_MAX = 3;
   const AVOID_BLOCKS = new Set(['b2_3']); // the smoke test climbs this block's walls
-  const SPACING = 105;
+  const SPACING = 72;
 
   function hashString(s) {
     let h = 2166136261;
@@ -23600,13 +23628,17 @@ void main() {
     }
     D.collide(i0, 0, cv0, i0 + 0.5, y0 + 2.2, cv1, 'shelf', FLAGS);
 
+    const drinks = [0xd93b48, 0xf2b01e, 0x2a7de1, 0x1faa6b, 0xffffff, 0x8a3fd1, 0xef6c2f];
+    const kind = kindOf(s);
+    const foodShop = kind === 'mart' || kind === 'gas' || kind === 'liquor';
     // Fridges along the back wall: glowing doors with drinks behind them.
     const fu0 = a0 + 3.2;
     const fu1 = i1;
     const fv = q1 - 0.8;
+    if (!foodShop) buildSpecialFittings(world, ctx, s, D, kind, { i0, i1, q0, q1, y0, yc, fu0, fv, band, rng, FLAGS, c1, cv0, cv1 });
+    if (foodShop) {
     D.box('interior', fu0, y0, fv, fu1, y0 + 2.2, q1, VH.col(0x34383e));
     D.vquad('screen', fu0 + 0.05, fv - 0.005, fu1 - 0.05, fv - 0.005, y0 + 0.2, y0 + 2.0, 0, -1, VH.col(0xd8ecff, 1.15));
-    const drinks = [0xd93b48, 0xf2b01e, 0x2a7de1, 0x1faa6b, 0xffffff, 0x8a3fd1, 0xef6c2f];
     for (let lvl = 0; lvl < 4; lvl++) {
       const y = y0 + 0.3 + lvl * 0.43;
       for (let u = fu0 + 0.15; u < fu1 - 0.25; u += 0.55) {
@@ -23615,11 +23647,12 @@ void main() {
     }
     for (let u = fu0; u <= fu1 + 0.01; u += 1.0) D.box('interior', u - 0.03, y0 + 0.15, fv - 0.04, u + 0.03, y0 + 2.05, fv, metal);
     D.collide(fu0, 0, fv, fu1, y0 + 2.2, q1, 'fridge', FLAGS);
+    }
 
     // A wall shelf down the right-hand side.
     const wv0 = q0 + 2.0;
     const wv1 = fv - 1.2;
-    if (wv1 - wv0 > 1.5) {
+    if (foodShop && wv1 - wv0 > 1.5) {
       D.box('interior', i1 - 0.55, y0, wv0, i1, y0 + 1.9, wv1, VH.col(0xe2e0da));
       for (let lvl = 0; lvl < 4; lvl++) {
         const y = y0 + 0.25 + lvl * 0.42;
@@ -23635,7 +23668,7 @@ void main() {
     const gu1 = i1 - 0.6 - 1.3;
     const gv0 = q0 + 2.2;
     const gv1 = fv - 1.4;
-    const n = Math.floor((gu1 - gu0 + 1.4) / 2.3);
+    const n = foodShop || kind === 'pawn' ? Math.floor((gu1 - gu0 + 1.4) / 2.3) : 0;
     const goods = [0xd93b48, 0xf2c94c, 0x3d7be0, 0x27ae60, 0xf5f0e6, 0xef6c2f, 0x16a3a3, 0x8e5a3c, 0xb03a8c];
     for (let k = 0; k < n && gv1 - gv0 > 1.5; k++) {
       const gu = gu0 + k * 2.3;
@@ -23670,11 +23703,90 @@ void main() {
     const [fx, fz] = P(f, (a0 + a1) / 2, v0 - 3);
     pools.push({ x: fx, z: fz, r: 5, y: KERB + 0.03 });
 
-    // Snacks at the counter (interaction.js picks this up).
+    // Snacks at the counter (interaction.js picks this up); the gun shop sells ammo and armour instead.
     const [bx, bz] = P(f, c1 + 0.55, (cv0 + cv1) / 2);
-    ctx.addInteractable({ id: s.id + '_buy', kind: 'storeBuy', store: s.id, x: bx, y: y0 + 1.0, z: bz, radius: 1.7, label: 'Buy snacks', price: 6, heal: 35 });
+    if (foodShop) ctx.addInteractable({ id: s.id + '_buy', kind: 'storeBuy', store: s.id, x: bx, y: y0 + 1.0, z: bz, radius: 1.7, label: kind === 'liquor' ? 'Buy a drink' : 'Buy snacks', price: 6, heal: 35 });
+    if (kind === 'guns') {
+      const [ax, az] = P(f, c1 + 0.55, cv0 + 0.6);
+      const [rx, rz] = P(f, c1 + 0.55, cv1 - 0.6);
+      ctx.addInteractable({ id: s.id + '_ammo', kind: 'storeAmmo', store: s.id, x: ax, y: y0 + 1.0, z: az, radius: 1.3, label: 'Buy ammo for every gun', price: AMMO_PRICE });
+      ctx.addInteractable({ id: s.id + '_armor', kind: 'storeArmor', store: s.id, x: rx, y: y0 + 1.0, z: rz, radius: 1.3, label: 'Buy body armour', price: ARMOR_PRICE });
+    }
     if (s.gas) buildForecourt(world, ctx, s, D);
     return yTop + 1.0;
+  }
+
+  /**
+   * The specialists' fittings instead of fridges and snack aisles: the gun
+   * shop's rifle wall and glass counters, the jeweller's lit cases, the
+   * bank's teller screens and vault door, the pawn shop's wall of stuff.
+   * (u runs along the front, v inwards; see the frame notes at the top.)
+   */
+  function buildSpecialFittings(world, ctx, s, D, kind, o) {
+    const { i0, i1, q1, y0, fu0, fv, band, rng, FLAGS } = o;
+    const dark = VH.col(0x23262b);
+    const glass = VH.col(0xcfe9ff, 1.25);
+    const wood = VH.col(0x5a3d28);
+    const mu0 = s.a + 4.4; // the open floor, right of the counter
+    const mu1 = i1 - 1.2;
+    const mv0 = s.vb0 + 3.0;
+    const mv1 = fv - 1.4;
+    const caseAt = (u0, v0, u1, v1, h, top, items) => {
+      D.box('interior', u0, y0, v0, u1, y0 + h, v1, dark);
+      D.hquad('screen', u0 + 0.05, v0 + 0.05, u1 - 0.05, v1 - 0.05, y0 + h + 0.01, 1, top);
+      for (let v = v0 + 0.25; v < v1 - 0.2; v += 0.45) {
+        for (let u = u0 + 0.2; u < u1 - 0.15; u += 0.4) D.box('interior', u, y0 + h + 0.02, v, u + 0.18, y0 + h + 0.09, v + 0.12, VH.col(rng.pick(items)));
+      }
+      D.collide(u0, 0, v0, u1, y0 + h, v1, 'counter', FLAGS);
+    };
+    // The back wall: a panel in the brand colour.
+    D.box('interior', fu0, y0, fv + 0.5, i1, y0 + 2.6, q1, kind === 'guns' ? VH.col(0x3a3d36) : kind === 'bank' ? VH.col(0x2b3a55) : wood);
+    D.box('interior', fu0, y0 + 2.6, fv + 0.5, i1, y0 + 2.75, q1, band);
+    D.collide(fu0, 0, fv + 0.5, i1, y0 + 2.75, q1, 'shelf', FLAGS);
+    if (kind === 'guns') {
+      // Long guns racked across the back wall, three rows.
+      for (let row = 0; row < 3; row++) {
+        const y = y0 + 0.9 + row * 0.55;
+        for (let u = fu0 + 0.3; u < i1 - 1.3; u += 1.45) {
+          D.box('interior', u, y, fv + 0.4, u + 1.15, y + 0.09, fv + 0.48, VH.col(0x16181b));
+          D.box('interior', u, y - 0.12, fv + 0.4, u + 0.32, y + 0.04, fv + 0.48, VH.col(rng.pick([0x4a3626, 0x16181b, 0x5d6b3c])));
+        }
+      }
+      // Two glass counters full of pistols and ammo boxes.
+      for (let k = 0; k < 2; k++) {
+        const u0 = mu0 + k * 2.4;
+        if (u0 + 1.2 > mu1) break;
+        caseAt(u0, mv0, u0 + 1.2, mv1, 0.95, glass, [0x16181b, 0x2a2c30, 0xd8a032, 0x5d6b3c]);
+      }
+    } else if (kind === 'jewel') {
+      // Lit display cases with gold, silver and stones.
+      for (let k = 0; k < 3; k++) {
+        const u0 = mu0 + k * 1.9;
+        if (u0 + 1.0 > mu1) break;
+        caseAt(u0, mv0, u0 + 1.0, mv1, 1.0, VH.col(0xfff4dc, 1.5), [0xd4a017, 0xf2c94c, 0xe8e8e8, 0x2a7de1, 0xd93b48, 0x1faa6b]);
+      }
+    } else if (kind === 'bank') {
+      // A teller line: a long counter with glass screens, and the vault door behind.
+      const tv = (mv0 + mv1) / 2;
+      D.box('interior', mu0 - 1.2, y0, tv - 0.35, mu1 + 0.6, y0 + 1.1, tv + 0.35, wood);
+      D.collide(mu0 - 1.2, 0, tv - 0.35, mu1 + 0.6, y0 + 2.4, tv + 0.35, 'counter', FLAGS);
+      D.vquad('screen', mu0 - 1.2, tv - 0.36, mu1 + 0.6, tv - 0.36, y0 + 1.1, y0 + 2.4, 0, -1, VH.col(0xcfe9ff, 0.55));
+      const vu = (fu0 + i1) / 2;
+      D.box('interior', vu - 1.1, y0 + 0.2, fv + 0.42, vu + 1.1, y0 + 2.4, fv + 0.5, VH.col(0x8d96a1));
+      D.box('interior', vu - 0.15, y0 + 1.1, fv + 0.36, vu + 0.15, y0 + 1.4, fv + 0.42, VH.col(0x4a525c));
+    } else if (kind === 'pawn') {
+      // Televisions and guitars on the back wall.
+      for (let u = fu0 + 0.3; u < i1 - 1.0; u += 1.2) {
+        if (rng.chance(0.5)) {
+          D.box('interior', u, y0 + 1.1, fv + 0.3, u + 0.9, y0 + 1.75, fv + 0.48, dark);
+          D.vquad('screen', u + 0.05, fv + 0.29, u + 0.85, fv + 0.29, y0 + 1.15, y0 + 1.7, 0, -1, VH.col(rng.pick([0x6fa8dc, 0x93c47d, 0xe06666]), 0.7));
+        } else {
+          D.box('interior', u + 0.3, y0 + 0.9, fv + 0.38, u + 0.65, y0 + 1.35, fv + 0.48, VH.col(rng.pick([0x8a4b22, 0xc0392b, 0x1d2025])));
+          D.box('interior', u + 0.43, y0 + 1.35, fv + 0.42, u + 0.52, y0 + 2.1, fv + 0.48, wood);
+        }
+      }
+    }
+    void i0;
   }
 
   /** Petrol station extras: the canopy, two pump islands and a price pylon. */
@@ -23810,6 +23922,16 @@ void main() {
       // Deal the corner-shop chains out in turn so neighbours differ.
       let m = 0;
       for (const c of chosen) if (!c.brand) c.brand = MARTS[m++ % MARTS.length];
+      // A bank downtown, then the specialists over every other remaining shop.
+      const shops = chosen.filter((c) => !BRANDS[c.brand].gas);
+      const bank = shops.find((c) => c.lot.district.id === 'downtown');
+      if (bank) bank.brand = 'coastline';
+      const deck = SPECIALS.slice();
+      shops.filter((c) => c !== bank)
+        .sort((p, q) => hashString(p.lot.id + 'kinds') - hashString(q.lot.id + 'kinds'))
+        .forEach((c, i) => {
+          if (i % 2 === 0 && deck.length) c.brand = deck.shift();
+        });
       layout.stores = chosen.map((c, i) => Stores._describe(layout, c, i));
       for (const s of layout.stores) s.lot.store = s;
       return layout.stores;
@@ -23886,6 +24008,8 @@ void main() {
     _bind() {
       const g = this.game;
       g.interaction.on('storeBuy', (item, player) => this._buy(item, player));
+      g.interaction.on('storeAmmo', (item, player) => this._buyAmmo(item, player));
+      g.interaction.on('storeArmor', (item, player) => this._buyArmor(item, player));
       VH.events.on('agent:died', (e) => {
         const s = this._storeOfClerk(e.agent);
         if (!s) return;
@@ -23981,6 +24105,16 @@ void main() {
       }
       if (this.active) this._holdUp(dt, inside);
       else if (inside) this._maybeStart(inside);
+      if (this.guards && this.guards.length) {
+        this.guards = this.guards.filter((a) => {
+          if (a.removed) return false;
+          if (Math.hypot(a.pos.x - px, a.pos.z - pz) > 140) {
+            g.crowd.remove(a);
+            return false;
+          }
+          return true;
+        });
+      }
       this._hudUpdate();
     }
 
@@ -24020,13 +24154,17 @@ void main() {
         }
         return;
       }
-      const total = Math.round((s.gas ? 420 : 260) + new VH.RNG(s.seed + g.playTime).range(0, s.gas ? 380 : 300));
-      this.active = { s, a, meter: 0, paid: 0, total, chunks: 0, idle: 0, fight: Math.random() < 0.2 };
+      const R = ROB[kindOf(s)];
+      // More stars, more nerve: the take grows with the heat you're already carrying.
+      const heatBonus = 1 + 0.2 * ((g.police && g.police.level) || 0);
+      const total = Math.round((R.base + new VH.RNG(s.seed + g.playTime).range(0, R.extra)) * heatBonus);
+      this.active = { s, a, meter: 0, paid: 0, total, chunks: 0, idle: 0, fight: Math.random() < R.fight, secs: R.secs };
+      if (R.guards) this._spawnGuards(s, R.guards);
       a.brain.mode = 'hands';
       a.brain._scared = 999;
       // Somebody hits the silent alarm.
       const pol = g.police;
-      if (pol && !(g.missions && g.missions.suppressHeat)) pol._reports.push({ t: 7, heat: 2, x: s.centre.x, z: s.centre.z, kind: 'robbery' });
+      if (pol && !(g.missions && g.missions.suppressHeat)) pol._reports.push({ t: R.heat >= 4 ? 3 : 7, heat: R.heat, x: s.centre.x, z: s.centre.z, kind: 'robbery' });
     }
 
     _holdUp(dt, inside) {
@@ -24038,7 +24176,7 @@ void main() {
         return;
       }
       if (this._covering(h.a)) {
-        h.meter = Math.min(1, h.meter + dt / 5.5);
+        h.meter = Math.min(1, h.meter + dt / (h.secs || 5.5));
         h.idle = 0;
       } else {
         h.meter = Math.max(0, h.meter - dt * 0.05);
@@ -24126,6 +24264,60 @@ void main() {
       return 1.5;
     }
 
+    /** Armed guards on the floor of a bank or a jeweller's (they open fire at once). */
+    _spawnGuards(s, n) {
+      const g = this.game;
+      this.guards = (this.guards || []).filter((a) => !a.dead && !a.removed);
+      for (let i = 0; i < n; i++) {
+        const u = s.a + s.SW - 1.6 - i * 1.4;
+        const v = s.vb0 + 1.6 + i * 1.2;
+        const [x, z] = P(s.f, u, v);
+        const look = Object.assign({}, VH.Crowd.randomLook(), { top: 0x2b3a55, shirt: 0xe8e8e8, bottom: 0x1c1f23, cap: true });
+        const a = g.combat.spawnEnemy(x, z, { look, faction: 'security', weapon: 'pistol', alert: true, hostile: true, accuracy: 0.45, health: 120, armor: 40, name: 'Guard' });
+        this.guards.push(a);
+      }
+      g.hud.notify({ title: BRANDS[s.brand].name, text: n > 1 ? 'Security guards!' : 'A security guard draws on you!', icon: '⚠', tone: 'bad' });
+    }
+
+    /** Breakwater Arms: 100 more rounds for every gun you carry, and grenades. */
+    _buyAmmo(item, player) {
+      const g = this.game;
+      if (player.money < item.price) {
+        VH.events.emit('notify', { title: 'Not enough cash', text: 'Ammo costs ' + VH.util.formatMoney(item.price) + '.', icon: '✕', tone: 'bad' });
+        return 1;
+      }
+      let n = 0;
+      for (const id of Object.keys(g.combat.inventory)) {
+        const w = VH.Combat.def(id);
+        if (!w || (w.kind !== 'hitscan' && w.kind !== 'pellets')) continue;
+        g.combat.giveWeapon(id, 100, true);
+        n++;
+      }
+      g.combat.giveWeapon('grenade', 4, true);
+      player.money -= item.price;
+      VH.events.emit('money:changed', { delta: -item.price, reason: 'ammo' });
+      VH.events.emit('notify', { title: 'Breakwater Arms', text: '+100 rounds for ' + n + ' gun' + (n === 1 ? '' : 's') + ', +4 grenades.', icon: '🛒' });
+      if (g.audio.pickup) g.audio.pickup();
+      return 1.2;
+    }
+
+    _buyArmor(item, player) {
+      const g = this.game;
+      if (player.armor >= player.maxArmor) {
+        g.hud.showToast('Your armour is already full.');
+        return 1;
+      }
+      if (player.money < item.price) {
+        VH.events.emit('notify', { title: 'Not enough cash', text: 'Armour costs ' + VH.util.formatMoney(item.price) + '.', icon: '✕', tone: 'bad' });
+        return 1;
+      }
+      player.money -= item.price;
+      player.armor = player.maxArmor;
+      VH.events.emit('money:changed', { delta: -item.price, reason: 'armour' });
+      VH.events.emit('notify', { title: 'Breakwater Arms', text: 'Body armour on.', icon: '🛡' });
+      return 1.2;
+    }
+
     // ---------------------------------------------------------- HUD
     _buildHud() {
       const el = document.createElement('div');
@@ -24163,7 +24355,9 @@ void main() {
       if (!this.ok) return; // shown during jobs too: they're places, not distractions
       for (const s of this.list) {
         if (!this.isOpen(s)) continue;
-        out.push({ x: s.door.x, z: s.door.z, type: 'store', label: BRANDS[s.brand].name, noRim: true });
+        const k = kindOf(s);
+        const tag = k === 'guns' ? ' · ammo & armour' : k === 'bank' ? ' · bank' : k === 'jewel' ? ' · jeweller' : k === 'pawn' ? ' · pawn shop' : '';
+        out.push({ x: s.door.x, z: s.door.z, type: 'store', label: BRANDS[s.brand].name + tag, noRim: true });
       }
     }
 
@@ -24196,6 +24390,8 @@ void main() {
       if (!this.ok) return;
       this.stop();
       this._clearClerks();
+      for (const a of this.guards || []) if (!a.removed) this.game.crowd.remove(a);
+      this.guards = [];
       this.until = {};
       this.killed.clear();
       this.robbed = 0;
@@ -77843,7 +78039,7 @@ ${vis}        return true;
       if (seen) return;
       this.hud.notify({
         title: 'New in Vicehaven ' + VH.VERSION.replace(/\.0$/, ''),
-        text: 'Press ' + this.input.labelFor('map') + ' for the map: the airport, the army base, the Northgate skyscrapers and 14 corner shops are on it. Click a place to set your GPS.',
+        text: 'Press ' + this.input.labelFor('map') + ' for the map: the airport, the army base, the Northgate skyscrapers, Area 51 and ' + ((this.layout && this.layout.stores) || []).length + ' shops (including gun shops, jewellers and a bank) are on it. Click a place to set your GPS.',
         icon: '★',
         duration: 14000,
       });
