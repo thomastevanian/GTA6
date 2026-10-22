@@ -365,6 +365,7 @@
       this._aim(this._vx, this._vy, Math.min(len, MAX_TRAVEL) >= DEADZONE);
     }
 
+    stick(x, y) {
       if (!this.isOpen) return;
       const len = Math.hypot(x, y);
       if (len < STICK_DEADZONE) return;
