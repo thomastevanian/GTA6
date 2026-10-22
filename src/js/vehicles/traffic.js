@@ -22,6 +22,8 @@
   const TRAFFIC_TYPES = [
     ['halcyon', 28], ['pipit', 16], ['cab', 10], ['mesa', 9], ['porter', 8], ['tern', 9], ['ironclad', 5],
     ['vireo', 3], ['sovereign', 3], ['hauler', 5], ['beater', 4], ['drifter', 2], ['lowrider', 2], ['zephyr', 1],
+    // The newer models: electric cars, pickups, a wagon and the odd muscle car or supercar.
+    ['volta', 4], ['voltaic', 4], ['forge', 6], ['sprint', 4], ['estate', 3], ['gallop', 2], ['trailhand', 2], ['drover', 2], ['monolith', 1], ['stinger', 1], ['corvid', 1],
   ];
 
   class LaneDriver {

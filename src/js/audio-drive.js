@@ -362,6 +362,8 @@
     pickup: { idle: 29, red: 185, osc: [[1, 'sawtooth', 0.5], [0.5, 'sawtooth', 0.38], [2, 'square', 0.15]], drive: 2.6, lp: 0.75, q: 2.0, flutter: 0.25, fdepth: 0.26, noise: 1.1, nf: 2.0, gain: 0.92 },
     taxi: { idle: 32, red: 195, osc: [[1, 'sawtooth', 0.5], [2, 'square', 0.2], [0.5, 'sine', 0.3]], drive: 2.0, lp: 0.85, q: 1.0, flutter: 0.5, fdepth: 0.13, noise: 0.8, nf: 2.4, gain: 0.85 },
     police: { idle: 30, red: 215, osc: [[1, 'sawtooth', 0.5], [0.5, 'sawtooth', 0.36], [2, 'square', 0.24]], drive: 3.0, lp: 1.0, q: 2.0, flutter: 0.25, fdepth: 0.24, noise: 1.2, nf: 2.2, gain: 0.95 },
+    // Electric cars: a smooth rising whine, almost no rumble.
+    ev: { idle: 70, red: 560, osc: [[1, 'sine', 0.38], [2, 'triangle', 0.1], [4, 'sine', 0.05]], drive: 5.0, lp: 1.7, q: 0.7, flutter: 0.1, fdepth: 0.03, noise: 0.3, nf: 3.2, gain: 0.5 },
     // A light aircraft's flat-four and propeller, and a tank's big diesel.
     prop: { idle: 26, red: 120, osc: [[1, 'sawtooth', 0.5], [2, 'square', 0.25], [0.5, 'sawtooth', 0.3]], drive: 2.2, lp: 0.7, q: 1.4, flutter: 0.6, fdepth: 0.2, noise: 1.0, nf: 3.0, gain: 0.95 },
     tank: { idle: 18, red: 95, osc: [[1, 'sawtooth', 0.5], [0.5, 'square', 0.45], [2, 'sawtooth', 0.2]], drive: 3.4, lp: 0.55, q: 2.4, flutter: 0.3, fdepth: 0.3, noise: 1.6, nf: 1.6, gain: 1.0 },

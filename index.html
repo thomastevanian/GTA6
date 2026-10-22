@@ -9982,6 +9982,7 @@ void main() {
         slowMotion: true,
         timeOfDay: 'cycle',
         alwaysDay: false,
+        weather: 'auto',
         voicedDialogue: true,
         policeVoice: true,
         blood: 'lots',
@@ -10798,6 +10799,8 @@ void main() {
     uniform float uSharpen;
     uniform float uFringe;
     uniform float uBlur;
+    uniform float uDof;
+    uniform float uFocus;
     uniform mat4 uReproj;
     varying vec2 vUv;
 
@@ -10832,8 +10835,37 @@ void main() {
       bool isSky = depth > SKY_DEPTH;
       vec3 scene = texture2D(tScene, vUv).rgb;
 
+      // Depth of field (photo mode): a golden-angle gather whose radius follows
+      // how far each pixel is from the focus distance.
+      if (uDof > 0.0) {
+        float dist0 = isSky ? 4000.0 : -viewPosAt(vUv, depth).z;
+        float coc = clamp(abs(dist0 - uFocus) / max(dist0, 1.0) * uDof, 0.0, 1.0);
+        if (coc > 0.015) {
+          vec3 acc = scene;
+          float wsum = 1.0;
+          float rad = coc * 0.015;
+          float rot = hash(gl_FragCoord.xy) * 6.2831853;
+          for (int i = 1; i <= 20; i++) {
+            float fi = float(i);
+            float r = sqrt(fi / 20.0);
+            float a = fi * 2.399963 + rot;
+            vec2 suv = vUv + vec2(cos(a) * uResolution.y / uResolution.x, sin(a)) * r * rad;
+            float sd = texture2D(tDepth, suv).x;
+            float sdist = sd > SKY_DEPTH ? 4000.0 : -viewPosAt(suv, sd).z;
+            float scoc = clamp(abs(sdist - uFocus) / max(sdist, 1.0) * uDof, 0.0, 1.0);
+            // Sharp things in front of the blur don't smear into it; bright points bloom out.
+            float w = (sdist < dist0 ? min(1.0, scoc / max(coc, 0.02)) : 1.0) + 0.0001;
+            vec3 s = texture2D(tScene, suv).rgb;
+            w *= 1.0 + max(0.0, luma3(s) - 1.5) * 0.5;
+            acc += s * w;
+            wsum += w;
+          }
+          scene = acc / wsum;
+        }
+      }
+
       // Motion blur: smear along the screen-space velocity of this pixel.
-      if (uBlur > 0.0) {
+      if (uBlur > 0.0 && uDof <= 0.0) {
         vec4 cur = vec4(vUv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
         vec4 prev = uReproj * cur;
         vec2 vel = (cur.xy - prev.xy / prev.w) * 0.5 * uBlur;
@@ -10849,7 +10881,7 @@ void main() {
       }
 
       // Sharpen (contrast-adaptive: never overshoots the neighbourhood).
-      if (uSharpen > 0.0) {
+      if (uSharpen > 0.0 && uDof <= 0.0) { // (the clamp to the sharp neighbours would undo a blur)
         vec2 px = 1.0 / uResolution;
         vec3 n0 = texture2D(tScene, vUv + vec2(px.x, 0.0)).rgb;
         vec3 n1 = texture2D(tScene, vUv - vec2(px.x, 0.0)).rgb;
@@ -10865,8 +10897,9 @@ void main() {
       if (uFringe > 0.0) {
         vec2 dir = (vUv - 0.5);
         vec2 off = dir * dot(dir, dir) * uFringe;
-        scene.r = texture2D(tScene, vUv + off).r;
-        scene.b = texture2D(tScene, vUv - off).b;
+        // Added as a difference so it also works on top of a blurred base (DoF, motion blur).
+        scene.r += texture2D(tScene, vUv + off).r - texture2D(tScene, vUv).r;
+        scene.b += texture2D(tScene, vUv - off).b - texture2D(tScene, vUv).b;
       }
 
       // Ambient occlusion darkens creases and contact points.
@@ -10990,6 +11023,8 @@ void main() {
       this.shafts = false;
       this.motionBlur = 0;
       this.lens = false;
+      this.dofAmount = 0; // set by photo mode: 0 = off
+      this.dofFocus = 20; // metres
       this._prevVP = new THREE.Matrix4();
       this._havePrev = false;
       this._vp = new THREE.Matrix4();
@@ -11041,7 +11076,7 @@ void main() {
         uAOAmount: { value: 0 }, uShafts: { value: 0 }, uHaze: { value: 0 }, uFogDensity: { value: 0.0015 },
         uSunColor: { value: new THREE.Vector3(1, 1, 1) }, uSunViewDir: { value: new THREE.Vector3(0, 0, -1) },
         uSunUV: { value: new THREE.Vector2(0.5, 0.5) }, uFlare: { value: 0 }, uSharpen: { value: 0 },
-        uFringe: { value: 0 }, uBlur: { value: 0 },
+        uFringe: { value: 0 }, uBlur: { value: 0 }, uDof: { value: 0 }, uFocus: { value: 20 },
       });
       this.fxaaMat = mat(FXAA_FRAGMENT, { tSrc: { value: null }, uResolution: { value: new THREE.Vector2(1, 1) } });
       this.aoMat = null;
@@ -11268,8 +11303,10 @@ void main() {
         c.uShafts.value = this.sunAmount * Math.min(1, facing * 1.6) * 0.45;
       }
       c.uFlare.value = this.lens && sunOn && sunUvX > -0.2 && sunUvX < 1.2 && sunUvY > -0.2 && sunUvY < 1.2 ? this.sunAmount * Math.min(1, facing * 2.0) * 0.22 : 0;
+      c.uDof.value = this.dofAmount;
+      c.uFocus.value = this.dofFocus;
       c.uSharpen.value = this.lens ? 0.35 : 0;
-      c.uFringe.value = this.lens ? 0.012 : 0;
+      c.uFringe.value = this.lens ? 0.006 : 0;
 
       // Motion blur from how far the camera moved since the last frame. A cut
       // (teleport, respawn, a new cutscene shot) must not smear the old view in.
@@ -12022,7 +12059,155 @@ void main() {
       uSkyZenith: { value: new THREE.Color(0.2, 0.4, 0.8) },
       uSkyHorizon: { value: new THREE.Color(0.7, 0.8, 0.9) },
       uWind: { value: 1.0 },
+      // Weather (weather.js): how wet surfaces are (0..1) and how hard it is raining right now.
+      uWet: { value: 0 },
+      uRain: { value: 0 },
     };
+  }
+
+  // ------------------------------------------------------------ wetness
+  // Rain darkens surfaces, lowers their roughness, fills puddles on roads
+  // and pavements (a noise mask over world space), rings them with ripples
+  // while it is raining, and at night mirrors a smear of the city's lights.
+  // The whole block is skipped by a uniform branch while the world is dry.
+  const WET_PARS = /* glsl */ `
+    uniform float uWet;
+    uniform float uRain;
+    uniform float uWetTime;
+    uniform float uWetGlow;
+    uniform vec3 uSkyHorizon;
+    uniform vec3 uSkyZenith;
+    varying vec3 vWetPos;
+    float vhWHash(vec2 p) {
+      vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+      p3 += dot(p3, p3.yzx + 33.33);
+      return fract((p3.x + p3.y) * p3.z);
+    }
+    float vhWNoise(vec2 p) {
+      vec2 i = floor(p);
+      vec2 f = fract(p);
+      vec2 u = f * f * (3.0 - 2.0 * f);
+      return mix(mix(vhWHash(i), vhWHash(i + vec2(1.0, 0.0)), u.x), mix(vhWHash(i + vec2(0.0, 1.0)), vhWHash(i + vec2(1.0, 1.0)), u.x), u.y);
+    }
+    // Height gradient of a few expanding rings per metre-scale cell.
+    vec2 vhRipples(vec2 p, float t) {
+      vec2 g = vec2(0.0);
+      for (int k = 0; k < 2; k++) {
+        vec2 q = p * (1.7 + float(k) * 1.1) + float(k) * 17.3;
+        vec2 id = floor(q);
+        vec2 f = fract(q) - 0.5;
+        float h = vhWHash(id);
+        float ph = fract(t * (0.8 + h * 0.6) + h * 7.0);
+        vec2 c = vec2(h - 0.5, fract(h * 13.7) - 0.5) * 0.4;
+        vec2 d = f - c;
+        float r = length(d) + 1e-4;
+        float w = r - ph * 0.45;
+        float a = (1.0 - ph) * (1.0 - ph) * exp(-w * w * 420.0);
+        g += d / r * sin(w * 70.0) * a * step(0.35, h);
+      }
+      return g;
+    }
+  `;
+  const WET_VERTEX_MAIN = /* glsl */ `
+    {
+      vec4 vhWp = vec4(transformed, 1.0);
+      #ifdef USE_INSTANCING
+        vhWp = instanceMatrix * vhWp;
+      #endif
+      vWetPos = (modelMatrix * vhWp).xyz;
+    }
+  `;
+  // Before the normal is built: darken, polish, find the puddles.
+  const WET_SURFACE = /* glsl */ `
+    float vhPud = 0.0;
+    float vhWetK = 0.0;
+    if (uWet > 0.002) {
+      #ifdef FLAT_SHADED
+        float vhUp = 1.0;
+      #else
+        float vhUp = dot(normalize(vNormal), normalize((viewMatrix * vec4(0.0, 1.0, 0.0, 0.0)).xyz));
+      #endif
+      float vhFlat = smoothstep(0.5, 0.92, vhUp);
+      #if VH_WET_KIND == 3
+        vhWetK = uWet * (0.55 + 0.25 * vhFlat) * (1.0 - vhGlass);
+      #else
+        vhWetK = uWet * vhFlat;
+      #endif
+      #if VH_WET_KIND <= 1
+        float vhN = vhWNoise(vWetPos.xz * 0.13) * 0.62 + vhWNoise(vWetPos.xz * 0.47 + 3.1) * 0.38;
+        float vhLvl = smoothstep(0.3, 0.85, uWet);
+        float vhT = 0.75 - 0.15 * vhLvl;
+        #if VH_WET_KIND == 1
+          vhT += 0.05;
+        #endif
+        vhPud = smoothstep(vhT, vhT + 0.05, vhN) * vhLvl * vhFlat;
+      #endif
+      #if VH_WET_KIND == 2
+        diffuseColor.rgb *= mix(1.0, 0.7, vhWetK);
+        roughnessFactor = mix(roughnessFactor, roughnessFactor * 0.7, vhWetK);
+      #else
+        diffuseColor.rgb *= mix(1.0, 0.58, vhWetK) * mix(1.0, 0.62, vhPud);
+        roughnessFactor = mix(roughnessFactor, min(roughnessFactor, 0.3), vhWetK);
+        roughnessFactor = mix(roughnessFactor, 0.035, vhPud);
+      #endif
+    }
+  `;
+  const WET_NORMAL = /* glsl */ `
+    if (vhPud > 0.01 && uRain > 0.01) {
+      vec2 vhG = vhRipples(vWetPos.xz, uWetTime);
+      normal = normalize(normal + (viewMatrix * vec4(vhG.x, 0.0, vhG.y, 0.0)).xyz * vhPud * uRain * 0.5);
+    }
+  `;
+  // Streaks of the city's lights on the wet ground, stretched along the view direction.
+  const WET_EMISSIVE = /* glsl */ `
+    float vhRefl = max(vhPud, vhWetK * 0.3);
+    if (vhRefl > 0.01) {
+      vec2 vhRel = vWetPos.xz - cameraPosition.xz;
+      float vhDist = max(length(vhRel), 1.0);
+      float vhFres = pow(1.0 - clamp(dot(normal, normalize(vViewPosition)), 0.0, 1.0), 3.0);
+      // The sky in the water.
+      vec3 vhSky = mix(uSkyHorizon, uSkyZenith, 0.3);
+      totalEmissiveRadiance += vhSky * vhFres * vhRefl * 0.32;
+      if (uWetGlow > 0.01) {
+        // Smears of the city's lights, stretched along the view direction.
+        float vhAng = atan(vhRel.y, vhRel.x);
+        vec2 vhRc = vec2(vhAng * 16.0, log(vhDist) * 0.5);
+        float vhN = vhWNoise(vhRc * vec2(1.0, 1.0) + 7.0) * 0.65 + vhWNoise(vhRc * vec2(2.7, 1.6)) * 0.35;
+        float vhBlob = smoothstep(0.5, 0.8, vhN);
+        float vhHueN = vhWNoise(vhRc * vec2(0.8, 0.5) + 41.0);
+        vec3 vhHue = mix(vec3(1.0, 0.64, 0.34), vhHueN > 0.62 ? vec3(0.4, 0.75, 1.0) : vec3(1.0, 0.42, 0.6), smoothstep(0.42, 0.62, vhHueN));
+        totalEmissiveRadiance += vhHue * vhBlob * (0.1 + vhFres) * vhRefl * uWetGlow * 0.45 * smoothstep(2.5, 22.0, vhDist) * exp(-vhDist * 0.012);
+      }
+    }
+  `;
+
+  /**
+   * Make a standard material react to the weather. kind: 0 road (puddles),
+   * 1 pavement (smaller puddles), 2 soil / grass (darker, no puddles), 3 walls.
+   */
+  function addWet(mat, shared, kind) {
+    const prev = mat.onBeforeCompile;
+    const prevKey = mat.customProgramCacheKey ? mat.customProgramCacheKey() : '';
+    mat.onBeforeCompile = (shader, renderer) => {
+      if (prev) prev.call(mat, shader, renderer);
+      shader.uniforms.uWet = shared.uWet;
+      shader.uniforms.uRain = shared.uRain;
+      shader.uniforms.uWetTime = shared.uTime;
+      shader.uniforms.uSkyHorizon = shared.uSkyHorizon;
+      shader.uniforms.uSkyZenith = shared.uSkyZenith;
+      shader.uniforms.uWetGlow = shared.uWetGlow || (shared.uWetGlow = { value: 0 });
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', '#include <common>\nvarying vec3 vWetPos;')
+        .replace('#include <project_vertex>', '#include <project_vertex>\n' + WET_VERTEX_MAIN);
+      shader.fragmentShader = shader.fragmentShader
+        .replace('#include <common>', '#include <common>\n#define VH_WET_KIND ' + kind + '\n' + WET_PARS)
+        .replace('#include <normal_fragment_begin>', WET_SURFACE + '\n#include <normal_fragment_begin>')
+        .replace('#include <normal_fragment_maps>', '#include <normal_fragment_maps>\n' + WET_NORMAL)
+        .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n' + WET_EMISSIVE);
+    };
+    mat.customProgramCacheKey = () => prevKey + '|wet' + kind;
+    mat.needsUpdate = true;
+    return mat;
   }
 
   // ------------------------------------------------------------ building
@@ -12393,6 +12578,13 @@ void main() {
         })(),
         emissiveScreen: new THREE.MeshBasicMaterial({ vertexColors: true, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2 }),
       };
+      // Rain-ready surfaces (see addWet above).
+      const wetKinds = {
+        road: 0, asphaltTop: 0, markings: 0, decal: 0, sidewalk: 1, plaza: 1, plazaTop: 1, concrete: 1,
+        grass: 2, grassTop: 2, wood: 2, building: 3,
+      };
+      shared.uWetGlow = { value: 0 };
+      for (const k in wetKinds) addWet(this.list[k], shared, wetKinds[k]);
       return this.list;
     },
 
@@ -12490,6 +12682,9 @@ void main() {
     uniform float uNight;
     uniform float uEnvPass;
     uniform vec3 uMoonDir;
+    uniform float uOvercast;
+    uniform float uStorm;
+    uniform float uFlash;
     varying vec3 vDir;
 
     float hash12(vec2 p) {
@@ -12598,16 +12793,20 @@ void main() {
         float nSun = fbm(uv + uSunDir.xz * 0.07 / max(h + 0.14, 0.2));
         float body = clamp((nSun - n) * 4.0 + 0.5, 0.0, 1.0);
         float rim = clamp((n - nSun) * 5.0, 0.0, 1.0) * smoothstep(0.1, 0.5, cover) * (1.0 - smoothstep(0.55, 0.95, cover));
-        float fade = smoothstep(-0.02, 0.22, h);
+        float fade = mix(smoothstep(-0.02, 0.22, h), smoothstep(-0.06, 0.1, h), uOvercast);
+        cover = mix(cover, 1.0, uOvercast * 0.85);
         float lit = clamp(mu * 0.5 + 0.5, 0.0, 1.0);
         vec3 shade = uHorizon * 0.55 + uZenith * 0.2;
         vec3 bright = uSunColor * 0.9 + uHorizon * 0.35;
-        vec3 cloudCol = mix(shade, bright, lit * 0.8 + 0.2) * mix(1.0, 0.72, smoothstep(0.55, 0.95, n));
+        vec3 cloudCol = mix(shade, bright, lit * 0.8 + 0.2) * mix(1.0, 0.72 - uStorm * 0.3, smoothstep(0.55, 0.95, n));
+        cloudCol *= 1.0 - uStorm * 0.5;
+        cloudCol += vec3(0.5, 0.58, 1.0) * uFlash * (0.5 + 0.8 * n);
         cloudCol *= 1.0 - 0.28 * body * (1.0 - uNight);
-        cloudCol += uSunColor * rim * (0.35 + 0.9 * pow(max(mu, 0.0), 3.0)) * (1.0 - uEnvPass * 0.7) * (1.0 - uNight);
+        cloudCol += uSunColor * rim * (0.35 + 0.9 * pow(max(mu, 0.0), 3.0)) * (1.0 - uEnvPass * 0.7) * (1.0 - uNight) * (1.0 - uOvercast);
         cloudCol = mix(cloudCol, uZenith * 0.25 + vec3(0.02), uNight * 0.85);
-        col = mix(col, cloudCol, cover * fade * 0.92);
+        col = mix(col, cloudCol, cover * fade * mix(0.92, 1.0, uOvercast));
       }
+      col += vec3(0.4, 0.46, 0.8) * uFlash * 0.4;
 
       // The sun itself (left out of the reflection map to avoid double lighting).
       float disc = smoothstep(0.99935, 0.99972, mu);
@@ -12646,6 +12845,13 @@ void main() {
       this.shared = shared;
       this.hours = 16.3;
       this.cloudCover = 0.38;
+      // Weather hooks (weather.js): everything is neutral until it drives them.
+      this.wx = { cloud: 0, overcast: 0, storm: 0, dark: 0, desat: 0, tint: 0, fogMul: 1, sunMul: 1, hemiMul: 1, envMul: 1, expMul: 1, shaftMul: 1, flash: 0 };
+      this.wxTint = new THREE.Color(0.55, 0.42, 0.28);
+      this.baseFogDensity = 0.002;
+      this._flashOn = false;
+      this._base = { hemi: 0, env: 1, fog: new THREE.Color(), fogLin: new THREE.Color(), fogDisp: new THREE.Color() };
+      this._flashCol = new THREE.Color(0.62, 0.7, 1.0);
       this.clockRunning = false; // Phase 12 turns this on
       this._envDirty = true;
       this._envTimer = 0;
@@ -12671,6 +12877,9 @@ void main() {
         uTime: this.shared.uTime,
         uNight: { value: 0 },
         uMoonDir: { value: new THREE.Vector3(0, -1, 0) },
+        uOvercast: { value: 0 },
+        uStorm: { value: 0 },
+        uFlash: { value: 0 },
       };
       const geo = new THREE.SphereGeometry(1, 48, 24);
       this.sky = new THREE.Mesh(geo, makeSkyMaterial(this.skyUniforms, false));
@@ -12748,8 +12957,47 @@ void main() {
       this.shadowMapSize = tier.mapSize;
       // Exponential fog reaching ~95% at the draw distance.
       const dd = this.settings.get('graphics.drawDistance');
-      this.scene.fog.density = 1.75 / dd;
+      this.baseFogDensity = 1.75 / dd;
+      this._applyFog();
+    }
+
+    /** Fog density = the quality setting's base × the weather's multiplier. */
+    _applyFog() {
+      // Flying high clears the haze (ambient.js): keep its factor in the product.
+      const amb = VH.game && VH.game.ambient;
+      const air = amb && amb._fogK > 0.2 ? amb._fogK : 1;
+      this.scene.fog.density = (this.baseFogDensity * this.wx.fogMul * (this._altK || 1)) / air;
       if (this.vhRenderer.post) this.vhRenderer.post.fogDensity = this.scene.fog.density;
+    }
+
+    /** Cloud cover as the sky sees it: the base cover pushed towards 1 by the weather. */
+    get effectiveCloud() {
+      return lerp(this.cloudCover, 1, this.wx.cloud);
+    }
+
+    /** Weather hook: merge new multipliers/targets and recompute the lighting. */
+    setWeather(p) {
+      Object.assign(this.wx, p);
+      const u = this.skyUniforms;
+      u.uCloud.value = this.effectiveCloud;
+      u.uOvercast.value = this.wx.overcast;
+      u.uStorm.value = this.wx.storm;
+      this._envDirty = true;
+      this._applyKeys(this.sunDir.y);
+    }
+
+    /** Lightning: brighten sky, fog and ambient light by `f` (0..1) without redoing the whole lighting. */
+    _applyFlash() {
+      const f = this.wx.flash;
+      if (f <= 0.002 && !this._flashOn) return;
+      this._flashOn = f > 0.002;
+      const b = this._base;
+      this.skyUniforms.uFlash.value = f;
+      this.hemi.intensity = b.hemi + f * 2.4;
+      this.scene.environmentIntensity = b.env + f * 1.8;
+      this.scene.fog.color.copy(b.fog).lerp(this._flashCol, f * 0.75);
+      this.skyUniforms.uFogLinear.value.copy(b.fogLin).lerp(this._flashCol, f * 0.75);
+      this.skyUniforms.uFogDisplay.value.copy(b.fogDisp).lerp(this._flashCol, f * 0.75);
     }
 
     /** Set the time of day (hours, 0–24) and recompute all lighting. */
@@ -12770,7 +13018,7 @@ void main() {
 
     setCloudCover(c) {
       this.cloudCover = clamp(c, 0, 1);
-      this.skyUniforms.uCloud.value = this.cloudCover;
+      this.skyUniforms.uCloud.value = this.effectiveCloud;
       this._envDirty = true;
       this._applyKeys(this.sunDir.y);
     }
@@ -12789,6 +13037,8 @@ void main() {
       };
       const zenith = mixHex(a.zenith, b.zenith, this.shared.uSkyZenith.value);
       const horizon = mixHex(a.horizon, b.horizon, this.shared.uSkyHorizon.value);
+      this._gradeSky(zenith, 1);
+      this._gradeSky(horizon, 0);
       const lightColor = mixHex(a.light, b.light, new THREE.Color());
       const intensity = lerp(a.intensity, b.intensity, k);
       const envIntensity = lerp(a.env, b.env, k);
@@ -12804,23 +13054,28 @@ void main() {
       // The sun's colour as seen in the sky and on the water fades out through twilight.
       this.shared.uSunColor.value.copy(lightColor).multiplyScalar(smoothstep(-0.12, 0.0, s));
       this.sun.color.copy(lightColor);
-      this.sun.intensity = moon ? intensity * smoothstep(-0.035, -0.12, s) : intensity * smoothstep(-0.02, 0.03, s);
+      this.sun.intensity = (moon ? intensity * smoothstep(-0.035, -0.12, s) : intensity * smoothstep(-0.02, 0.03, s)) * this.wx.sunMul;
 
       this.hemi.color.copy(zenith).lerp(horizon, 0.3).lerp(NIGHT_SKY, night * 0.85);
       // Warm bounce from sunlit pavement and walls: without it shaded streets fall to flat navy.
       this.hemi.groundColor.setRGB(0.34, 0.29, 0.22).multiplyScalar(envIntensity).lerp(NIGHT_GROUND, night * 0.8);
       // People and cars are lit by this at night (lamp pools are only on the ground).
-      this.hemi.intensity = 0.38 + envIntensity * 0.3 + night * 0.32 * nb;
+      this.hemi.intensity = (0.38 + envIntensity * 0.3 + night * 0.32 * nb) * this.wx.hemiMul;
       // Sky light fills shadows: keep shaded streets readable, not black.
-      this.scene.environmentIntensity = envIntensity * 1.3 + night * 0.2 * nb;
-      this.vhRenderer.renderer.toneMappingExposure = exposure;
-      this.exposure = exposure;
+      this.scene.environmentIntensity = (envIntensity * 1.3 + night * 0.2 * nb) * this.wx.envMul;
+      // Dull skies call for a longer exposure by day; the night keys are lifted enough already.
+      const exposureW = exposure * lerp(this.wx.expMul, 1, night);
+      this.vhRenderer.renderer.toneMappingExposure = exposureW;
+      this.exposure = exposureW;
+      this._base.hemi = this.hemi.intensity;
+      this._base.env = this.scene.environmentIntensity;
       // Lift the very darkest tones a touch (post-processing): moonlit, not crushed.
       if (this.vhRenderer.post) this.vhRenderer.post.nightLift = night * nb;
       if (VH.Humanoid && VH.Humanoid.setNightFill) VH.Humanoid.setNightFill(0.075 * night * nb);
 
       this.skyUniforms.uNight.value = night;
-      this.shared.uWindowGlow.value = smoothstep(0.1, -0.08, s);
+      // Murky weather switches the lamps and windows on even at noon.
+      this.shared.uWindowGlow.value = Math.max(smoothstep(0.1, -0.08, s), smoothstep(0.45, 0.8, this.wx.dark) * 0.75);
       this.nightFactor = night;
 
       const post = this.vhRenderer.postEnabled;
@@ -12830,7 +13085,7 @@ void main() {
         pf.sunDir.copy(this.sunDir);
         pf.sunColor.copy(lightColor);
         // Shafts, haze and flare belong to the sun only: they fade out through twilight and stay off under the moon.
-        pf.sunAmount = moon ? 0 : smoothstep(-0.02, 0.14, s) * (1 - this.cloudCover * 0.55);
+        pf.sunAmount = moon ? 0 : smoothstep(-0.02, 0.14, s) * (1 - this.effectiveCloud * 0.55) * this.wx.shaftMul;
       }
       if (post) {
         // Post-processing tone-maps everything together at the end, so fog and
@@ -12838,16 +13093,48 @@ void main() {
         this.skyUniforms.uFogDisplay.value.copy(horizon);
         this.skyUniforms.uFogLinear.value.copy(horizon);
         this.scene.fog.color.copy(horizon);
+        this._storeFogBase();
         return;
       }
       // Fog = the horizon colour as it will appear on screen after tone mapping.
       const hLin = [horizon.r, horizon.g, horizon.b];
-      const mapped = acesFilmic(hLin, exposure);
+      const mapped = acesFilmic(hLin, exposureW);
       this.skyUniforms.uFogLinear.value.copy(horizon);
       // scene.fog.color is converted to the output colour space by three.js on upload.
       this.scene.fog.color.setRGB(mapped[0], mapped[1], mapped[2]);
       // The raw (display) uniform above must not be colour-managed a second time.
       this.skyUniforms.uFogDisplay.value.setRGB(linearToSrgb(mapped[0]), linearToSrgb(mapped[1]), linearToSrgb(mapped[2]), THREE.LinearSRGBColorSpace);
+      this._storeFogBase();
+    }
+
+    _storeFogBase() {
+      this._base.fog.copy(this.scene.fog.color);
+      this._base.fogLin.copy(this.skyUniforms.uFogLinear.value);
+      this._base.fogDisp.copy(this.skyUniforms.uFogDisplay.value);
+      this._applyFog();
+    }
+
+    /** Weather grading of a sky colour (in place): towards grey, darker, and tinted for dust. */
+    _gradeSky(c, zen) {
+      const w = this.wx;
+      if (w.dark <= 0 && w.desat <= 0 && w.tint <= 0) return;
+      const l = 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+      const k = 1 - w.dark * (zen ? 0.62 : 0.5);
+      let r = (c.r + (l - c.r) * w.desat) * k;
+      let g = (c.g + (l - c.g) * w.desat) * k;
+      let bl = (c.b + (l - c.b) * w.desat) * k;
+      // Wet skies are cool grey, not beige.
+      r *= 1 - 0.07 * w.desat;
+      bl *= 1 + 0.09 * w.desat;
+      if (w.tint > 0) {
+        const t = this.wxTint;
+        const tl = Math.max(0.0001, 0.2126 * t.r + 0.7152 * t.g + 0.0722 * t.b);
+        const sc = Math.max(l * k, 0.02) / tl;
+        r += (t.r * sc - r) * w.tint;
+        g += (t.g * sc - g) * w.tint;
+        bl += (t.b * sc - bl) * w.tint;
+      }
+      c.setRGB(r, g, bl);
     }
 
     _regenerateEnvMap() {
@@ -12871,7 +13158,17 @@ void main() {
         this._envLast = now;
       }
 
+      // Seen from the air the haze thins out (most of it hugs the ground), so a
+      // pilot can see the city and the desert instead of a milky wall.
+      const alt = this.vhRenderer.camera.position.y;
+      if (Math.abs(alt - this._fogAlt) > 2 && this.baseFogDensity) {
+        this._fogAlt = alt;
+        const k = 1 - 0.6 * smoothstep(25, 380, alt);
+        this._altK = k;
+        this._applyFog();
+      }
       this.sky.position.copy(focus);
+      this._applyFlash();
       if (this.sun.castShadow) this._placeShadow(focus);
       else {
         this.sun.position.copy(focus).addScaledVector(this.lightDir, 400);
@@ -18321,6 +18618,528 @@ void main() {
   VH.Skyline = Skyline;
 })();
 //# sourceURL=js/skyline.js
+</script>
+    <script data-src="js/horizon.js">
+/*
+ * horizon.js — the land beyond the edge of the map.
+ *
+ * Without it the playable rectangle ends in a hard "table edge" with the sky
+ * showing under it, which is very obvious from a plane. This adds a wide
+ * ring of rolling scrubland that climbs into hills and ridges away from the
+ * map (and fades into the fog), a few kilometres across. It leaves out
+ * the rectangle itself (the city's own ground is there) and the sea.
+ *
+ *   new VH.Horizon(game)      a world system (see WORLD_SYSTEMS in main.js)
+ *   .update()                 keeps the sun/ambient light in step
+ */
+(function () {
+  'use strict';
+
+  const VH = window.VH;
+  const { clamp, lerp, smoothstep } = VH.math;
+
+  // ---- cheap value noise on the CPU (the terrain is built once)
+  function hash(ix, iz) {
+    let h = (ix * 374761393 + iz * 668265263) | 0;
+    h = Math.imul(h ^ (h >>> 13), 1274126177);
+    return ((h ^ (h >>> 16)) >>> 0) / 4294967295;
+  }
+  function vnoise(x, z) {
+    const ix = Math.floor(x);
+    const iz = Math.floor(z);
+    const fx = x - ix;
+    const fz = z - iz;
+    const ux = fx * fx * (3 - 2 * fx);
+    const uz = fz * fz * (3 - 2 * fz);
+    return lerp(lerp(hash(ix, iz), hash(ix + 1, iz), ux), lerp(hash(ix, iz + 1), hash(ix + 1, iz + 1), ux), uz);
+  }
+  function fbm(x, z, oct) {
+    let s = 0;
+    let a = 0.5;
+    for (let i = 0; i < oct; i++) {
+      s += a * vnoise(x, z);
+      x = x * 2.03 + 17.1;
+      z = z * 2.03 + 3.7;
+      a *= 0.5;
+    }
+    return s;
+  }
+
+  const VERT = /* glsl */ `
+    #include <common>
+    #include <fog_pars_vertex>
+    attribute vec3 color;
+    varying vec3 vColor;
+    varying vec3 vN;
+    varying vec3 vWorld;
+    void main() {
+      vColor = color;
+      vN = normal;
+      vec4 wp = modelMatrix * vec4(position, 1.0);
+      vWorld = wp.xyz;
+      vec4 mvPosition = viewMatrix * wp;
+      gl_Position = projectionMatrix * mvPosition;
+      #include <fog_vertex>
+    }
+  `;
+
+  const FRAG = /* glsl */ `
+    #include <common>
+    #include <fog_pars_fragment>
+    uniform vec3 uSunLight;
+    uniform vec3 uSunDir;
+    uniform vec3 uSky;
+    uniform vec3 uGround;
+    uniform vec4 uRect;   // minX, maxX, minZ, maxZ of the playable map
+    uniform float uSeaX;
+    varying vec3 vColor;
+    varying vec3 vN;
+    varying vec3 vWorld;
+    float h21(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+    float vn(vec2 p) {
+      vec2 i = floor(p), f = fract(p);
+      f = f * f * (3.0 - 2.0 * f);
+      return mix(mix(h21(i), h21(i + vec2(1, 0)), f.x), mix(h21(i + vec2(0, 1)), h21(i + vec2(1, 1)), f.x), f.y);
+    }
+    void main() {
+      // The map itself and the sea have their own ground.
+      if (vWorld.x > uRect.x - 0.5 && vWorld.x < uRect.y + 0.5 && vWorld.z > uRect.z - 0.5 && vWorld.z < uRect.w + 0.5) discard;
+      if (vWorld.x > uSeaX) discard;
+      vec3 n = normalize(vN);
+      float ndl = max(dot(n, uSunDir), 0.0);
+      vec3 amb = mix(uGround, uSky, n.y * 0.5 + 0.5);
+      // Large-scale mottling and fine grain so the hills are not flat colour.
+      float m = 0.82 + 0.36 * vn(vWorld.xz * 0.012) * (0.6 + 0.4 * vn(vWorld.xz * 0.11));
+      vec3 col = vColor * m * (uSunLight * ndl + amb);
+      gl_FragColor = vec4(col, 1.0);
+      #include <fog_fragment>
+    }
+  `;
+
+  class Horizon {
+    constructor(game) {
+      this.game = game;
+      const cfg = game.layout.config;
+      const b = cfg.bounds;
+      const rect = { x0: b.minX, x1: b.maxX, z0: b.minZ, z1: b.maxZ };
+      const sea = cfg.seawallX;
+      const SPAN = 9000; // half-width of the whole ring
+      const N = 190; // cells per side
+      const cell = (SPAN * 2) / N;
+      const pos = new Float32Array((N + 1) * (N + 1) * 3);
+      const col = new Float32Array((N + 1) * (N + 1) * 3);
+      const tint = (hex) => new THREE.Color(hex);
+      const scrub = tint(0x8a7f55);
+      const grass = tint(0x6b7a45);
+      const dry = tint(0xa89868);
+      const rock = tint(0x6f6258);
+      const high = tint(0x9a8e80);
+      const c = new THREE.Color();
+
+      const outside = (x, z) => {
+        const dx = Math.max(rect.x0 - x, 0, x - rect.x1);
+        const dz = Math.max(rect.z0 - z, 0, z - rect.z1);
+        return Math.hypot(dx, dz);
+      };
+      const heightAt = (x, z) => {
+        const d = outside(x, z);
+        if (d <= 0) return -0.4; // under the city's own ground (and discarded in the shader)
+        const ramp = smoothstep(60, 1000, d);
+        const far = smoothstep(400, 3000, d);
+        const roll = (fbm(x / 240, z / 240, 4) - 0.35) * 40 * smoothstep(20, 300, d);
+        const ridge = 1 - Math.abs(2 * fbm(x / 1100 + 5.3, z / 1100 - 2.1, 5) - 1);
+        const massif = fbm(x / 3000 - 9, z / 3000 + 4, 3);
+        const mountains = Math.pow(ridge, 1.5) * (180 + 700 * massif) * ramp + far * 220 * massif;
+        return 0.1 + Math.max(0, roll) * ramp + mountains * 0.6;
+      };
+
+      let k = 0;
+      const hs = new Float32Array((N + 1) * (N + 1));
+      for (let j = 0; j <= N; j++) {
+        for (let i = 0; i <= N; i++) {
+          const x = -SPAN + i * cell + (rect.x0 + rect.x1) / 2;
+          const z = -SPAN + j * cell + (rect.z0 + rect.z1) / 2;
+          const y = heightAt(x, z);
+          hs[j * (N + 1) + i] = y;
+          pos[k] = x;
+          pos[k + 1] = y;
+          pos[k + 2] = z;
+          k += 3;
+        }
+      }
+      // Colour from altitude, slope and a regional mix (green near the city, drier further out).
+      k = 0;
+      for (let j = 0; j <= N; j++) {
+        for (let i = 0; i <= N; i++) {
+          const y = hs[j * (N + 1) + i];
+          const x = pos[k];
+          const z = pos[k + 2];
+          const hl = hs[j * (N + 1) + Math.max(i - 1, 0)];
+          const hr = hs[j * (N + 1) + Math.min(i + 1, N)];
+          const hd = hs[Math.max(j - 1, 0) * (N + 1) + i];
+          const hu = hs[Math.min(j + 1, N) * (N + 1) + i];
+          const slope = clamp(Math.hypot(hr - hl, hu - hd) / (2 * cell) * 1.6, 0, 1);
+          const wet = fbm(x / 700 + 11, z / 700 - 7, 4);
+          const dist = outside(x, z);
+          c.copy(dry).lerp(scrub, smoothstep(0.3, 0.6, wet)).lerp(grass, smoothstep(0.6, 0.8, wet) * (1 - smoothstep(200, 1800, dist)) * 0.8);
+          c.lerp(rock, smoothstep(0.2, 0.55, slope));
+          c.lerp(high, smoothstep(160, 420, y) * 0.6);
+          col[k] = c.r;
+          col[k + 1] = c.g;
+          col[k + 2] = c.b;
+          k += 3;
+        }
+      }
+      const index = new Uint32Array(N * N * 6);
+      let q = 0;
+      for (let j = 0; j < N; j++) {
+        for (let i = 0; i < N; i++) {
+          const a = j * (N + 1) + i;
+          const bI = a + 1;
+          const cI = a + N + 1;
+          const dI = cI + 1;
+          index[q++] = a; index[q++] = cI; index[q++] = bI;
+          index[q++] = bI; index[q++] = cI; index[q++] = dI;
+        }
+      }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+      geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+      geo.setIndex(new THREE.BufferAttribute(index, 1));
+      geo.computeVertexNormals();
+
+      const shared = VH.Materials.shared;
+      this.uniforms = THREE.UniformsUtils.merge([THREE.UniformsLib.fog, {
+        uSunLight: { value: new THREE.Color(1, 1, 1) },
+        uSunDir: shared.uSunDir,
+        uSky: { value: new THREE.Color(0.4, 0.5, 0.7) },
+        uGround: { value: new THREE.Color(0.2, 0.18, 0.14) },
+        uRect: { value: new THREE.Vector4(rect.x0, rect.x1, rect.z0, rect.z1) },
+        uSeaX: { value: sea - 0.5 },
+      }]);
+      const mat = new THREE.ShaderMaterial({ uniforms: this.uniforms, vertexShader: VERT, fragmentShader: FRAG, fog: true });
+      this.mesh = new THREE.Mesh(geo, mat);
+      this.mesh.name = 'horizon';
+      this.mesh.frustumCulled = false;
+      this.mesh.matrixAutoUpdate = false;
+      game.scene.add(this.mesh);
+    }
+
+    update() {
+      const env = this.game.environment;
+      if (!env) return;
+      const u = this.uniforms;
+      const sun = env.sun;
+      u.uSunLight.value.copy(sun.color).multiplyScalar(sun.intensity / Math.PI);
+      u.uSky.value.copy(env.hemi.color).multiplyScalar(env.hemi.intensity * 0.55 + env.scene.environmentIntensity * 0.3);
+      u.uGround.value.copy(env.hemi.groundColor).multiplyScalar(env.hemi.intensity * 0.5);
+    }
+
+    reset() {}
+
+    stop() {}
+  }
+
+  VH.Horizon = Horizon;
+})();
+//# sourceURL=js/horizon.js
+</script>
+    <script data-src="js/photo.js">
+/*
+ * photo.js — photo mode (F9).
+ *
+ * Freezes the world, hides the HUD and hands you a free camera:
+ *
+ *   mouse        look                 wheel      field of view
+ *   W A S D      fly                  Space/Ctrl up / down      Shift  fast
+ *   [ ]          time of day (Shift = bigger steps)
+ *   - =          depth of field: less / more      F  auto-focus on/off
+ *   , .          focus nearer / further (manual focus)
+ *   C            next look (cinematic, vivid, noir, warm, cool, faded)
+ *   H            hide / show this help
+ *   Enter        save the picture (PNG)           Esc / F9   back to the game
+ *
+ * The picture is saved at the size the game is rendering at, so on the Max
+ * preset (supersampled) it is a large, very clean image.
+ */
+(function () {
+  'use strict';
+
+  const VH = window.VH;
+  const { clamp } = VH.math;
+
+  const LOOKS = [
+    { name: 'Cinematic', sat: null, con: null, shadow: null, high: null },
+    { name: 'Vivid', sat: 1.35, con: 1.1, shadow: [-0.004, 0.0, 0.01], high: [0.03, 0.014, -0.02] },
+    { name: 'Noir', sat: 0.0, con: 1.25, shadow: [0, 0, 0], high: [0, 0, 0] },
+    { name: 'Warm', sat: 1.1, con: 1.05, shadow: [0.01, 0.003, -0.01], high: [0.05, 0.025, -0.03] },
+    { name: 'Cool', sat: 1.0, con: 1.05, shadow: [-0.01, 0.004, 0.025], high: [-0.01, 0.012, 0.04] },
+    { name: 'Faded', sat: 0.7, con: 0.9, shadow: [0.025, 0.02, 0.03], high: [0.02, 0.02, 0.01] },
+  ];
+
+  class PhotoMode {
+    constructor(game) {
+      this.game = game;
+      this.active = false;
+      this.yaw = 0;
+      this.pitch = 0;
+      this.pos = new THREE.Vector3();
+      this.fov = 60;
+      this.autoFocus = true;
+      this.focus = 20;
+      this.dof = 0.0;
+      this.look = 0;
+      this._dir = new THREE.Vector3();
+      this._right = new THREE.Vector3();
+      this._last = 0;
+      this._focusT = 0;
+      this._onKey = (e) => this._key(e);
+      this._onLock = () => {
+        if (this.active && !document.pointerLockElement) this.exit();
+      };
+      window.addEventListener('keydown', (e) => {
+        if (e.code === 'F9' && !e.repeat) {
+          e.preventDefault();
+          if (this.active) this.exit();
+          else this.enter();
+        }
+      });
+    }
+
+    update() {}
+
+    reset() {
+      if (this.active) this.exit();
+    }
+
+    stop() {
+      if (this.active) this.exit();
+    }
+
+    enter() {
+      const g = this.game;
+      if (this.active || g.state !== 'playing' || g.frozen || document.body.classList.contains('cutscene')) return;
+      this.active = true;
+      this._prevState = g.state;
+      this._prevFov = g.renderer.camera.fov;
+      const cam = g.renderer.camera;
+      this.pos.copy(cam.position);
+      const d = cam.getWorldDirection(this._dir);
+      this.yaw = Math.atan2(-d.x, -d.z);
+      this.pitch = Math.asin(clamp(d.y, -1, 1));
+      this.fov = cam.fov;
+      g.state = 'photo';
+      g.frozen = true; // stops the game's own frame loop; we render below
+      g.input.releaseAll();
+      g.input.takeMouseDelta();
+      g.input.takeWheel();
+      g.input.requestLock();
+      g.hud.root.style.display = 'none';
+      this._buildHelp();
+      window.addEventListener('keydown', this._onKey, true);
+      document.addEventListener('pointerlockchange', this._onLock);
+      this._last = performance.now();
+      this._loop = (now) => this._frame(now);
+      requestAnimationFrame(this._loop);
+    }
+
+    exit() {
+      const g = this.game;
+      if (!this.active) return;
+      this.active = false;
+      window.removeEventListener('keydown', this._onKey, true);
+      document.removeEventListener('pointerlockchange', this._onLock);
+      const post = g.renderer.post;
+      if (post) {
+        post.dofAmount = 0;
+        this._applyLook(LOOKS[0]);
+        post.cut();
+      }
+      const cam = g.renderer.camera;
+      cam.fov = this._prevFov;
+      cam.updateProjectionMatrix();
+      g.hud.root.style.display = '';
+      if (this.help) this.help.remove();
+      this.help = null;
+      g.state = this._prevState;
+      g.frozen = false;
+      g.input.releaseAll();
+      g.input.takeMouseDelta();
+      g._last = performance.now();
+      if (!g.input.locked) g.hud.showToast && g.hud.showToast('Click the game to capture the mouse');
+    }
+
+    _buildHelp() {
+      const el = VH.util.el;
+      this.help = el('div', 'photo-help');
+      Object.assign(this.help.style, {
+        position: 'fixed', left: '50%', bottom: '14px', transform: 'translateX(-50%)', zIndex: 60,
+        background: 'rgba(9,13,26,0.74)', color: '#f1f4ff', border: '1px solid rgba(255,255,255,0.14)', borderRadius: '10px',
+        padding: '8px 14px', font: '600 12px/1.5 system-ui, sans-serif', letterSpacing: '0.02em', textAlign: 'center', pointerEvents: 'none',
+        maxWidth: '92vw',
+      });
+      this.helpLine = el('div', '');
+      this.helpKeys = el('div', '');
+      this.helpKeys.style.opacity = '0.7';
+      this.helpKeys.textContent = 'Mouse look · WASD fly · Space/Ctrl up/down · Shift fast · [ ] time · - = blur · F auto-focus · , . focus · C look · H help · Enter save · Esc exit';
+      this.help.append(this.helpLine, this.helpKeys);
+      document.body.append(this.help);
+    }
+
+    _applyLook(look) {
+      const post = this.game.renderer.post;
+      if (!post) return;
+      const u = post.compMat.uniforms;
+      const base = this._baseGrade || (this._baseGrade = {
+        sat: u.uSaturation.value, con: u.uContrast.value, shadow: u.uShadowTint.value.clone(), high: u.uHighlightTint.value.clone(),
+      });
+      u.uSaturation.value = look.sat === null ? base.sat : look.sat;
+      u.uContrast.value = look.con === null ? base.con : look.con;
+      if (look.shadow) u.uShadowTint.value.set(...look.shadow);
+      else u.uShadowTint.value.copy(base.shadow);
+      if (look.high) u.uHighlightTint.value.set(...look.high);
+      else u.uHighlightTint.value.copy(base.high);
+    }
+
+    _key(e) {
+      const g = this.game;
+      const post = g.renderer.post;
+      let used = true;
+      switch (e.code) {
+        case 'Escape':
+          this.exit();
+          break;
+        case 'Enter':
+          if (!e.repeat) this._capture();
+          break;
+        case 'KeyH':
+          if (this.help) this.help.style.display = this.help.style.display === 'none' ? '' : 'none';
+          break;
+        case 'KeyC':
+          this.look = (this.look + 1) % LOOKS.length;
+          this._applyLook(LOOKS[this.look]);
+          break;
+        case 'KeyF':
+          this.autoFocus = !this.autoFocus;
+          break;
+        case 'Comma':
+          this.autoFocus = false;
+          this.focus = clamp(this.focus / (e.shiftKey ? 1.5 : 1.12), 0.5, 3000);
+          break;
+        case 'Period':
+          this.autoFocus = false;
+          this.focus = clamp(this.focus * (e.shiftKey ? 1.5 : 1.12), 0.5, 3000);
+          break;
+        case 'Minus':
+          this.dof = clamp(this.dof - 0.25, 0, 4);
+          break;
+        case 'Equal':
+          this.dof = clamp(this.dof + 0.25, 0, 4);
+          break;
+        case 'BracketLeft':
+        case 'BracketRight': {
+          const step = (e.shiftKey ? 1 : 0.25) * (e.code === 'BracketLeft' ? -1 : 1);
+          g.environment.setTime(g.environment.hours + step);
+          break;
+        }
+        default:
+          used = false;
+      }
+      if (used) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+      if (post && !post.enabled && (e.code === 'Minus' || e.code === 'Equal')) this._note = 'Depth of field needs post-processing (Settings → Graphics).';
+    }
+
+    _capture() {
+      const g = this.game;
+      const r = g.renderer;
+      const post = r.post;
+      this._render(0.016);
+      if (post) post.pulse(0.35);
+      r.canvas.toBlob((blob) => {
+        if (!blob) return;
+        const d = new Date();
+        const pad = (n) => String(n).padStart(2, '0');
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `vicehaven-${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}.png`;
+        document.body.append(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+        this._note = 'Saved ' + a.download;
+        this._noteT = 3;
+      }, 'image/png');
+    }
+
+    _render(dt) {
+      const g = this.game;
+      const cam = g.renderer.camera;
+      const post = g.renderer.post;
+      cam.position.copy(this.pos);
+      cam.rotation.set(this.pitch, this.yaw, 0, 'YXZ');
+      cam.fov = this.fov;
+      cam.updateProjectionMatrix();
+      cam.updateMatrixWorld(true);
+      g.world.update(1, cam.position);
+      g.environment.update(0, g.player.renderPos);
+      if (post) {
+        post.dofAmount = this.dof;
+        post.dofFocus = this.focus;
+        post.flash = Math.max(0, post.flash - dt * 2.5);
+      }
+      g.renderer.render(g.scene, dt);
+    }
+
+    _frame(now) {
+      if (!this.active) return;
+      requestAnimationFrame(this._loop);
+      const g = this.game;
+      const inp = g.input;
+      const dt = Math.min(0.1, Math.max(0.001, (now - this._last) / 1000));
+      this._last = now;
+      const md = inp.takeMouseDelta();
+      const sens = 0.0022 * (this.fov / 60);
+      this.yaw -= md.x * sens;
+      this.pitch = clamp(this.pitch - md.y * sens, -1.5, 1.5);
+      const wheel = inp.takeWheel();
+      if (wheel) this.fov = clamp(this.fov + wheel * 3, 12, 100);
+      const dir = this._dir.set(-Math.sin(this.yaw) * Math.cos(this.pitch), Math.sin(this.pitch), -Math.cos(this.yaw) * Math.cos(this.pitch));
+      const right = this._right.set(Math.cos(this.yaw), 0, -Math.sin(this.yaw));
+      const speed = (inp.down('sprint') ? 40 : 9) * (this.fov / 60);
+      let f = 0;
+      let s = 0;
+      let u = 0;
+      if (inp.down('moveForward')) f += 1;
+      if (inp.down('moveBack')) f -= 1;
+      if (inp.down('moveRight')) s += 1;
+      if (inp.down('moveLeft')) s -= 1;
+      if (inp.down('jump')) u += 1;
+      if (inp.down('crouch')) u -= 1;
+      this.pos.addScaledVector(dir, f * speed * dt).addScaledVector(right, s * speed * dt);
+      this.pos.y = Math.max(0.3, this.pos.y + u * speed * dt);
+      // Auto-focus: measure what is under the centre of the frame.
+      this._focusT -= dt;
+      if (this.autoFocus && this._focusT <= 0) {
+        this._focusT = 0.15;
+        const hit = g.combat.trace(this.pos.x, this.pos.y, this.pos.z, dir.x, dir.y, dir.z, 600, null, null);
+        const target = hit && hit.type !== 'none' ? hit.t : 600;
+        this.focus += (target - this.focus) * 0.6;
+      }
+      this._render(dt);
+      if (this._noteT > 0) this._noteT -= dt;
+      const post = g.renderer.post;
+      const dofText = this.dof > 0 ? `blur ${this.dof.toFixed(2)} · focus ${this.focus.toFixed(1)} m${this.autoFocus ? ' (auto)' : ''}` : 'blur off';
+      const note = this._noteT > 0 && this._note ? ' · ' + this._note : '';
+      this.helpLine.textContent = `PHOTO MODE · ${g.environment.clockText()} · FOV ${Math.round(this.fov)}° · ${dofText} · look: ${LOOKS[this.look].name}${post && post.enabled ? '' : ' · (post-processing off)'}${note}`;
+    }
+  }
+
+  VH.PhotoMode = PhotoMode;
+})();
+//# sourceURL=js/photo.js
 </script>
     <script data-src="js/airfield.js">
 /*
@@ -26832,6 +27651,8 @@ void main() {
     pickup: { idle: 29, red: 185, osc: [[1, 'sawtooth', 0.5], [0.5, 'sawtooth', 0.38], [2, 'square', 0.15]], drive: 2.6, lp: 0.75, q: 2.0, flutter: 0.25, fdepth: 0.26, noise: 1.1, nf: 2.0, gain: 0.92 },
     taxi: { idle: 32, red: 195, osc: [[1, 'sawtooth', 0.5], [2, 'square', 0.2], [0.5, 'sine', 0.3]], drive: 2.0, lp: 0.85, q: 1.0, flutter: 0.5, fdepth: 0.13, noise: 0.8, nf: 2.4, gain: 0.85 },
     police: { idle: 30, red: 215, osc: [[1, 'sawtooth', 0.5], [0.5, 'sawtooth', 0.36], [2, 'square', 0.24]], drive: 3.0, lp: 1.0, q: 2.0, flutter: 0.25, fdepth: 0.24, noise: 1.2, nf: 2.2, gain: 0.95 },
+    // Electric cars: a smooth rising whine, almost no rumble.
+    ev: { idle: 70, red: 560, osc: [[1, 'sine', 0.38], [2, 'triangle', 0.1], [4, 'sine', 0.05]], drive: 5.0, lp: 1.7, q: 0.7, flutter: 0.1, fdepth: 0.03, noise: 0.3, nf: 3.2, gain: 0.5 },
     // A light aircraft's flat-four and propeller, and a tank's big diesel.
     prop: { idle: 26, red: 120, osc: [[1, 'sawtooth', 0.5], [2, 'square', 0.25], [0.5, 'sawtooth', 0.3]], drive: 2.2, lp: 0.7, q: 1.4, flutter: 0.6, fdepth: 0.2, noise: 1.0, nf: 3.0, gain: 0.95 },
     tank: { idle: 18, red: 95, osc: [[1, 'sawtooth', 0.5], [0.5, 'square', 0.45], [2, 'sawtooth', 0.2]], drive: 3.4, lp: 0.55, q: 2.4, flutter: 0.3, fdepth: 0.3, noise: 1.6, nf: 1.6, gain: 1.0 },
@@ -30703,6 +31524,8 @@ void main() {
     const p = { color: hex, vertexColors: true, metalness: light ? 0.22 : 0.5, roughness: light ? 0.3 : 0.35, clearcoat: 1, clearcoatRoughness: 0.08 };
     if (finish === 'matte') Object.assign(p, { metalness: 0.05, roughness: 0.78, clearcoat: 0.08, clearcoatRoughness: 0.6 });
     if (finish === 'candy') Object.assign(p, { metalness: 0.7, roughness: 0.25, clearcoat: 1, clearcoatRoughness: 0.03 });
+    if (finish === 'steel') Object.assign(p, { metalness: 0.62, roughness: 0.4, clearcoat: 0.15, clearcoatRoughness: 0.5 });
+    if (finish === 'satin') Object.assign(p, { metalness: 0.45, roughness: 0.5, clearcoat: 0.35, clearcoatRoughness: 0.35 });
     if (finish === 'pearl') Object.assign(p, { metalness: 0.35, roughness: 0.28, clearcoat: 1, clearcoatRoughness: 0.04, sheen: 0.4, sheenColor: 0xfff2e0 });
     return p;
   }
@@ -30796,7 +31619,7 @@ void main() {
     const pb = new PartBuilder('trim');
     const segs = lod ? 10 : 16;
     const hw = width / 2;
-    const rimR = R * (styleName === 'truck' || styleName === 'steel' || styleName === 'silversteel' || styleName === 'rusty' || whitewall ? 0.62 : 0.7);
+    const rimR = R * (st.rimK || (styleName === 'truck' || styleName === 'steel' || styleName === 'silversteel' || styleName === 'rusty' || whitewall ? 0.62 : 0.7));
 
     // Tyre: rounded shoulders, slightly bulged sidewalls. Outboard is +X.
     const sh = Math.min(0.045, width * 0.2);
@@ -31215,6 +32038,15 @@ void main() {
       const zr = (y) => (w.r === 'C' ? zAt(g.rw, y) + (g.cw || 0.12) : w.r);
       const b = w.b, t = w.t;
       ctx.quad('left', [zf(b), b], [zr(b), b], [zr(t), t], [zf(t), t], { color: COL.glass, rm: RM.glass, nu: 4, nv: 2, off: 0.004, mirror: true });
+      if (g.seats && !ctx.lod) {
+        // Seat backs and headrests seen through the tint (a hint of interior).
+        const wh = t - b, zhi = Math.min(zf(b), zf(t)) - 0.1, zlo = Math.max(zr(b), zr(t)) + 0.1;
+        for (const sz of g.seats) {
+          if (sz > zhi || sz < zlo) continue;
+          ctx.rect('left', sz, b + wh * 0.3, 0.36, wh * 0.58, { color: 0x34363b, rm: RM.plastic, round: 0.4, nu: 3, nv: 2, off: 0.0058, mirror: true });
+          ctx.rect('left', sz, b + wh * 0.8, 0.2, wh * 0.22, { color: 0x3d4046, rm: RM.plastic, round: 0.7, nu: 3, nv: 2, off: 0.0062, mirror: true });
+        }
+      }
       if (w.trim !== false && !ctx.lod) {
         // Belt moulding under the window.
         ctx.quad('left', [zf(b) + 0.01, b - 0.022], [zr(b) - 0.01, b - 0.022], [zr(b) - 0.01, b - 0.004], [zf(b) + 0.01, b - 0.004], { color: g.beltColor || COL.black, rm: g.beltColor ? RM.chrome : RM.gloss, nu: 4, nv: 1, off: 0.003, mirror: true });
@@ -32041,6 +32873,514 @@ void main() {
     },
   });
 
+  // ======================================================================
+  // Roster v2: modern, classic and off-road cars. Invented makes; the shapes
+  // follow well-known real-world silhouettes (proportions in metres).
+  // ======================================================================
+  WHEEL_STYLES.aero = { spokes: 8, pair: 0, w0: 0.08, w1: 0.105, col: 0x474a4f, rm: [0.3, 0.85], lip: 0x8f9296, dish: 0.02 };
+  WHEEL_STYLES.sport = { spokes: 7, pair: 0.075, w0: 0.03, w1: 0.046, col: 0x2c2e32, rm: [0.3, 0.85], lip: 0x8f9296, dish: 0.055 };
+  WHEEL_STYLES.blackalloy = { spokes: 6, pair: 0, w0: 0.075, w1: 0.1, col: 0x17181a, rm: [0.4, 0.6], lip: 0x17181a, dish: 0.035, rimK: 0.64 };
+  WHEEL_STYLES.cover = { spokes: 18, pair: 0, w0: 0.09, w1: 0.145, col: 0x3d4045, rm: [0.35, 0.85], lip: 0x3d4045, dish: 0.012, rimK: 0.66 };
+  WHEEL_STYLES.crager = { spokes: 5, pair: 0, w0: 0.06, w1: 0.07, col: 0xd9dcde, rm: RM.chrome, lip: 0xd9dcde, dish: 0.03, rimK: 0.66 };
+  WHEEL_STYLES.fivestar = { spokes: 5, pair: 0.05, w0: 0.026, w1: 0.04, col: 0xb7bbbf, rm: RM.alloy, lip: 0xd0d3d6, dish: 0.045 };
+
+  /** Black arch flares round both axles (uses the body's own arch numbers). */
+  function archFlares(ctx, width, color) {
+    const d = ctx.def, zF = d.L / 2 - d.fo, zR = -d.L / 2 + d.ro;
+    const g = d.archGap === undefined ? 0.06 : d.archGap;
+    flares(ctx, zF, d.R + g, d.R, width, color);
+    flares(ctx, zR, d.R + (d.archGapR === undefined ? g : d.archGapR), d.R, width, color);
+  }
+  /** Flush door handle: a slim dark slot with a bright lip. */
+  function flushHandles(ctx, zs, y, color) {
+    if (ctx.lod) return;
+    for (const z of zs) {
+      ctx.rect('left', z, y, 0.15, 0.022, { round: 0.9, color: color || 0x15171a, rm: RM.gloss, nu: 3, off: 0.0022, mirror: true });
+      ctx.rect('left', z, y + 0.014, 0.15, 0.004, { round: 0.9, color: 0xc4c8cc, rm: RM.chrome, nu: 3, off: 0.0028, mirror: true, lod0: true });
+    }
+  }
+  const GLASS_ROOF = 0x131b23;
+
+  // ---- 19. Volta S: electric fastback sedan, light bars and flush handles.
+  (function () {
+    const gh = greenhouse({ zb: 0.8, yb: 0.97, top: [0.02, 1.43], mid: [-0.85, 1.45, 0.6], rear: [-1.75, 1.35], base: [-2.42, 1.02], bot: 0.88, r: [0.03, 0.25, 0.4, 0.1] });
+    DEFS.volta = {
+      L: 4.98, W: 1.96, H: 1.45, fo: 0.9, ro: 1.12, R: 0.352, tyreW: 0.245, tyreWR: 0.265, sill: 0.2, archGap: 0.05, wheel: 'aero',
+      body: [
+        [2.4, 0.28, 0.04], [2.49, 0.4, 0.08], [2.49, 0.64, 0.1], [2.38, 0.78, 0.14], [1.5, 0.91, 0.5], [0.84, 1.0, 0.1],
+        [-0.9, 1.0, 0.4], [-1.9, 1.02, 0.3], [-2.42, 0.99, 0.14], [-2.5, 0.9, 0.1], [-2.5, 0.55, 0.1], [-2.46, 0.34, 0.05], [-2.36, 0.28, 0.03],
+      ],
+      bevel: 0.07,
+      plan: [[-2.5, 0.88], [-2.1, 0.97], [-1.4, 1.0], [0.8, 1.0], [1.6, 0.98], [2.1, 0.93], [2.5, 0.8]],
+      nose: 0.14, tail: 0.1, endLen: 0.55, tumble: [0.7, 1.0, 0.07],
+      cabin: { pts: gh.pts, width: 1.66, bevel: 0.08, tumble: 0.17, y0: 0.95, y1: 1.45, crown: 0.025, wf: [0.08, 0.02, 0.8], wr: [0.06, -1.75, -2.42] },
+      glass: { seats: [-0.05, -1.0], ws: gh.ws, rw: gh.rw, rwT: [0.06, 0.88], aw: 0.09, cw: 0.2, side: [{ f: 'A', r: -0.34, b: 1.04, t: 1.38 }, { f: -0.42, r: -1.3, b: 1.04, t: 1.3 }] },
+      seatZ: 0.1,
+      details(ctx) {
+        ctx.headlight('front', 0.66, 0.7, 0.4, 0.07, { round: 0.8, skew: 0.55, taper: -0.1, drl: { dy: -0.036, h: 0.011, w: 0.96 } });
+        ctx.rect('front', 0, 0.36, 1.1, 0.1, { round: 0.6, color: COL.grille, rm: RM.dark, nu: 6, off: 0.003 });
+        ctx.rect('front', 0.68, 0.42, 0.2, 0.05, { round: 0.6, color: COL.grille, rm: RM.dark, nu: 3, off: 0.003, mirror: true, lod0: true });
+        ctx.rect('front', 0, 0.22, 1.7, 0.035, { round: 0.3, color: 0x101113, rm: RM.satin, nu: 8, off: 0.003, thick: 0.01 });
+        ctx.plate('front', 0.5, { off: 0.012 });
+        ctx.taillight('rear', 0.7, 0.9, 0.46, 0.07, { round: 0.6, skew: -0.45, bezel: null, rev: { dx: -0.17, dy: -0.04, w: 0.06, h: 0.025 } });
+        ctx.rect('rear', 0, 0.9, 0.92, 0.018, { part: 'lights', round: 0.6, color: COL.tailLens, rm: RM.tail, light: G.TAIL, nu: 6, off: 0.006 });
+        ctx.plate('rear', 0.7);
+        ctx.rect('rear', 0, 0.4, 1.56, 0.16, { round: 0.5, color: COL.plastic, rm: RM.plastic, nu: 6, off: 0.003 });
+        ctx.rect('rear', 0.7, 0.55, 0.1, 0.03, { part: 'lights', round: 0.6, color: 0x700a0a, rm: RM.tail, nu: 2, off: 0.005, mirror: true, lod0: true });
+        ctx.seams([{ z: 0.68, y0: 0.27, y1: 0.97 }, { z: -0.22, y0: 0.26, y1: 1.0 }, { z: -1.14, y0: 0.3, y1: 1.0, lean: 0.03 }, { z0: -1.14, z1: 0.68, y: 0.26 }]);
+        flushHandles(ctx, [0.2, -0.78], 0.935);
+        ctx.rect('left', -0.0, 0.245, 2.3, 0.05, { round: 0.5, color: COL.plastic, rm: RM.plastic, nu: 8, off: 0.003, thick: 0.008, mirror: true });
+        ctx.mirrors(0.66, 0.985, { sy: 0.095, sz: 0.17 });
+        ctx.rect('left', 1.45, 0.68, 0.07, 0.025, { part: 'lights', round: 0.7, color: COL.amber, rm: RM.lens, light: G.AMBER, nu: 2, off: 0.004, mirror: true, lod0: true });
+        // Panoramic glass roof.
+        ctx.rect('top', 0, -0.52, 1.18, 2.0, { round: 0.25, color: GLASS_ROOF, rm: RM.glass, nu: 3, nv: 8, off: 0.004 });
+        // Subtle ducktail.
+        ctx.box('paint', 0, ctx.roofY(-2.36, 0) + 0.004, -2.4, 1.3, 0.025, 0.1, 0.012, 'body', null, { rx: 0.1, lod0: true });
+      },
+    };
+  })();
+
+  // ---- 20. Volta Y: electric crossover, tall hatch, glass roof, black lower trim.
+  (function () {
+    const gh = greenhouse({ zb: 0.8, yb: 1.05, top: [0.1, 1.58], mid: [-0.9, 1.61, 0.5], rear: [-1.75, 1.52], base: [-2.33, 1.1], bot: 0.96, r: [0.03, 0.22, 0.3, 0.08], baseOut: 0.03 });
+    DEFS.voltaic = {
+      L: 4.75, W: 1.94, H: 1.63, fo: 0.88, ro: 0.98, R: 0.365, tyreW: 0.24, tyreWR: 0.255, sill: 0.28, archGap: 0.055, wheel: 'aero',
+      body: [
+        [2.28, 0.34, 0.04], [2.375, 0.46, 0.08], [2.37, 0.7, 0.1], [2.26, 0.84, 0.14], [1.4, 0.98, 0.5], [0.82, 1.06, 0.1],
+        [-1.2, 1.1, 0.4], [-2.2, 1.12, 0.2], [-2.36, 1.08, 0.1], [-2.375, 0.9, 0.1], [-2.375, 0.55, 0.1], [-2.32, 0.38, 0.05], [-2.24, 0.34, 0.03],
+      ],
+      bevel: 0.07,
+      plan: [[-2.375, 0.9], [-2.0, 0.98], [-1.4, 1.0], [0.8, 1.0], [1.6, 0.985], [2.0, 0.95], [2.375, 0.84]],
+      nose: 0.12, tail: 0.1, endLen: 0.5, tumble: [0.8, 1.12, 0.07],
+      cabin: { pts: gh.pts, width: 1.72, bevel: 0.08, tumble: 0.14, y0: 1.04, y1: 1.62, crown: 0.025, wf: [0.07, 0.1, 0.8], wr: [0.05, -1.75, -2.33] },
+      glass: { seats: [-0.06, -0.98], ws: gh.ws, rw: gh.rw, rwT: [0.08, 0.88], aw: 0.1, cw: 0.18, side: [{ f: 'A', r: -0.3, b: 1.12, t: 1.5 }, { f: -0.38, r: 'C', b: 1.12, t: 1.44 }] },
+      seatZ: 0.1,
+      details(ctx) {
+        ctx.headlight('front', 0.66, 0.9, 0.4, 0.075, { round: 0.8, skew: 0.5, taper: -0.1, drl: { dy: -0.038, h: 0.011, w: 0.96 } });
+        ctx.rect('front', 0, 0.5, 1.0, 0.12, { round: 0.6, color: COL.grille, rm: RM.dark, nu: 6, off: 0.003 });
+        ctx.rect('front', 0, 0.37, 1.8, 0.16, { round: 0.4, color: COL.plastic, rm: RM.plastic, nu: 8, off: 0.003, thick: 0.008 });
+        ctx.plate('front', 0.5, { off: 0.012 });
+        ctx.taillight('rear', 0.7, 1.0, 0.44, 0.075, { round: 0.6, skew: -0.4, bezel: null, rev: { dx: -0.16, dy: -0.04, w: 0.06, h: 0.025 } });
+        ctx.rect('rear', 0, 1.0, 0.96, 0.018, { part: 'lights', round: 0.6, color: COL.tailLens, rm: RM.tail, light: G.TAIL, nu: 6, off: 0.006 });
+        ctx.plate('rear', 0.78);
+        ctx.rect('rear', 0, 0.46, 1.8, 0.2, { round: 0.4, color: COL.plastic, rm: RM.plastic, nu: 8, off: 0.003, thick: 0.01 });
+        ctx.seams([{ z: 0.7, y0: 0.4, y1: 1.1 }, { z: -0.24, y0: 0.36, y1: 1.12 }, { z: -1.1, y0: 0.4, y1: 1.12, lean: 0.03 }]);
+        flushHandles(ctx, [0.22, -0.78], 1.03);
+        archFlares(ctx, 0.05);
+        ctx.rect('left', 0.0, 0.41, 2.6, 0.12, { round: 0.3, color: COL.plastic, rm: RM.plastic, nu: 8, off: 0.003, thick: 0.01, mirror: true });
+        ctx.mirrors(0.7, 1.12, { sy: 0.1, sz: 0.18 });
+        ctx.rect('top', 0, -0.9, 1.3, 2.1, { round: 0.25, color: GLASS_ROOF, rm: RM.glass, nu: 3, nv: 8, off: 0.004 });
+        const rr = ctx.roofY(-1.55, 0);
+        ctx.box('paint', 0, rr + 0.0, -2.38, 1.34, 0.045, 0.12, 0.02, 'body', null, { rx: 0.1, lod0: true });
+      },
+    };
+  })();
+
+  // ---- 21. Monolith: angular stainless-steel electric truck.
+  (function () {
+    DEFS.monolith = {
+      L: 5.7, W: 2.04, H: 1.8, fo: 0.95, ro: 0.97, R: 0.43, tyreW: 0.285, sill: 0.46, archGap: 0.05, wheel: 'cover',
+      finishFor: (hex) => (hex === 0xb7babd || hex === 0x9c9fa3 || hex === 0xcdd0d2 ? 'steel' : 'satin'),
+      body: [
+        [2.8, 0.5, 0.025], [2.85, 0.58, 0.02], [2.85, 0.86, 0.03], [1.55, 1.29, 0.03], [0.4, 1.77, 0.07], [-0.6, 1.72, 0.04],
+        [-2.8, 1.25, 0.03], [-2.85, 1.2, 0.02], [-2.85, 0.62, 0.03], [-2.78, 0.5, 0.025],
+      ],
+      bevel: 0.025,
+      plan: [[-2.85, 0.95], [-2.0, 1.0], [2.0, 1.0], [2.85, 0.94]],
+      nose: 0.0, tail: 0.0, endLen: 0.3, tumble: [1.0, 1.77, 0.17],
+      glass: { seats: [0.15, -0.7],
+        ws: [[1.2, 1.44], [0.48, 1.74]], wsT: [0.0, 0.95], inset: 0.12, aw: 0.1, wipers: false,
+        side: [{ f: 'A', r: -0.1, b: 1.36, t: 1.63 }, { f: -0.17, r: -1.1, b: 1.36, t: 1.55 }],
+      },
+      seatZ: 0.2,
+      details(ctx) {
+        // Full-width light bar, slit headlamps, black lower bumper.
+        ctx.rect('front', 0, 0.8, 1.84, 0.03, { part: 'lights', round: 0.8, color: 0xffffff, rm: RM.lens, light: G.DRL, nu: 14, off: 0.006 });
+        ctx.headlight('front', 0.74, 0.66, 0.3, 0.05, { round: 0.8, skew: 0.3, drl: null });
+        ctx.rect('front', 0, 0.54, 1.96, 0.22, { round: 0.1, color: COL.plastic, rm: RM.plastic, nu: 8, nv: 2, off: 0.004 });
+        ctx.plate('front', 0.58, { off: 0.012 });
+        ctx.rect('rear', 0, 1.13, 1.9, 0.034, { part: 'lights', round: 0.6, color: COL.tailLens, rm: RM.tail, light: G.TAIL, nu: 14, off: 0.006 });
+        for (const s of [1, -1]) ctx.anchors.taillights.push(new THREE.Vector3(s * 0.85, 1.13, -2.88));
+        ctx.rect('rear', 0.52, 0.98, 0.14, 0.03, { part: 'lights', round: 0.6, color: COL.reverse, rm: RM.lens, light: G.REVERSE, nu: 2, off: 0.006, mirror: true });
+        ctx.plate('rear', 0.82);
+        ctx.rect('rear', 0, 0.58, 1.96, 0.2, { round: 0.1, color: COL.plastic, rm: RM.plastic, nu: 8, off: 0.004 });
+        // Faceted side: shut lines, a black sill and cladding, flush handles.
+        ctx.seams([{ z: 1.15, y0: 0.52, y1: 1.4, lean: -0.55 }, { z: 0.12, y0: 0.5, y1: 1.76, lean: 0.05 }, { z: -0.95, y0: 0.5, y1: 1.58, lean: 0.12 }, { z0: -2.7, z1: -0.95, y: 1.28 }]);
+        flushHandles(ctx, [0.55, -0.45], 1.28, 0x2a2c2f);
+        ctx.rect('left', 0.0, 0.5, 3.4, 0.13, { round: 0.2, color: COL.plastic, rm: RM.plastic, nu: 10, off: 0.003, thick: 0.01, mirror: true });
+        archFlares(ctx, 0.09);
+        ctx.mirrors(0.95, 1.4, { reach: 0.05, sx: 0.06, sy: 0.12, sz: 0.2, color: COL.black });
+        // Glass roof panel and the bed cover's seam.
+        ctx.rect('top', 0, -0.62, 1.2, 1.6, { color: GLASS_ROOF, rm: RM.glass, nu: 3, nv: 6, off: 0.004 });
+        ctx.rect('top', 0, -1.9, 1.5, 0.012, { color: 0x0b0b0c, rm: RM.plastic, nu: 4, off: 0.003, lod0: true });
+      },
+    };
+  })();
+
+  // ---- 22. Forge 1500: full-size crew-cab pickup with a long bed.
+  (function () {
+    const gh = greenhouse({ zb: 1.05, yb: 1.42, top: [0.4, 1.96], mid: [-0.4, 1.98, 0.2], rear: [-0.88, 1.97], base: [-0.92, 1.44], bot: 1.3, r: [0.03, 0.14, 0.06, 0.02], baseOut: 0.02 });
+    DEFS.forge = {
+      L: 5.92, W: 2.03, H: 1.98, fo: 0.97, ro: 1.26, R: 0.41, tyreW: 0.275, sill: 0.42, archGap: 0.07, wheel: 'truck',
+      body: [
+        [2.9, 0.45, 0.03], [2.96, 0.58, 0.05], [2.96, 1.05, 0.06], [2.86, 1.22, 0.1], [1.9, 1.34, 0.4], [1.05, 1.4, 0.05],
+        [-0.86, 1.42, 0.02], [-0.9, 1.42], [-0.9, 1.08], [-2.88, 1.08, 0.02], [-2.96, 1.02, 0.03], [-2.96, 0.58, 0.04], [-2.88, 0.45, 0.03],
+      ],
+      bevel: 0.06,
+      plan: [[-2.96, 0.99], [1.9, 1.0], [2.4, 0.98], [2.96, 0.93]],
+      nose: 0.06, tail: 0.0, endLen: 0.4, tumble: [1.1, 1.42, 0.03],
+      cabin: { pts: gh.pts, width: 1.9, bevel: 0.06, tumble: 0.09, y0: 1.4, y1: 1.97, crown: 0.015, wf: [0.05, 0.4, 1.05] },
+      glass: { seats: [0.35, -0.5], ws: gh.ws, rw: gh.rw, rwT: [0.15, 0.85], rwInset: 0.25, aw: 0.1, side: [{ f: 'A', r: -0.04, b: 1.5, t: 1.88 }, { f: -0.12, r: -0.84, b: 1.5, t: 1.88 }] },
+      seatZ: 0.35,
+      extraBodies(q, lod) {
+        const x = 1.015 - 0.045;
+        return [
+          { md: roundBox(0.09, 0.4, 2.03, 0.03, lod).at(x, 1.27, -1.915) },
+          { md: roundBox(0.09, 0.4, 2.03, 0.03, lod).at(-x, 1.27, -1.915) },
+          { md: roundBox(1.94, 0.4, 0.08, 0.025, lod).at(0, 1.27, -2.925) },
+        ];
+      },
+      details(ctx) {
+        ctx.grille(0.9, 1.22, 0.36, { surround: COL.chrome, bars: 3, vbars: 0, round: 0.12 });
+        ctx.headlight('front', 0.84, 1.0, 0.3, 0.13, { round: 0.3, skew: 0.2, pods: 0, drl: { dy: -0.055, h: 0.014, w: 0.95 } });
+        ctx.box('trim', 0, 0.62, 3.0, 2.02, 0.22, 0.16, 0.05, COL.chrome, RM.chrome);
+        ctx.rect('front', 0, 0.42, 1.7, 0.1, { round: 0.3, color: COL.plastic, rm: RM.plastic, nu: 8, off: 0.003, lod0: true });
+        ctx.box('trim', 0.74, 0.42, 2.97, 0.17, 0.07, 0.04, 0.02, 0x23262a, RM.dark, { mirror: true, lod0: true });
+        ctx.plate('front', 0.64, { off: 0.1 });
+        // Bed: liner, wheel humps, rail caps, chrome step bumper, tail lamps on the gate.
+        ctx.box('trim', 0, 1.082, -1.91, 1.9, 0.02, 2.0, 0.005, 0x1a1a1b, RM.rubber);
+        ctx.box('trim', 0.76, 1.15, -1.6, 0.34, 0.16, 1.0, 0.06, 0x1a1a1b, RM.rubber, { mirror: true });
+        ctx.box('trim', 0.985, 1.475, -1.915, 0.11, 0.025, 2.05, 0.01, COL.plastic, RM.plastic, { mirror: true });
+        ctx.box('trim', 0, 1.475, -2.925, 1.96, 0.025, 0.11, 0.01, COL.plastic, RM.plastic);
+        ctx.rect('rear', 0, 1.36, 0.3, 0.045, { color: COL.black, rm: RM.gloss, round: 0.6, nu: 2, off: 0.003, thick: 0.01 });
+        ctx.taillight('rear', 0.93, 1.27, 0.07, 0.3, { round: 0.2, rev: { dy: -0.1, w: 0.05, h: 0.07 }, bezel: null });
+        ctx.box('trim', 0, 0.66, -3.03, 2.02, 0.2, 0.14, 0.05, COL.chrome, RM.chrome);
+        ctx.box('trim', 0, 0.52, -3.0, 1.9, 0.16, 0.1, 0.04, 0x2a2b2d, RM.satin, { lod0: true });
+        ctx.plate('rear', 1.16, { off: 0.01 });
+        ctx.exhaust([-0.8], 0.46, 0.04, { color: 0x505050 });
+        archFlares(ctx, 0.07);
+        ctx.box('trim', 1.0, 0.5, 0.1, 0.14, 0.04, 2.1, 0.015, COL.plastic, RM.plastic, { mirror: true });
+        ctx.seams([{ z: 1.12, y0: 0.9, y1: 1.4 }, { z: 0.1, y0: 0.55, y1: 1.92 }, { z: -0.88, y0: 0.6, y1: 1.92 }, { z0: 1.12, z1: 1.2, y: 0.9 }]);
+        ctx.handles([0.6, -0.34], 1.58);
+        ctx.mirrors(0.98, 1.58, { reach: 0.17, sx: 0.08, sy: 0.22, sz: 0.2, color: COL.black });
+        if (!ctx.lod) for (const x of [-0.3, -0.15, 0, 0.15, 0.3]) {
+          const y = ctx.roofY(0.3, x);
+          ctx.box('lights', x, y + 0.02, 0.5, 0.06, 0.035, 0.04, 0.012, COL.amber, RM.lens, { light: G.AMBER });
+        }
+      },
+    };
+  })();
+
+  // ---- 23. Drover: 90s compact regular-cab work truck.
+  (function () {
+    const gh = greenhouse({ zb: 0.78, yb: 1.12, top: [0.36, 1.55], mid: [-0.1, 1.57, 0.2], rear: [-0.4, 1.55], base: [-0.44, 1.16], bot: 1.02, r: [0.03, 0.1, 0.06, 0.02], baseOut: 0.02 });
+    DEFS.drover = {
+      L: 4.75, W: 1.76, H: 1.58, fo: 0.82, ro: 0.98, R: 0.335, tyreW: 0.2, sill: 0.35, archGap: 0.06, wheel: 'silversteel',
+      finish: 'satin',
+      body: [
+        [2.3, 0.42, 0.03], [2.375, 0.52, 0.05], [2.375, 0.85, 0.05], [2.28, 1.0, 0.07], [1.4, 1.04, 0.3], [0.8, 1.1, 0.05],
+        [-0.4, 1.12, 0.02], [-0.46, 1.12], [-0.48, 0.88], [-2.3, 0.88, 0.02], [-2.375, 0.84, 0.03], [-2.375, 0.52, 0.03], [-2.3, 0.42, 0.03],
+      ],
+      bevel: 0.05,
+      plan: [[-2.375, 0.99], [1.8, 1.0], [2.375, 0.94]],
+      nose: 0.05, tail: 0, endLen: 0.4, tumble: [0.9, 1.12, 0.04],
+      cabin: { pts: gh.pts, width: 1.58, bevel: 0.06, tumble: 0.1, y0: 1.1, y1: 1.56, crown: 0.012, wf: [0.04, 0.36, 0.78] },
+      glass: { seats: [0.1], ws: gh.ws, rw: gh.rw, rwT: [0.12, 0.85], rwInset: 0.2, aw: 0.09, side: [{ f: 'A', r: -0.34, b: 1.2, t: 1.48 }] },
+      seatZ: 0.1,
+      extraBodies(q, lod) {
+        const x = 0.88 - 0.035;
+        return [
+          { md: roundBox(0.07, 0.26, 1.86, 0.025, lod).at(x, 1.0, -1.43) },
+          { md: roundBox(0.07, 0.26, 1.86, 0.025, lod).at(-x, 1.0, -1.43) },
+          { md: roundBox(1.66, 0.26, 0.06, 0.02, lod).at(0, 1.0, -2.35) },
+        ];
+      },
+      details(ctx) {
+        ctx.grille(0.8, 0.96, 0.14, { surround: 0x34373a, bars: 2, round: 0.15, barColor: 0x4a4d50 });
+        ctx.headlight('front', 0.64, 0.82, 0.34, 0.14, { round: 0.12, bezel: COL.chrome, pods: 0 });
+        ctx.rect('front', 0, 0.5, 1.5, 0.12, { round: 0.3, color: COL.grille, rm: RM.dark, nu: 6, off: 0.003, lod0: true });
+        ctx.box('trim', 0, 0.56, 2.43, 1.8, 0.14, 0.12, 0.04, COL.chrome, RM.chrome);
+        ctx.box('trim', 0, 0.38, 2.4, 1.0, 0.07, 0.07, 0.025, 0x2b2c2e, RM.satin, { lod0: true });
+        ctx.plate('front', 0.56, { off: 0.07 });
+        ctx.box('trim', 0, 0.882, -1.43, 1.62, 0.02, 1.84, 0.005, 0x2a2a2b, RM.rubber);
+        ctx.box('trim', 0.62, 0.95, -1.15, 0.22, 0.12, 0.7, 0.05, 0x2a2a2b, RM.rubber, { mirror: true });
+        ctx.box('trim', 0.86, 1.135, -1.43, 0.08, 0.02, 1.88, 0.008, COL.chrome, RM.chrome, { mirror: true, lod0: true });
+        ctx.taillight('rear', 0.72, 1.0, 0.13, 0.2, { round: 0.2, rev: { dy: -0.06, w: 0.09, h: 0.04 }, bezel: COL.chrome });
+        ctx.rect('rear', 0, 1.1, 1.2, 0.03, { color: COL.chrome, rm: RM.chrome, nu: 6, off: 0.004 });
+        ctx.box('trim', 0, 0.55, -2.43, 1.78, 0.13, 0.12, 0.04, COL.chrome, RM.chrome);
+        ctx.plate('rear', 0.52, { off: 0.07 });
+        ctx.exhaust([-0.6], 0.38, 0.035, { color: 0x4a4a4a });
+        ctx.seams([{ z: 0.8, y0: 0.8, y1: 1.1 }, { z: -0.1, y0: 0.5, y1: 1.5 }, { z0: 0.8, z1: 0.85, y: 0.8 }]);
+        ctx.handles([0.02], 1.22, COL.chrome);
+        ctx.rect('left', 0, 0.47, 1.6, 0.06, { round: 0.4, color: COL.chrome, rm: RM.chrome, nu: 6, off: 0.003, thick: 0.01, mirror: true, lod0: true });
+        ctx.mirrors(0.66, 1.3, { reach: 0.16, sx: 0.06, sy: 0.19, sz: 0.1, color: COL.black });
+        ctx.rect('left', 2.15, 0.78, 0.07, 0.035, { part: 'lights', round: 0.7, color: COL.amber, rm: RM.lens, light: G.AMBER, nu: 2, off: 0.004, mirror: true, lod0: true });
+      },
+    };
+  })();
+
+  // ---- 24. Trailhand: boxy body-on-frame off-roader with round lamps and a tailgate spare.
+  (function () {
+    const gh = greenhouse({ zb: 0.85, yb: 1.2, top: [0.48, 1.82], mid: [-1.0, 1.84, 0.2], rear: [-2.17, 1.83], base: [-2.3, 1.22], bot: 1.1, r: [0.03, 0.08, 0.08, 0.03], baseOut: 0.02 });
+    DEFS.trailhand = {
+      L: 4.7, W: 2.0, H: 1.86, fo: 0.85, ro: 0.9, R: 0.4, tyreW: 0.285, sill: 0.4, archGap: 0.085, wheel: 'blackalloy', finish: 'satin',
+      body: [
+        [2.3, 0.5, 0.03], [2.35, 0.6, 0.03], [2.35, 1.0, 0.04], [2.28, 1.12, 0.05], [1.2, 1.16, 0.1], [0.85, 1.2, 0.04],
+        [-2.2, 1.2, 0.04], [-2.35, 1.15, 0.03], [-2.35, 0.6, 0.03], [-2.28, 0.5, 0.03],
+      ],
+      bevel: 0.05,
+      plan: [[-2.35, 0.97], [-1.9, 1.0], [1.9, 1.0], [2.35, 0.96]],
+      nose: 0.03, tail: 0.02, endLen: 0.4, tumble: [1.0, 1.2, 0.03],
+      cabin: { pts: gh.pts, width: 1.88, bevel: 0.06, tumble: 0.05, y0: 1.18, y1: 1.84, crown: 0.012, wf: [0.03, 0.48, 0.85], wr: [0.02, -2.17, -2.3] },
+      glass: { seats: [0.3, -0.55], ws: gh.ws, rw: gh.rw, rwT: [0.1, 0.85], rwInset: 0.14, aw: 0.07, side: [{ f: 'A', r: -0.04, b: 1.32, t: 1.74 }, { f: -0.12, r: -0.95, b: 1.32, t: 1.74 }, { f: -1.2, r: -2.02, b: 1.34, t: 1.72 }] },
+      seatZ: 0.2,
+      details(ctx) {
+        ctx.grille(0.88, 0.88, 0.24, { surround: 0x2b2d30, vbars: 7, bars: 0, round: 0.1, barColor: 0x1a1b1d });
+        ctx.rect('front', 0, 0.88, 0.5, 0.05, { part: 'lights', round: 0.5, color: 0xe9ecef, rm: RM.lens, light: G.DRL, nu: 4, off: 0.012, lod0: true });
+        ctx.headlight('front', 0.7, 0.92, 0.22, 0.22, { round: 1, bezel: 0x1c1d1f, pods: 0 });
+        for (const x of [0.65, -0.65]) if (!ctx.lod) ctx.rect('front', x, 0.64, 0.12, 0.08, { part: 'lights', round: 0.6, color: 0xd4d8dc, rm: RM.lens, light: G.WHITE, nu: 3, off: 0.01, lod0: true });
+        ctx.box('trim', 0, 0.56, 2.41, 2.0, 0.24, 0.14, 0.04, 0x2a2c2f, RM.satin);
+        for (const x of [0.42, -0.42]) ctx.box('trim', x, 0.55, 2.5, 0.06, 0.05, 0.08, 0.02, 0xb01818, RM.gloss, { lod0: true });
+        ctx.plate('front', 0.58, { off: 0.1 });
+        // Rear: swing-away spare, vertical tail lamps, step bumper.
+        ctx.taillight('rear', 0.92, 0.98, 0.09, 0.3, { round: 0.2, rev: { dy: -0.08, w: 0.06, h: 0.05 }, bezel: COL.black });
+        ctx.box('trim', 0, 0.56, -2.43, 2.0, 0.24, 0.14, 0.04, 0x2a2c2f, RM.satin);
+        ctx.plate('rear', 0.5, { off: 0.1 });
+        if (!ctx.lod) {
+          const tyre = revolve([[0.19, -0.14], [0.37, -0.125], [0.405, -0.09], [0.405, 0.09], [0.37, 0.125], [0.19, 0.14]], 22).at(0, 1.0, -2.55, Math.PI / 2);
+          ctx.add('trim', tyre, COL.rubber, RM.rubber);
+          ctx.add('trim', revolve([[0.001, 0.145], [0.2, 0.14], [0.2, 0.12]], 16).at(0, 1.0, -2.55, -Math.PI / 2), 0x2a2c2f, RM.satin);
+        }
+        ctx.exhaust([-0.7], 0.4, 0.04, { color: 0x4a4a4a });
+        archFlares(ctx, 0.1, 0x1b1c1e);
+        ctx.rect('left', 0.0, 0.5, 2.5, 0.07, { round: 0.3, color: 0x1b1c1e, rm: RM.plastic, nu: 8, off: 0.003, thick: 0.03, mirror: true });
+        ctx.seams([{ z: 0.88, y0: 0.7, y1: 1.2 }, { z: 0.0, y0: 0.55, y1: 1.8 }, { z: -1.0, y0: 0.55, y1: 1.8 }, { z0: -1.0, z1: 0.0, y: 0.58 }, { z: -2.2, y0: 0.6, y1: 1.2 }]);
+        ctx.handles([0.4, -0.55], 1.25, COL.black);
+        ctx.mirrors(0.92, 1.4, { reach: 0.14, sx: 0.08, sy: 0.2, sz: 0.14, color: 0x1b1c1e });
+        // Roof rack and a removable-top seam.
+        const y = ctx.roofY(-0.8, 0);
+        ctx.box('trim', 0.7, y + 0.045, -0.9, 0.035, 0.035, 2.2, 0.012, 0x1d1e20, RM.satin, { mirror: true });
+        for (const z of [-0.1, -0.9, -1.7]) ctx.box('trim', 0, y + 0.06, z, 1.42, 0.03, 0.04, 0.012, 0x1d1e20, RM.satin, { lod0: true });
+        ctx.rect('left', 0.32, 0.55, 0.07, 0.035, { part: 'lights', round: 0.7, color: COL.amber, rm: RM.lens, light: G.AMBER, nu: 2, off: 0.004, mirror: true, lod0: true });
+      },
+    };
+  })();
+
+  // ---- 25. Gallop GT: modern fastback pony car, long hood, tri-bar tails, optional twin stripes.
+  const GALLOP_STRIPES = { 0xf1f1ee: 0x1d3b8a, 0x1f6fb5: 0xf1efe8, 0x14161a: 0xc1272d };
+  (function () {
+    const gh = greenhouse({ zb: 0.5, yb: 0.99, top: [-0.3, 1.34], mid: [-0.75, 1.36, 0.3], rear: [-1.12, 1.32], base: [-2.0, 1.02], bot: 0.88, r: [0.03, 0.2, 0.3, 0.1] });
+    DEFS.gallop = {
+      L: 4.8, W: 1.94, H: 1.38, fo: 0.92, ro: 1.16, R: 0.345, tyreW: 0.255, tyreWR: 0.275, sill: 0.2, archGap: 0.05, wheel: 'sport', livery: true,
+      body: [
+        [2.32, 0.26, 0.03], [2.4, 0.36, 0.05], [2.4, 0.66, 0.06], [2.3, 0.8, 0.1], [1.5, 0.92, 0.5], [0.55, 0.99, 0.1],
+        [-0.6, 1.0, 0.3], [-1.5, 1.03, 0.3], [-2.2, 1.04, 0.1], [-2.4, 0.98, 0.06], [-2.4, 0.55, 0.06], [-2.34, 0.28, 0.03],
+      ],
+      bevel: 0.055,
+      plan: [[-2.4, 0.92], [-2.0, 0.985], [-1.3, 1.0], [-0.4, 0.97], [0.6, 0.97], [1.4, 0.99], [2.0, 0.965], [2.4, 0.9]],
+      nose: 0.1, tail: 0.06, endLen: 0.45, tumble: [0.7, 1.04, 0.07],
+      dip: [[0.8, 2.3, 0.04, 0.8, 0.3]],
+      cabin: { pts: gh.pts, width: 1.58, bevel: 0.07, tumble: 0.17, y0: 0.96, y1: 1.36, crown: 0.02, wf: [0.06, -0.3, 0.5], wr: [0.05, -1.12, -2.0] },
+      glass: { seats: [-0.15], ws: gh.ws, rw: gh.rw, rwT: [0.05, 0.6], aw: 0.09, cw: 0.3, side: [{ f: 'A', r: -0.7, b: 1.05, t: 1.3 }] },
+      seatZ: -0.2,
+      details(ctx) {
+        const stripe = GALLOP_STRIPES[ctx.hex];
+        // Face: trapezoid grille, three-element lamps with a C of LEDs, low splitter.
+        ctx.grille(0.54, 1.08, 0.2, { surround: 0x1b1c1e, round: 0.15, taper: 0.1, vbars: 9, bars: 2, barColor: 0x2a2c2f });
+        ctx.headlight('front', 0.74, 0.74, 0.3, 0.075, { round: 0.6, skew: 0.5, taper: -0.15, pods: 2, drl: { dy: -0.036, h: 0.012, w: 0.92 } });
+        ctx.rect('front', 0.7, 0.33, 0.34, 0.1, { round: 0.5, color: COL.grille, rm: RM.dark, nu: 4, off: 0.003, mirror: true });
+        ctx.rect('front', 0, 0.3, 0.6, 0.08, { round: 0.5, color: COL.grille, rm: RM.dark, nu: 4, off: 0.003 });
+        ctx.rect('front', 0, 0.16, 1.8, 0.04, { round: 0.3, color: 0x101113, rm: RM.satin, nu: 8, off: 0.003, thick: 0.014 });
+        ctx.plate('front', 0.4, { off: 0.012, w: 0.4, h: 0.1 });
+        // Tail: three light bars a side, centre diffuser, quad tips.
+        ctx.rect('rear', 0.5, 0.82, 0.58, 0.17, { round: 0.2, color: 0x0a0a0b, rm: RM.gloss, nu: 5, off: 0.003, mirror: true });
+        for (let k = 0; k < 3; k++) ctx.rect('rear', 0.33 + k * 0.17, 0.82, 0.12, 0.14, { part: 'lights', round: 0.3, color: COL.tailLens, rm: RM.tail, light: G.TAIL, nu: 2, nv: 2, off: 0.006, mirror: true });
+        ctx.rect('rear', 0.76, 0.82, 0.08, 0.04, { part: 'lights', round: 0.4, color: COL.reverse, rm: RM.lens, light: G.REVERSE, nu: 2, off: 0.006, mirror: true, lod0: true });
+        for (const s of [1, -1]) ctx.anchors.taillights.push(new THREE.Vector3(s * 0.55, 0.82, -2.43));
+        ctx.plate('rear', 0.62, { w: 0.42, h: 0.1 });
+        ctx.rect('rear', 0, 0.34, 1.5, 0.2, { round: 0.4, color: COL.grille, rm: RM.dark, nu: 6, off: 0.003 });
+        if (!ctx.lod) for (const x of [0.3, 0.5, 0.7]) ctx.rect('rear', x, 0.34, 0.014, 0.16, { color: 0x1a1b1d, rm: RM.satin, nu: 1, nv: 2, off: 0.003, thick: 0.05, mirror: true });
+        ctx.exhaust([0.62, 0.46, -0.46, -0.62], 0.3, 0.036);
+        // Sides: shut lines, gills, hood vents, door-mounted mirrors.
+        ctx.seams([{ z: 0.62, y0: 0.27, y1: 0.97 }, { z: -0.62, y0: 0.26, y1: 1.0, lean: 0.03 }, { z: -1.45, y0: 0.4, y1: 0.97 }]);
+        ctx.handles([-0.35], 0.88, COL.black);
+        ctx.rect('left', 0.9, 0.7, 0.22, 0.1, { round: 0.5, skew: -0.4, color: COL.grille, rm: RM.dark, nu: 3, off: 0.003, thick: 0.006, mirror: true });
+        ctx.rect('left', -0.0, 0.245, 2.0, 0.05, { round: 0.5, color: 0x101113, rm: RM.satin, nu: 8, off: 0.003, thick: 0.012, mirror: true });
+        for (const x of [0.3, -0.3]) ctx.rect('top', x, 1.68, 0.17, 0.4, { round: 0.2, color: COL.grille, rm: RM.dark, nu: 3, nv: 4, off: 0.004, thick: 0.01 });
+        ctx.mirrors(0.34, 0.99, { sy: 0.085, sz: 0.15, reach: 0.08 });
+        ctx.rect('left', 1.88, 0.62, 0.07, 0.03, { part: 'lights', round: 0.7, color: COL.amber, rm: RM.lens, light: G.AMBER, nu: 2, off: 0.004, mirror: true, lod0: true });
+        // Ducktail.
+        ctx.box('paint', 0, ctx.roofY(-2.32, 0) + 0.025, -2.34, 1.5, 0.04, 0.16, 0.018, 'body', null, { rx: 0.14, lod0: true });
+        if (stripe) {
+          for (const x of [0.14, -0.14]) for (const [z0, z1, n] of [[0.58, 2.36, 14], [-0.88, -0.28, 6], [-2.36, -2.04, 4]]) {
+            ctx.rect('top', x, (z0 + z1) / 2, 0.15, z1 - z0, { part: 'paint', color: stripe, nu: 1, nv: n, off: 0.006 });
+          }
+        }
+      },
+    };
+  })();
+
+  // ---- 26. Stinger 66: classic two-door hardtop coupe with Coke-bottle hips and chrome.
+  (function () {
+    const gh = greenhouse({ zb: 0.62, yb: 0.94, top: [-0.1, 1.34], mid: [-0.7, 1.36, 0.3], rear: [-1.1, 1.32], base: [-1.6, 0.99], bot: 0.84, r: [0.03, 0.2, 0.25, 0.08] });
+    DEFS.stinger = {
+      L: 4.95, W: 1.88, H: 1.38, fo: 1.0, ro: 1.13, R: 0.34, tyreW: 0.22, tyreWR: 0.24, sill: 0.22, archGap: 0.06, wheel: 'crager',
+      body: [
+        [2.4, 0.3, 0.03], [2.475, 0.4, 0.05], [2.475, 0.72, 0.05], [2.4, 0.84, 0.08], [1.5, 0.9, 0.6], [0.58, 0.94, 0.1],
+        [-1.2, 0.96, 0.4], [-2.2, 1.0, 0.15], [-2.4, 0.98, 0.05], [-2.475, 0.9, 0.04], [-2.475, 0.45, 0.05], [-2.4, 0.3, 0.03],
+      ],
+      bevel: 0.05,
+      plan: [[-2.475, 0.9], [-2.2, 0.98], [-1.35, 1.0], [-0.4, 0.955], [0.6, 0.95], [1.4, 0.985], [2.0, 0.97], [2.475, 0.92]],
+      nose: 0.06, tail: 0.05, endLen: 0.4, tumble: [0.66, 1.0, 0.06],
+      cabin: { pts: gh.pts, width: 1.5, color: 0x1b1b1d, bevel: 0.07, tumble: 0.16, y0: 0.94, y1: 1.3, crown: 0.015, wf: [0.05, -0.1, 0.62], wr: [0.04, -1.1, -1.6] },
+      glass: { seats: [-0.15], ws: gh.ws, rw: gh.rw, rwT: [0.05, 0.85], aw: 0.09, cw: 0.15, beltColor: COL.chrome, side: [{ f: 'A', r: -0.55, b: 1.0, t: 1.28 }, { f: -0.62, r: 'C', b: 1.0, t: 1.26 }] },
+      seatZ: -0.15,
+      details(ctx) {
+        ctx.headlight('front', 0.56, 0.62, 0.2, 0.2, { round: 1, bezel: COL.chrome, pods: 0 });
+        ctx.rect('front', 0.56, 0.62, 0.075, 0.075, { color: 0x1a1b1d, rm: RM.satin, round: 1, nu: 3, off: 0.012, mirror: true, lod0: true });
+        ctx.grille(0.6, 0.62, 0.2, { surround: COL.chrome, vbars: 9, bars: 1, round: 0.1, barColor: 0xa6aaae });
+        ctx.rect('front', 0, 0.62, 0.1, 0.08, { color: 0xb11c22, rm: RM.gloss, round: 0.3, nu: 2, off: 0.012, lod0: true });
+        ctx.box('trim', 0, 0.38, 2.5, 1.86, 0.12, 0.1, 0.04, COL.chrome, RM.chrome);
+        for (const x of [0.5, -0.5]) ctx.box('trim', x, 0.42, 2.56, 0.07, 0.2, 0.06, 0.03, COL.chrome, RM.chrome, { lod0: true });
+        ctx.plate('front', 0.36, { off: 0.08 });
+        ctx.taillight('rear', 0.62, 0.76, 0.5, 0.15, { round: 0.2, bezel: COL.chrome, rev: { dx: -0.2, dy: 0, w: 0.07, h: 0.06, round: 0.3 } });
+        ctx.rect('rear', 0, 0.76, 0.52, 0.02, { color: COL.chrome, rm: RM.chrome, nu: 5, off: 0.004 });
+        ctx.box('trim', 0, 0.4, -2.54, 1.86, 0.12, 0.1, 0.04, COL.chrome, RM.chrome);
+        ctx.plate('rear', 0.58);
+        ctx.exhaust([0.55, -0.55], 0.27, 0.04);
+        ctx.seams([{ z: 0.62, y0: 0.26, y1: 0.93 }, { z: -0.72, y0: 0.26, y1: 0.97, lean: 0.02 }]);
+        ctx.handles([-0.4], 0.86);
+        ctx.rect('left', -0.05, 0.28, 2.3, 0.022, { color: COL.chrome, rm: RM.chrome, nu: 10, off: 0.003, mirror: true });
+        ctx.rect('left', 1.05, 0.66, 0.34, 0.11, { round: 0.4, color: COL.grille, rm: RM.dark, nu: 3, off: 0.003, thick: 0.006, mirror: true });
+        for (const x of [0.28, -0.28]) ctx.rect('top', x, 1.6, 0.26, 0.46, { round: 0.2, color: 0x16171a, rm: RM.satin, nu: 3, nv: 6, off: 0.004, thick: 0.014 });
+        ctx.mirrors(0.52, 0.96, { color: COL.chrome, sx: 0.06, sy: 0.07, sz: 0.12, reach: 0.08 });
+        ctx.box('trim', 0, ctx.roofY(2.4, 0) + 0.025, 2.38, 0.03, 0.04, 0.07, 0.01, COL.chrome, RM.chrome, { lod0: true });
+      },
+    };
+  })();
+
+  // ---- 27. Sprint RS: hot hatch with a honeycomb grille, red trim line and a roof spoiler.
+  (function () {
+    const gh = greenhouse({ zb: 0.75, yb: 0.93, top: [0.08, 1.42], mid: [-0.7, 1.45, 0.4], rear: [-1.5, 1.42], base: [-2.08, 1.0], bot: 0.84, r: [0.03, 0.22, 0.14, 0.05], baseOut: 0.02 });
+    DEFS.sprint = {
+      L: 4.3, W: 1.8, H: 1.47, fo: 0.88, ro: 0.79, R: 0.325, tyreW: 0.225, sill: 0.2, archGap: 0.04, wheel: 'sport',
+      body: [
+        [2.07, 0.28, 0.04], [2.15, 0.4, 0.08], [2.14, 0.62, 0.1], [2.04, 0.76, 0.14], [1.3, 0.86, 0.35], [0.88, 0.92, 0.08],
+        [-0.6, 0.95, 0.4], [-2.06, 0.97, 0.1], [-2.15, 0.9, 0.08], [-2.15, 0.5, 0.08], [-2.08, 0.3, 0.04],
+      ],
+      bevel: 0.06,
+      plan: [[-2.15, 0.93], [-1.6, 0.99], [0.4, 1.0], [1.2, 0.99], [1.7, 0.95], [2.15, 0.87]],
+      nose: 0.1, tail: 0.05, endLen: 0.45, tumble: [0.62, 0.97, 0.06],
+      cabin: { pts: gh.pts, width: 1.54, bevel: 0.07, tumble: 0.15, y0: 0.92, y1: 1.46, crown: 0.02, wf: [0.06, 0.08, 0.75], wr: [0.03, -1.5, -2.08] },
+      glass: { seats: [0.0, -0.85], ws: gh.ws, rw: gh.rw, rwT: [0.06, 0.85], aw: 0.09, cw: 0.22, side: [{ f: 'A', r: -0.28, b: 0.98, t: 1.39 }, { f: -0.36, r: 'C', b: 0.98, t: 1.36 }] },
+      seatZ: 0.0,
+      details(ctx) {
+        ctx.headlight('front', 0.62, 0.66, 0.36, 0.085, { round: 0.5, skew: 0.45, taper: -0.1, drl: { dy: -0.04, h: 0.013, w: 0.95 } });
+        ctx.grille(0.62, 0.86, 0.09, { surround: COL.black, round: 0.3, vbars: 14, bars: 0, barColor: 0x2b2d30 });
+        ctx.rect('front', 0, 0.685, 1.0, 0.012, { color: 0xc0121b, rm: RM.gloss, nu: 6, off: 0.009 });
+        ctx.rect('front', 0, 0.4, 1.1, 0.17, { round: 0.4, color: COL.grille, rm: RM.dark, nu: 6, nv: 2, off: 0.003 });
+        ctx.rect('front', 0.66, 0.4, 0.14, 0.1, { part: 'lights', round: 0.6, color: 0xe0e6ea, rm: RM.lens, light: G.WHITE, nu: 3, off: 0.007, mirror: true, lod0: true });
+        ctx.rect('front', 0, 0.24, 1.6, 0.035, { round: 0.3, color: 0x101113, rm: RM.satin, nu: 8, off: 0.003, thick: 0.012 });
+        ctx.plate('front', 0.52, { off: 0.012, w: 0.42, h: 0.105 });
+        ctx.taillight('rear', 0.62, 0.86, 0.26, 0.12, { round: 0.3, skew: 0.2, line: 0.0, rev: { dx: -0.1, dy: -0.04, w: 0.07, h: 0.03 } });
+        ctx.rect('rear', 0, 0.9, 0.9, 0.014, { part: 'lights', round: 0.6, color: COL.tailLens, rm: RM.tail, light: G.TAIL, nu: 6, off: 0.006, lod0: true });
+        ctx.plate('rear', 0.66, { w: 0.42, h: 0.105 });
+        ctx.rect('rear', 0, 0.36, 1.5, 0.22, { round: 0.4, color: 0x0d0e0f, rm: RM.satin, nu: 6, nv: 2, off: 0.003, thick: 0.012 });
+        ctx.exhaust([0.5, -0.5], 0.3, 0.038);
+        ctx.seams([{ z: 0.68, y0: 0.24, y1: 0.93 }, { z: -0.3, y0: 0.24, y1: 0.96 }, { z: -1.1, y0: 0.55, y1: 0.97, lean: 0.02 }]);
+        ctx.handles([0.15, -0.72], 0.82, COL.black);
+        ctx.rect('left', 0, 0.255, 1.9, 0.05, { round: 0.5, color: 0x101113, rm: RM.satin, nu: 8, off: 0.003, thick: 0.01, mirror: true });
+        ctx.rect('left', 0.02, 0.29, 1.9, 0.01, { color: 0xc0121b, rm: RM.gloss, nu: 8, off: 0.006, mirror: true, lod0: true });
+        ctx.mirrors(0.6, 0.97, { color: 0x111214, sy: 0.085, sz: 0.15 });
+        const y = ctx.roofY(-1.5, 0);
+        ctx.box('paint', 0, y + 0.02, -1.62, 1.3, 0.05, 0.24, 0.02, 'body', null, { rx: 0.2 });
+        ctx.box('paint', 0.66, y - 0.02, -1.62, 0.03, 0.12, 0.22, 0.01, 'body', null, { mirror: true, lod0: true });
+      },
+    };
+  })();
+
+  // ---- 28. Halcyon Estate: long-roof family wagon with rails.
+  (function () {
+    const gh = greenhouse({ zb: 0.8, yb: 0.97, top: [0.05, 1.45], mid: [-1.0, 1.47, 0.5], rear: [-2.15, 1.44], base: [-2.35, 1.02], bot: 0.9, r: [0.03, 0.2, 0.1, 0.05], baseOut: 0.02 });
+    DEFS.estate = {
+      L: 4.95, W: 1.86, H: 1.5, fo: 0.95, ro: 1.15, R: 0.34, tyreW: 0.225, sill: 0.22, archGap: 0.06, wheel: 'fivestar',
+      body: [
+        [2.4, 0.28, 0.04], [2.475, 0.42, 0.08], [2.46, 0.65, 0.1], [2.36, 0.78, 0.14], [1.5, 0.88, 0.4], [0.82, 0.96, 0.08],
+        [-1.5, 0.98, 0.3], [-2.35, 1.0, 0.1], [-2.475, 0.92, 0.08], [-2.475, 0.5, 0.08], [-2.4, 0.3, 0.04],
+      ],
+      bevel: 0.06,
+      plan: [[-2.475, 0.9], [-2.0, 0.98], [-1.3, 1.0], [1.4, 1.0], [2.0, 0.96], [2.475, 0.88]],
+      nose: 0.1, tail: 0.04, endLen: 0.5, tumble: [0.65, 1.0, 0.06],
+      cabin: { pts: gh.pts, width: 1.64, bevel: 0.07, tumble: 0.14, y0: 0.94, y1: 1.47, crown: 0.02, wf: [0.07, 0.05, 0.8], wr: [0.03, -2.15, -2.35] },
+      glass: { seats: [0.15, -0.8], ws: gh.ws, rw: gh.rw, rwT: [0.08, 0.86], aw: 0.09, cw: 0.13, side: [{ f: 'A', r: -0.32, b: 1.0, t: 1.38 }, { f: -0.4, r: -1.2, b: 1.0, t: 1.38 }, { f: -1.28, r: 'C', b: 1.0, t: 1.37 }] },
+      seatZ: 0.2,
+      details(ctx) {
+        ctx.headlight('front', 0.62, 0.68, 0.42, 0.11, { round: 0.45, taper: 0.1, pods: 2, drl: { dy: -0.046, h: 0.013, w: 0.88 } });
+        ctx.grille(0.62, 0.62, 0.12, { surround: COL.chrome, bars: 2, round: 0.35 });
+        ctx.rect('front', 0, 0.36, 1.1, 0.11, { round: 0.6, color: COL.grille, rm: RM.dark, nu: 6, off: 0.003 });
+        ctx.rect('front', 0, 0.27, 1.5, 0.04, { round: 0.5, color: COL.plastic, rm: RM.plastic, nu: 6, off: 0.003, thick: 0.01 });
+        ctx.plate('front', 0.47);
+        ctx.taillight('rear', 0.76, 0.98, 0.1, 0.5, { round: 0.2, rev: { dy: -0.17, w: 0.07, h: 0.07 }, bezel: COL.black });
+        ctx.rect('rear', 0, 1.1, 1.1, 0.025, { color: COL.chrome, rm: RM.chrome, nu: 5, off: 0.004, lod0: true });
+        ctx.plate('rear', 0.76, { off: 0.012 });
+        ctx.rect('rear', 0, 0.36, 1.55, 0.14, { round: 0.5, color: COL.plastic, rm: RM.plastic, nu: 6, off: 0.003 });
+        ctx.exhaust([-0.55], 0.3, 0.036);
+        ctx.seams([{ z: 0.92, y0: 0.26, y1: 0.97 }, { z: -0.1, y0: 0.25, y1: 1.0 }, { z: -1.2, y0: 0.3, y1: 1.0, lean: 0.02 }, { z: -2.3, y0: 0.9, y1: 1.4, lean: 0.01 }]);
+        ctx.handles([0.28, -0.7, -1.7], 0.84);
+        ctx.rect('left', 0, 0.255, 2.3, 0.05, { round: 0.5, color: COL.plastic, rm: RM.plastic, nu: 8, off: 0.003, thick: 0.01, mirror: true });
+        ctx.mirrors(0.66, 0.98, {});
+        ctx.rect('left', 2.0, 0.64, 0.07, 0.03, { part: 'lights', round: 0.7, color: COL.amber, rm: RM.lens, light: G.AMBER, nu: 2, off: 0.004, mirror: true, lod0: true });
+        for (const x of [0.62]) {
+          const y = ctx.roofY(-0.8, x);
+          ctx.box('trim', x, y + 0.055, -0.9, 0.04, 0.03, 2.5, 0.012, 0xb4b8bc, RM.alloy, { mirror: true });
+          for (const z of [0.1, -1.9]) {
+            const yy = ctx.roofY(z, x);
+            ctx.box('trim', x, (yy + y + 0.05) / 2, z, 0.05, y + 0.06 - yy, 0.08, 0.012, COL.plastic, RM.plastic, { mirror: true });
+          }
+        }
+      },
+    };
+  })();
+
+  // ---- 29. Corvid LM: angular mid-engine hypercar with Y-lamps, hex exhausts and a wing.
+  (function () {
+    const gh = greenhouse({ zb: 0.75, yb: 0.8, top: [-0.2, 1.1], mid: [-0.7, 1.12, 0.3], rear: [-1.0, 1.08], base: [-2.0, 0.92], bot: 0.64, r: [0.02, 0.3, 0.3, 0.15] });
+    DEFS.corvid = {
+      L: 4.78, W: 2.03, H: 1.13, fo: 1.0, ro: 1.08, R: 0.34, tyreW: 0.265, tyreWR: 0.345, sill: 0.12, archGap: 0.035, wheel: 'split',
+      body: [
+        [2.3, 0.14, 0.02], [2.39, 0.22, 0.03], [2.39, 0.34, 0.03], [1.95, 0.6, 0.08], [1.4, 0.84, 0.08], [0.7, 0.86, 0.04],
+        [-0.5, 0.86, 0.1], [-1.4, 0.96, 0.1], [-2.1, 0.96, 0.03], [-2.39, 0.88, 0.03], [-2.39, 0.45, 0.04], [-2.3, 0.16, 0.03],
+      ],
+      bevel: 0.04,
+      plan: [[-2.39, 0.9], [-1.9, 0.99], [-1.3, 1.0], [-0.5, 0.92], [0.4, 0.92], [1.2, 0.97], [1.9, 0.88], [2.39, 0.66]],
+      nose: 0.08, tail: 0.04, endLen: 0.5, tumble: [0.4, 0.96, 0.12],
+      cabin: { pts: gh.pts, width: 1.3, bevel: 0.07, tumble: 0.22, y0: 0.8, y1: 1.1, crown: 0.02, wf: [0.12, -0.2, 0.75], wr: [0.09, -1.0, -2.0] },
+      glass: { seats: [-0.35], ws: gh.ws, rw: gh.rw, rwT: [0.05, 0.45], aw: 0.08, side: [{ f: 'A', r: -0.68, b: 0.86, t: 1.02 }] },
+      seatZ: -0.35,
+      details(ctx) {
+        ctx.headlight('front', 0.66, 0.46, 0.4, 0.04, { round: 0.8, skew: 0.9, taper: -0.2, drl: null });
+        ctx.rect('front', 0.66, 0.5, 0.36, 0.022, { part: 'lights', round: 0.8, skew: -0.9, color: 0xffffff, rm: RM.lens, light: G.DRL, nu: 6, off: 0.008, mirror: true, lod0: true });
+        ctx.rect('front', 0.6, 0.24, 0.62, 0.1, { round: 0.3, taper: 0.2, color: COL.grille, rm: RM.dark, nu: 5, off: 0.003, mirror: true });
+        ctx.rect('front', 0, 0.26, 0.5, 0.12, { round: 0.3, taper: 0.2, color: COL.grille, rm: RM.dark, nu: 4, off: 0.003 });
+        ctx.rect('front', 0, 0.16, 1.9, 0.03, { color: 0x101113, rm: RM.satin, nu: 8, off: 0.003, thick: 0.014 });
+        ctx.rect('top', 0, 1.7, 0.7, 0.34, { round: 0.2, color: COL.grille, rm: RM.dark, nu: 3, nv: 2, off: 0.003, lod0: true });
+        ctx.quad('left', [-1.3, 0.42], [-0.45, 0.58], [-0.45, 0.8], [-1.3, 0.72], { color: COL.grille, rm: RM.dark, nu: 4, nv: 2, off: 0.003, mirror: true });
+        ctx.rect('left', 0.8, 0.28, 0.5, 0.06, { round: 0.3, color: 0x101113, rm: RM.satin, nu: 4, off: 0.003, thick: 0.01, mirror: true });
+        ctx.rect('left', -0.05, 0.19, 1.9, 0.06, { color: 0x101113, rm: RM.satin, nu: 8, off: 0.003, thick: 0.012, mirror: true });
+        ctx.seams([{ z: 0.78, y0: 0.2, y1: 0.8, lean: -0.3 }, { z: -0.5, y0: 0.22, y1: 0.86, lean: 0.12 }, { z0: -0.5, z1: 0.78, y: 0.4 }]);
+        ctx.mirrors(0.5, 0.82, { reach: 0.12, sy: 0.07, sz: 0.15 });
+        ctx.taillight('rear', 0.6, 0.78, 0.5, 0.05, { round: 0.6, skew: -0.8, bezel: null, rev: { dx: -0.3, w: 0.06, h: 0.025 } });
+        ctx.rect('rear', 0, 0.7, 1.0, 0.024, { part: 'lights', round: 0.5, color: COL.tailLens, rm: RM.tail, light: G.TAIL, nu: 8, off: 0.006 });
+        ctx.rect('rear', 0, 0.32, 1.84, 0.3, { round: 0.2, color: COL.grille, rm: RM.dark, nu: 6, nv: 2, off: 0.003 });
+        if (!ctx.lod) for (const x of [0.25, 0.5, 0.75]) ctx.rect('rear', x, 0.3, 0.016, 0.26, { color: 0x1a1b1d, rm: RM.satin, nu: 1, nv: 2, off: 0.003, thick: 0.07, mirror: true });
+        ctx.plate('rear', 0.52, { w: 0.4, h: 0.1 });
+        ctx.exhaust([-0.14, 0, 0.14], 0.52, 0.048, { color: 0x3a3632 });
+        if (!ctx.lod) for (let k = 0; k < 6; k++) ctx.rect('top', 0, -1.3 - k * 0.1, 0.9, 0.03, { color: 0x0c0d0e, rm: RM.dark, nu: 4, off: 0.003, thick: 0.01 });
+        wing(ctx, -2.0, 1.22, 1.9, 0.36, { tilt: -0.14, plateH: 0.2 });
+      },
+    };
+  })();
+
   // --------------------------------------------------------------- specs
   const INFO = {
     vireo: ['Vireo GT', 'Aurel', 'sports', 1420, 71, 0.92, 0.9, 2, [0xff6a1a, 0xff3d8b, 0x13b5b1, 0xf2f2ee, 0x121314]],
@@ -32062,6 +33402,18 @@ void main() {
     lowrider: ['Duchess', 'Dunmore', 'muscle', 2100, 48, 0.38, 0.4, 4, [0x9a0a1e, 0x4a0f5e, 0x0a6f7a, 0xb8862a, 0x1f6b2a]],
     beater: ['Pipit Rustbucket', 'Kobo', 'compact', 980, 36, 0.18, 0.4, 4, [0x7a8c7e, 0x9c6d5a, 0x8f8a73, 0x5f6f86]],
     unmarked: ['Halcyon Detective', 'Merrow', 'police', 1580, 62, 0.7, 0.66, 4, [0x3a3d42, 0x23262b, 0x4a4d52]],
+    // Roster v2. [name, make, class, mass kg, top speed m/s, accel 0..1, grip 0..1, seats, palette]
+    volta: ['Volta S', 'Arcus', 'ev', 2100, 62, 0.95, 0.74, 5, [0xf3f3f1, 0x2a2d33, 0x8a8f95, 0x8a1626, 0x24478a, 0xc9ccd0]],
+    voltaic: ['Volta Y', 'Arcus', 'ev', 1980, 57, 0.86, 0.66, 5, [0xf3f3f1, 0x2a2d33, 0x8a8f95, 0x8a1626, 0x24478a, 0xe8e9ea]],
+    monolith: ['Monolith', 'Arcus', 'pickup', 3100, 50, 0.84, 0.62, 5, [0xb7babd, 0x9c9fa3, 0xcdd0d2, 0x3a3d42, 0x4a6a44]],
+    forge: ['Forge 1500', 'Dunmore', 'pickup', 2500, 52, 0.6, 0.5, 5, [0xf1f1ee, 0x2a2d33, 0x9aa0a6, 0x8a1d22, 0x2a5a8a, 0x4a6a44]],
+    drover: ['Drover', 'Hask', 'pickup', 1450, 40, 0.34, 0.42, 3, [0x7a2a22, 0x2e4a6a, 0xdcd6c4, 0x4a5a3a, 0xb8a66a]],
+    trailhand: ['Trailhand', 'Rook', 'suv', 2300, 45, 0.5, 0.6, 5, [0x5a6b3a, 0xd9d3c4, 0x1e5a94, 0xc8541a, 0x2a2d33, 0xefefea]],
+    gallop: ['Gallop GT', 'Dunmore', 'muscle', 1760, 69, 0.86, 0.62, 4, [0xc1272d, 0x1f6fb5, 0x14161a, 0xf1f1ee, 0xd9a41a, 0x3a4a3a]],
+    stinger: ['Stinger 66', 'Dunmore', 'muscle', 1560, 62, 0.7, 0.45, 4, [0x1f5a3a, 0xb02a2a, 0xe8d8a0, 0x2a4a8a, 0xd4a017, 0x14161a]],
+    sprint: ['Sprint RS', 'Kobo', 'compact', 1320, 58, 0.74, 0.76, 4, [0xc8202a, 0xf1f1ee, 0x14161a, 0x1d4fb8, 0x8a8f95, 0xf2c500]],
+    estate: ['Halcyon Estate', 'Merrow', 'sedan', 1720, 54, 0.5, 0.6, 5, [0x2a3d33, 0xb8bcc0, 0x1d2e52, 0xefefea, 0x5c1420, 0x7b6a52]],
+    corvid: ['Corvid LM', 'Aurel', 'sports', 1480, 72, 1.0, 0.96, 2, [0xf26b00, 0xf2f2ee, 0x151618, 0xc8102e, 0x6a1fa0, 0xffc400]],
   };
 
   const TYPES = {};
@@ -32999,6 +34351,9 @@ void main() {
   const TANK_SMASH = { speed: 0, keep: 0.97, dmg: 0 };
   const PARKED_TYPES = [
     ['halcyon', 38], ['pipit', 20], ['mesa', 12], ['porter', 9], ['ironclad', 8], ['vireo', 5], ['cab', 5],
+    // Roster v2 (carmodels.js).
+    ['volta', 5], ['voltaic', 5], ['monolith', 2], ['forge', 8], ['drover', 4], ['trailhand', 4], ['gallop', 4],
+    ['stinger', 2], ['sprint', 6], ['estate', 5], ['corvid', 1],
   ];
 
   function weightedPick(list, r) {
@@ -35762,6 +37117,8 @@ void main() {
   const TRAFFIC_TYPES = [
     ['halcyon', 28], ['pipit', 16], ['cab', 10], ['mesa', 9], ['porter', 8], ['tern', 9], ['ironclad', 5],
     ['vireo', 3], ['sovereign', 3], ['hauler', 5], ['beater', 4], ['drifter', 2], ['lowrider', 2], ['zephyr', 1],
+    // The newer models: electric cars, pickups, a wagon and the odd muscle car or supercar.
+    ['volta', 4], ['voltaic', 4], ['forge', 6], ['sprint', 4], ['estate', 3], ['gallop', 2], ['trailhand', 2], ['drover', 2], ['monolith', 1], ['stinger', 1], ['corvid', 1],
   ];
 
   class LaneDriver {
@@ -37114,6 +38471,7 @@ void main() {
   `;
   const POOL_FRAG = /* glsl */ `
     uniform float uIntensity;
+    uniform float uWet;
     uniform vec3 uColor;
     varying vec2 vLocal;
     varying vec4 vPool;
@@ -37124,7 +38482,7 @@ void main() {
       if (r > 1.0) discard;
       float f = (1.0 - r);
       f = f * f * (0.35 + 0.65 * (1.0 - sqrt(r)));
-      vec3 c = uColor * vTint * f * uIntensity * vPool.w;
+      vec3 c = uColor * vTint * f * uIntensity * vPool.w * (1.0 + uWet * 0.6); // wet ground throws more light back
       gl_FragColor = vec4(c, 1.0);
     }
   `;
@@ -37141,7 +38499,7 @@ void main() {
       geo.setAttribute('aPool', this.aPool);
       geo.setAttribute('aTint', this.aTint);
       this.material = new THREE.ShaderMaterial({
-        uniforms: { uIntensity: { value: 0 }, uColor: { value: new THREE.Color(color) } },
+        uniforms: { uIntensity: { value: 0 }, uWet: VH.Materials && VH.Materials.shared ? VH.Materials.shared.uWet : { value: 0 }, uColor: { value: new THREE.Color(color) } },
         vertexShader: POOL_VERT,
         fragmentShader: POOL_FRAG,
         transparent: true,
@@ -59954,7 +61312,7 @@ void main() {
 
   const VH = window.VH;
   const { clamp, dampAngle } = VH.math;
-  const GETAWAY = ['vireo', 'zephyr', 'drifter', 'ironclad', 'lowrider', 'tern', 'sovereign', 'halcyon', 'beater'];
+  const GETAWAY = ['vireo', 'zephyr', 'drifter', 'ironclad', 'lowrider', 'tern', 'sovereign', 'halcyon', 'beater', 'gallop', 'corvid', 'monolith', 'stinger'];
   const CHASE_GAP = [150, 300]; // seconds of quiet between chases
   const TOUR = { cx: 520, cz: 0, rx: 105, rz: 420, y: 95, speed: 34 };
 
@@ -66207,6 +67565,790 @@ void main() {
 })();
 //# sourceURL=js/hud.js
 </script>
+  <script data-src="js/weather.js">
+/*
+ * weather.js — rain, storms, fog and a wet city.
+ *
+ *   states      clear, cloudy, overcast, drizzle, rain, storm, fog, dust.
+ *               Each one is a bundle of numbers (cloud cover, sky darkening,
+ *               fog density, sun strength, rain, wind, lightning rate) and
+ *               the current weather is a smooth blend between two bundles.
+ *   director    in "auto" it walks plausible chains (clear → cloudy →
+ *               overcast → drizzle → rain → storm and back) with long spells
+ *               of sunshine in between: Vicehaven gets 312 days of it.
+ *               Settings → Gameplay → Weather (or the `weather` debug command)
+ *               pins one state instead.
+ *   rain        one instanced mesh of streaks that fall in a box around the
+ *               camera (all motion is in the vertex shader), plus ground
+ *               splash rings around the player. No per-frame allocation.
+ *   wet world   `uWet` / `uRain` in the shared uniforms (materials.js) make
+ *               roads, pavements, grass and walls darker and glossier, fill
+ *               puddles and ring them while it rains.
+ *   sky         environment.js multipliers (cloud cover, darkening, fog, sun,
+ *               ambient, exposure) are driven through Environment.setWeather.
+ *   lightning   flashes light the sky, fog and ambient light, a forked bolt
+ *               is drawn far away, and thunder rolls in later by distance.
+ *   audio       rain hiss and patter (muffled inside vehicles), wind, thunder:
+ *               all synthesised on the existing Web Audio engine.
+ */
+(function () {
+  'use strict';
+
+  const VH = window.VH;
+  const { clamp, lerp, smoothstep } = VH.math;
+
+  // ---------------------------------------------------------------- states
+  // cloud: push of the cloud cover towards 1 · overcast: sky shader's solid deck · storm: dark clouds
+  // dark/desat: sky and fog colour grading · tint: dust colour · fogMul: fog density multiplier
+  // sunMul/hemiMul/envMul/expMul: light levels · shaftMul: sun shafts · rain 0..1 · wind 0..1 · ltn: lightning
+  const KEYS = ['cloud', 'overcast', 'storm', 'dark', 'desat', 'tint', 'fogMul', 'sunMul', 'hemiMul', 'envMul', 'expMul', 'shaftMul', 'rain', 'wind', 'ltn'];
+  const mk = (a) => {
+    const o = {};
+    KEYS.forEach((k, i) => (o[k] = a[i]));
+    return o;
+  };
+  //              cloud overc storm dark  desat tint  fogM  sun   hemi  env   exp   shaft rain  wind  ltn
+  const STATES = {
+    clear: mk([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0, 0.2, 0.0]),
+    cloudy: mk([0.4, 0.1, 0.0, 0.14, 0.18, 0.0, 1.15, 0.8, 1.0, 1.0, 1.0, 0.5, 0.0, 0.35, 0.0]),
+    overcast: mk([0.85, 0.75, 0.1, 0.34, 0.45, 0.0, 1.6, 0.4, 1.1, 1.0, 1.1, 0.1, 0.0, 0.45, 0.0]),
+    drizzle: mk([0.92, 0.9, 0.2, 0.42, 0.55, 0.0, 2.2, 0.28, 1.15, 1.0, 1.18, 0.05, 0.35, 0.4, 0.0]),
+    rain: mk([1.0, 1.0, 0.5, 0.6, 0.7, 0.0, 3.2, 0.15, 1.2, 1.0, 1.3, 0.0, 0.8, 0.6, 0.0]),
+    storm: mk([1.0, 1.0, 1.0, 0.82, 0.75, 0.0, 4.2, 0.07, 1.25, 1.0, 1.35, 0.0, 1.0, 1.0, 1.0]),
+    fog: mk([0.5, 0.55, 0.0, 0.1, 0.6, 0.0, 8.0, 0.45, 1.2, 1.0, 1.12, 0.15, 0.0, 0.05, 0.0]),
+    dust: mk([0.35, 0.3, 0.0, 0.12, 0.0, 0.85, 5.5, 0.55, 1.15, 1.0, 1.1, 0.25, 0.0, 1.0, 0.0]),
+  };
+  const NAMES = Object.keys(STATES);
+  const ALIASES = { sun: 'clear', sunny: 'clear', cloud: 'cloudy', clouds: 'cloudy', grey: 'overcast', gray: 'overcast', light: 'drizzle', lightrain: 'drizzle', light_rain: 'drizzle', heavy: 'rain', heavyrain: 'rain', thunder: 'storm', thunderstorm: 'storm', mist: 'fog', sandstorm: 'dust', haze: 'dust' };
+
+  // How long each spell lasts [min, max] seconds, and what can follow it.
+  const HOLD = { clear: [300, 720], cloudy: [100, 220], overcast: [70, 150], drizzle: [90, 200], rain: [80, 180], storm: [70, 140], fog: [120, 260], dust: [100, 200] };
+  const NEXT = {
+    clear: { cloudy: 6, fog: 1, dust: 2 },
+    cloudy: { clear: 5, overcast: 3, drizzle: 1 },
+    overcast: { cloudy: 3, clear: 1.5, drizzle: 3, rain: 1.5 },
+    drizzle: { overcast: 3, rain: 2, cloudy: 2.5, clear: 0.5 },
+    rain: { drizzle: 3, storm: 1.6, overcast: 2.5 },
+    storm: { rain: 4, drizzle: 1.5, overcast: 1 },
+    fog: { clear: 4, cloudy: 2.5 },
+    dust: { clear: 5, cloudy: 1 },
+  };
+  // What the Settings → Gameplay → Weather choices pin.
+  const SETTING_STATE = { clear: 'clear', cloudy: 'cloudy', rain: 'rain', storm: 'storm', fog: 'fog' };
+
+  const MAX_STREAKS = 12000;
+  const MAX_SPLASH = 520;
+  const MAX_BOLT_SEGS = 420;
+
+  // --------------------------------------------------------------- shaders
+  const RAIN_VERT = /* glsl */ `
+    attribute vec2 aCorner;
+    attribute vec4 aSeed;
+    uniform float uTime;
+    uniform float uIntensity;
+    uniform float uBase;
+    uniform float uH;
+    uniform float uBox;
+    uniform float uFall;
+    uniform float uLen;
+    uniform vec2 uWind;
+    uniform vec3 uColor;
+    varying vec3 vCol;
+    varying vec2 vUv;
+    varying float vA;
+    void main() {
+      float on = step(aSeed.w, uIntensity);
+      vec2 cam = cameraPosition.xz;
+      vec2 xz = cam + (fract(aSeed.xy - cam / uBox) - 0.5) * uBox;
+      float sv = 0.85 + 0.3 * fract(aSeed.w * 37.1);
+      float f = fract(aSeed.z - uTime * uFall * sv / uH);
+      float y = uBase + f * uH;
+      xz += uWind * ((1.0 - f) * uH / (uFall * sv));
+      vec3 p = vec3(xz.x, y, xz.y);
+      vec3 toCam = p - cameraPosition;
+      float dist = length(toCam);
+      vec3 v = normalize(vec3(uWind.x, -uFall, uWind.y));
+      float len = uLen * (0.75 + 0.5 * fract(aSeed.w * 91.7));
+      vec3 side = normalize(cross(v, toCam / dist));
+      float w = 0.006 + dist * 0.0016;
+      vec3 P = p - v * len * aCorner.y + side * aCorner.x * w;
+      float fade = (1.0 - smoothstep(5.0, uBox * 0.47, dist)) * smoothstep(0.5, 2.4, dist);
+      // Drops die at the ground and at the top of the volume.
+      fade *= smoothstep(0.0, 0.5, f * uH) * (1.0 - smoothstep(0.88, 1.0, f));
+      vA = on * fade * (1.0 - aCorner.y * 0.6) * (0.8 + 0.2 * fract(aSeed.w * 13.3));
+      vCol = uColor;
+      vUv = aCorner;
+      gl_Position = projectionMatrix * viewMatrix * vec4(P, 1.0);
+    }
+  `;
+  const RAIN_FRAG = /* glsl */ `
+    varying vec3 vCol;
+    varying vec2 vUv;
+    varying float vA;
+    void main() {
+      float a = vA * (1.0 - vUv.x * vUv.x);
+      if (a < 0.003) discard;
+      gl_FragColor = vec4(vCol, a);
+      #include <tonemapping_fragment>
+      #include <colorspace_fragment>
+    }
+  `;
+
+  const SPLASH_VERT = /* glsl */ `
+    attribute vec2 aCorner;
+    attribute vec4 aSeed;
+    uniform float uTime;
+    uniform float uIntensity;
+    uniform float uGround;
+    uniform float uBox;
+    uniform vec3 uColor;
+    varying vec2 vLocal;
+    varying float vPh;
+    varying float vA;
+    varying float vRot;
+    float hash(float n) { return fract(sin(n * 127.1) * 43758.5453); }
+    void main() {
+      float t = uTime * 2.2 + aSeed.z * 9.0;
+      float cyc = floor(t);
+      float ph = fract(t);
+      vec2 jit = vec2(hash(aSeed.w * 7.0 + cyc * 1.7), hash(aSeed.w * 3.1 + cyc * 2.3));
+      vec2 s = fract(aSeed.xy + jit);
+      vec2 cam = cameraPosition.xz;
+      vec2 xz = cam + (fract(s - cam / uBox) - 0.5) * uBox;
+      float dist = length(xz - cam);
+      float on = step(hash(aSeed.w * 5.0 + cyc * 0.37), uIntensity);
+      vA = on * (1.0 - smoothstep(uBox * 0.2, uBox * 0.5, dist)) * smoothstep(0.8, 2.0, dist);
+      vPh = ph;
+      vLocal = aCorner;
+      vRot = hash(aSeed.w + cyc) * 6.283;
+      vec3 P = vec3(xz.x, uGround + 0.035, xz.y) + vec3(aCorner.x, 0.0, aCorner.y) * 0.3;
+      gl_Position = projectionMatrix * viewMatrix * vec4(P, 1.0);
+    }
+  `;
+  const SPLASH_FRAG = /* glsl */ `
+    uniform vec3 uColor;
+    varying vec2 vLocal;
+    varying float vPh;
+    varying float vA;
+    varying float vRot;
+    void main() {
+      if (vA < 0.004) discard;
+      float r = length(vLocal) * 0.3;
+      float ringR = mix(0.025, 0.2, sqrt(vPh));
+      float d = (r - ringR) / 0.014;
+      float ring = exp(-d * d) * pow(1.0 - vPh, 1.6);
+      // A crown of droplets thrown up in the first instants.
+      float ang = atan(vLocal.y, vLocal.x) + vRot;
+      float spokes = pow(max(cos(ang * 4.0), 0.0), 6.0);
+      float dc = (r - ringR * 0.7) / 0.02;
+      float crown = exp(-dc * dc) * spokes * (1.0 - smoothstep(0.0, 0.3, vPh));
+      float a = (ring * 0.55 + crown * 0.9) * vA;
+      if (a < 0.004) discard;
+      gl_FragColor = vec4(uColor, a);
+      #include <tonemapping_fragment>
+      #include <colorspace_fragment>
+    }
+  `;
+
+  /** Camera-facing quad geometry shared by the rain and splash meshes. */
+  function instancedQuads(max, flat) {
+    const geo = new THREE.InstancedBufferGeometry();
+    const corners = flat ? [-1, -1, 1, -1, -1, 1, 1, 1] : [-1, 0, 1, 0, -1, 1, 1, 1];
+    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(12), 3));
+    geo.setAttribute('aCorner', new THREE.BufferAttribute(new Float32Array(corners), 2));
+    geo.setIndex([0, 1, 2, 2, 1, 3]);
+    const seed = new Float32Array(max * 4);
+    for (let i = 0; i < seed.length; i++) seed[i] = Math.random();
+    geo.setAttribute('aSeed', new THREE.InstancedBufferAttribute(seed, 4));
+    geo.instanceCount = 0;
+    return geo;
+  }
+
+  // --------------------------------------------------------------- the system
+  class Weather {
+    constructor(game) {
+      this.game = game;
+      this.env = game.environment;
+      this.shared = VH.Materials.shared;
+      this.saveKey = 'weather';
+      this.t = 0;
+      this.state = 'clear';
+      this.mode = 'auto'; // 'auto', or a state pinned by the setting / the debug command
+      this.cur = Object.assign({}, STATES.clear);
+      this._from = Object.assign({}, STATES.clear);
+      this._to = Object.assign({}, STATES.clear);
+      this._k = 1;
+      this._dur = 30;
+      this.hold = this._rollHold('clear');
+      this.wet = 0;
+      this.rainNow = 0;
+      this._push = 0;
+      this._dirty = true;
+      this._windAng = Math.random() * 6.28;
+      this._ground = 0;
+      this._groundT = 0;
+      this._snd = 0;
+      this._tmpC = new THREE.Color();
+      this.flash = 0;
+      this._pulses = [];
+      for (let i = 0; i < 5; i++) this._pulses.push({ t: 1e9, a: 0 });
+      this._boltT = 1e9;
+      this._boltLife = 0;
+      this._nextBolt = 20;
+      this._thunders = [];
+      this._build();
+      this._applyQuality();
+      VH.events.on('settings:changed', (e) => {
+        if (e.path === 'graphics' || e.path.startsWith('graphics.') || e.path === '*') this._applyQuality();
+        if (e.path === 'gameplay.weather' || e.path === '*') this._applySetting(false);
+      });
+      this._applySetting(true);
+      this._pushEnv();
+    }
+
+    // ------------------------------------------------------------ building
+    _build() {
+      const scene = this.game.scene;
+      const sh = this.shared;
+      // Rain streaks.
+      this.rainU = {
+        uTime: { value: 0 }, uIntensity: { value: 0 }, uBase: { value: 0 }, uH: { value: 24 }, uBox: { value: 46 },
+        uFall: { value: 15 }, uLen: { value: 0.55 }, uWind: { value: new THREE.Vector2() }, uColor: { value: new THREE.Color(0.5, 0.55, 0.62) },
+      };
+      this.rainGeo = instancedQuads(MAX_STREAKS, false);
+      this.rain = new THREE.Mesh(this.rainGeo, new THREE.ShaderMaterial({
+        uniforms: this.rainU, vertexShader: RAIN_VERT, fragmentShader: RAIN_FRAG,
+        transparent: true, depthWrite: false, side: THREE.DoubleSide, fog: false,
+      }));
+      this.rain.frustumCulled = false;
+      this.rain.renderOrder = 20;
+      this.rain.visible = false;
+      this.rain.name = 'rain';
+      scene.add(this.rain);
+      // Splash rings on the ground.
+      this.splashU = {
+        uTime: this.rainU.uTime, uIntensity: { value: 0 }, uGround: { value: 0 }, uBox: { value: 26 }, uColor: { value: new THREE.Color(0.7, 0.75, 0.85) },
+      };
+      this.splashGeo = instancedQuads(MAX_SPLASH, true);
+      this.splash = new THREE.Mesh(this.splashGeo, new THREE.ShaderMaterial({
+        uniforms: this.splashU, vertexShader: SPLASH_VERT, fragmentShader: SPLASH_FRAG,
+        transparent: true, depthWrite: false, fog: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4,
+      }));
+      this.splash.frustumCulled = false;
+      this.splash.renderOrder = 19;
+      this.splash.visible = false;
+      this.splash.name = 'rain splashes';
+      scene.add(this.splash);
+      // Lightning bolt.
+      this.boltPos = new Float32Array(MAX_BOLT_SEGS * 6);
+      this.boltGeo = new THREE.BufferGeometry();
+      this.boltGeo.setAttribute('position', new THREE.BufferAttribute(this.boltPos, 3).setUsage(THREE.DynamicDrawUsage));
+      this.boltGeo.setDrawRange(0, 0);
+      this.boltMat = new THREE.LineBasicMaterial({
+        color: new THREE.Color(5, 5.6, 8), transparent: true, opacity: 1, blending: THREE.AdditiveBlending, depthWrite: false, fog: false,
+      });
+      this.bolt = new THREE.LineSegments(this.boltGeo, this.boltMat);
+      this.bolt.frustumCulled = false;
+      this.bolt.renderOrder = 15;
+      this.bolt.visible = false;
+      this.bolt.name = 'lightning';
+      scene.add(this.bolt);
+    }
+
+    _applyQuality() {
+      const s = VH.settings;
+      const fx = s.get('graphics.effects');
+      const ultra = s.get('graphics.quality') === 'ultra';
+      this.streakMax = fx === 'low' ? 1800 : fx === 'medium' ? 4800 : ultra ? 12000 : 8500;
+      this.splashMax = fx === 'low' ? 0 : fx === 'medium' ? 260 : MAX_SPLASH;
+      this.rainU.uBox.value = fx === 'low' ? 30 : 38;
+      this._lastCount = -1;
+    }
+
+    // ------------------------------------------------------------ control
+    /** The state names, for the console. */
+    static get names() {
+      return NAMES.slice();
+    }
+
+    _resolve(name) {
+      if (!name) return null;
+      const n = String(name).toLowerCase();
+      if (STATES[n]) return n;
+      return ALIASES[n] || null;
+    }
+
+    _rollHold(state) {
+      const h = HOLD[state];
+      return h[0] + Math.random() * (h[1] - h[0]);
+    }
+
+    /** Blend towards a state over `seconds` (0 = at once). */
+    goto(state, seconds) {
+      if (!STATES[state]) return;
+      this.state = state;
+      this._from = Object.assign(this._from, this.cur);
+      this._to = Object.assign(this._to, STATES[state]);
+      this._dur = Math.max(0, seconds === undefined ? 25 + Math.random() * 15 : seconds);
+      this._k = this._dur <= 0 ? 1 : 0;
+      if (this._dur <= 0) {
+        Object.assign(this.cur, this._to);
+        this._dirty = true;
+      }
+      this.hold = this._rollHold(state);
+    }
+
+    /** Jump (or blend) to a state; instant = true also soaks the world straight away. */
+    set(state, instant) {
+      const s = this._resolve(state);
+      if (!s) return false;
+      this.mode = 'manual';
+      this.goto(s, instant ? 0 : 12);
+      if (instant) {
+        this.wet = Math.max(this.wet, this._wetTarget(STATES[s]));
+        this.rainNow = STATES[s].rain;
+        this._pushEnv();
+      }
+      return true;
+    }
+
+    /** Debug console: `weather <state|auto> [seconds]`. */
+    command(arg, secs) {
+      if (!arg) return 'Weather: ' + this.describe() + '. Usage: weather <' + NAMES.join('|') + '|auto|dry|soak> [seconds]';
+      const a = String(arg).toLowerCase();
+      if (a === 'auto') {
+        this.mode = 'auto';
+        this.goto('clear', 8);
+        return 'Weather back on automatic.';
+      }
+      if (a === 'dry') {
+        this.wet = 0;
+        return 'Dried the streets.';
+      }
+      if (a === 'soak') {
+        this.wet = 1;
+        return 'Soaked the streets.';
+      }
+      if (a === 'bolt' || a === 'lightning') {
+        this.strike(false);
+        return 'Lightning.';
+      }
+      const s = this._resolve(a);
+      if (!s) return 'Unknown weather "' + arg + '". Try ' + NAMES.join(', ') + ', auto.';
+      const sec = secs !== undefined && !isNaN(parseFloat(secs)) ? parseFloat(secs) : 10;
+      this.mode = 'manual';
+      this.goto(s, sec);
+      if (sec <= 0) {
+        this.wet = Math.max(this.wet, this._wetTarget(STATES[s]));
+        this.rainNow = STATES[s].rain;
+        this._pushEnv();
+      }
+      return 'Weather: ' + s + (sec > 0 ? ' (over ' + sec + ' s)' : '');
+    }
+
+    describe() {
+      return this.state + (this._k < 1 ? ' (changing)' : '') + (this.mode === 'auto' ? ', automatic' : ', pinned') + ', wet ' + this.wet.toFixed(2);
+    }
+
+    _applySetting(initial) {
+      const v = VH.settings.get('gameplay.weather') || 'auto';
+      if (v === 'auto') {
+        if (this.mode !== 'auto' && !initial) {
+          this.mode = 'auto';
+          this.goto('clear', 25);
+        }
+        return;
+      }
+      const s = SETTING_STATE[v];
+      if (!s) return;
+      this.mode = 'setting';
+      this.goto(s, initial ? 0 : 25);
+      if (initial) this.wet = this._wetTarget(STATES[s]);
+    }
+
+    _wetTarget(p) {
+      return p.rain > 0.05 ? clamp(0.4 + p.rain * 0.65, 0, 1) : p.fogMul > 7 ? 0.25 : 0;
+    }
+
+    _pickNext() {
+      const table = NEXT[this.state];
+      const g = this.game;
+      const desert = g.player && g.player.pos.x < -900;
+      const morning = this.env.hours > 3 && this.env.hours < 9.5;
+      let sum = 0;
+      for (const k in table) sum += this._weight(k, table[k], desert, morning);
+      let r = Math.random() * sum;
+      let pick = 'clear';
+      for (const k in table) {
+        r -= this._weight(k, table[k], desert, morning);
+        if (r <= 0) {
+          pick = k;
+          break;
+        }
+      }
+      // Soaked streets under a blue sky are rare: after rain, clouds clear gradually.
+      this.goto(pick, 25 + Math.random() * 15);
+    }
+
+    _weight(k, w, desert, morning) {
+      if (k === 'dust') return desert ? w * 2 : 0;
+      if (k === 'fog') return w * (morning ? 3 : 0.25);
+      return w;
+    }
+
+    // ------------------------------------------------------------- update
+    update(dt) {
+      if (!(dt > 0)) return;
+      if (dt > 0.25) dt = 0.25;
+      this.t += dt;
+      const cur = this.cur;
+
+      // Blend between the two state bundles, then pick the next one when the spell is over.
+      if (this._k < 1) {
+        this._k = Math.min(1, this._k + dt / this._dur);
+        const e = smoothstep(0, 1, this._k);
+        for (let i = 0; i < KEYS.length; i++) {
+          const key = KEYS[i];
+          cur[key] = this._from[key] + (this._to[key] - this._from[key]) * e;
+        }
+        this._dirty = true;
+      } else if (this.mode === 'auto') {
+        this.hold -= dt;
+        if (this.hold <= 0) this._pickNext();
+      }
+
+      // The streets get wet while it rains and dry out slowly afterwards (quicker in sunshine).
+      const target = this._wetTarget(cur);
+      if (this.wet < target) this.wet = Math.min(target, this.wet + dt * (0.012 + cur.rain * 0.05));
+      else {
+        const sun = smoothstep(0.35, 0.9, cur.sunMul);
+        this.wet = Math.max(target, this.wet - dt / (330 - sun * 200));
+      }
+      // Rain eases in and out of the streaks on its own short ramp.
+      this.rainNow += (cur.rain - this.rainNow) * Math.min(1, dt * 1.5);
+      if (Math.abs(this.rainNow - cur.rain) < 0.002) this.rainNow = cur.rain;
+
+      // Push to the sky at ~8 Hz while anything is changing.
+      this._push -= dt;
+      if (this._dirty && this._push <= 0) {
+        this._push = 0.12;
+        this._dirty = false;
+        this._pushEnv();
+      }
+
+      this._wind(dt);
+      this._lightning(dt);
+      this._visuals(dt);
+      this._audio(dt);
+      this.shared.uWet.value = this.wet;
+      this.shared.uWetGlow.value = this.env.nightFactor || 0;
+      this.shared.uRain.value = this.rainNow;
+    }
+
+    _pushEnv() {
+      const c = this.cur;
+      const env = this.env;
+      env.wxTint.setRGB(0.62, 0.44, 0.26);
+      env.setWeather({
+        cloud: c.cloud, overcast: c.overcast, storm: c.storm, dark: c.dark, desat: c.desat, tint: c.tint,
+        fogMul: c.fogMul, sunMul: c.sunMul, hemiMul: c.hemiMul, envMul: c.envMul, expMul: c.expMul, shaftMul: c.shaftMul,
+      });
+      this.shared.uWind.value = 1 + c.wind * 2.2;
+    }
+
+    _wind(dt) {
+      this._windAng += dt * 0.02 * (0.5 + Math.sin(this.t * 0.013));
+      const gust = 0.8 + 0.2 * Math.sin(this.t * 0.9) * Math.sin(this.t * 0.31 + 1.3);
+      const sp = (1.2 + this.cur.wind * 7) * gust;
+      this.windX = Math.cos(this._windAng) * sp;
+      this.windZ = Math.sin(this._windAng) * sp;
+    }
+
+    // ---------------------------------------------------------- visuals
+    _visuals(dt) {
+      const r = this.rainNow;
+      const env = this.env;
+      const cam = this.game.renderer.camera;
+      const U = this.rainU;
+      const show = r > 0.01;
+      this.rain.visible = show;
+      this.splash.visible = show && this.splashMax > 0;
+      if (!show) {
+        return;
+      }
+      // Ground under the player (a few times a second).
+      this._groundT -= dt;
+      if (this._groundT <= 0) {
+        this._groundT = 0.2;
+        const ph = this.game.physics;
+        const p = this.game.player.renderPos;
+        const g = ph && ph.groundHeight ? ph.groundHeight(cam.position.x, cam.position.z, Math.max(cam.position.y, p.y) + 0.5) : p.y;
+        this._ground += (g - this._ground) * 0.6;
+        if (Math.abs(g - this._ground) < 0.02) this._ground = g;
+      }
+      const n = Math.floor(this.streakMax * smoothstep(0, 0.12, r));
+      if (n !== this._lastCount) {
+        this.rainGeo.instanceCount = n;
+        this._lastCount = n;
+      }
+      this.splashGeo.instanceCount = this.splashMax;
+      U.uTime.value = this.t;
+      U.uIntensity.value = r;
+      U.uBase.value = Math.max(this._ground, cam.position.y - U.uH.value * 0.55);
+      U.uWind.value.set(this.windX * 0.55, this.windZ * 0.55);
+      // Light rain is a thin hiss of fine drops; a storm hammers down, slanted.
+      U.uFall.value = 13 + r * 5;
+      U.uLen.value = 0.4 + r * 0.25;
+      const night = env.nightFactor || 0;
+      const lit = lerp(0.62, 0.24, night) * (0.7 + 0.3 * (1 - this.cur.dark));
+      const f = this.flash;
+      U.uColor.value.setRGB(lit * 0.92 + f * 1.4, lit * 1.0 + f * 1.5, lit * 1.12 + f * 2.2);
+      this.splashU.uIntensity.value = r;
+      this.splashU.uGround.value = this._ground;
+      this.splashU.uColor.value.setRGB(lit * 1.1 + f, lit * 1.15 + f, lit * 1.3 + f * 1.4);
+    }
+
+    // --------------------------------------------------------- lightning
+    _lightning(dt) {
+      const c = this.cur;
+      // Schedule.
+      if (c.ltn > 0.2 && c.storm > 0.6) {
+        this._nextBolt -= dt;
+        if (this._nextBolt <= 0) {
+          this._nextBolt = lerp(34, 7, c.ltn) * (0.5 + Math.random());
+          this.strike(Math.random() < 0.35);
+        }
+      } else this._nextBolt = Math.max(this._nextBolt, 6);
+
+      // Flash envelope: a few quick strokes, each decaying fast.
+      let f = 0;
+      for (let i = 0; i < this._pulses.length; i++) {
+        const p = this._pulses[i];
+        const age = this.t - p.t;
+        if (age >= 0 && age < 1.2) f = Math.max(f, p.a * Math.exp(-age / 0.09));
+      }
+      const reduced = VH.settings.get('accessibility.reducedFlashing');
+      // By day the flash is a weaker contrast against a bright sky; reduced flashing dims it further.
+      this.flash = f * (reduced ? 0.3 : 0.55 + 0.45 * (this.env.nightFactor || 0));
+      this.env.wx.flash = this.flash;
+
+      // The bolt itself flickers with the strokes.
+      if (this.bolt.visible) {
+        const age = this.t - this._boltT;
+        if (age > this._boltLife) this.bolt.visible = false;
+        else this.boltMat.opacity = clamp(0.35 + f * 1.1, 0, 1);
+      }
+
+      // Thunder arrives later.
+      for (let i = this._thunders.length - 1; i >= 0; i--) {
+        const th = this._thunders[i];
+        if (this.t >= th.at) {
+          this._thunder(th.dist, th.amp);
+          this._thunders.splice(i, 1);
+        }
+      }
+    }
+
+    /** A lightning strike somewhere around the player. `sheet` = lit clouds only, no visible bolt. */
+    strike(sheet, bearingOverride) {
+      const cam = this.game.renderer.camera;
+      // Prefer the sky in front of the camera so the player sees it.
+      cam.getWorldDirection(this._tmpDir || (this._tmpDir = new THREE.Vector3()));
+      const fwd = Math.atan2(this._tmpDir.z, this._tmpDir.x);
+      const bearing = bearingOverride !== undefined ? bearingOverride : Math.random() < 0.7 ? fwd + (Math.random() - 0.5) * 1.8 : Math.random() * Math.PI * 2;
+      const dist = 280 + Math.random() * Math.random() * 1500 + (sheet ? 500 : 0);
+      const cx = cam.position.x + Math.cos(bearing) * dist;
+      const cz = cam.position.z + Math.sin(bearing) * dist;
+      const amp = clamp(1.15 - dist / 1900, 0.3, 1);
+      // Strokes.
+      const n = 2 + Math.floor(Math.random() * 3);
+      let t = this.t;
+      for (let i = 0; i < this._pulses.length; i++) {
+        const p = this._pulses[i];
+        if (i < n) {
+          p.t = t;
+          p.a = amp * (i === 0 ? 1 : 0.45 + Math.random() * 0.5);
+          t += 0.07 + Math.random() * 0.17;
+        } else p.t = 1e9;
+      }
+      const reduced = VH.settings.get('accessibility.reducedFlashing');
+      const post = this.game.renderer.post;
+      if (post && post.pulse && !reduced) post.pulse(0.1 + amp * 0.12, [0.74, 0.8, 1]);
+      if (!sheet) this._buildBolt(cx, cz, cam.position);
+      this._thunders.push({ at: this.t + dist / 343, dist, amp });
+      if (this._thunders.length > 6) this._thunders.shift();
+    }
+
+    _buildBolt(cx, cz, camPos) {
+      const P = this.boltPos;
+      let n = 0;
+      const dx = cx - camPos.x;
+      const dz = cz - camPos.z;
+      const D = Math.hypot(dx, dz);
+      // Unit vector sideways of the view direction, for the jaggedness.
+      const sx = -dz / D;
+      const sz = dx / D;
+      const top = 520 + Math.random() * 180;
+      const seg = (ax, ay, az, bx, by, bz) => {
+        // Three nearly coincident copies so the line is a few pixels wide at any distance.
+        const j = D * 0.0011;
+        for (let k = 0; k < 3 && n < MAX_BOLT_SEGS; k++) {
+          const ox = k === 0 ? 0 : (k === 1 ? j : -j) * sx;
+          const oz = k === 0 ? 0 : (k === 1 ? j : -j) * sz;
+          const o = n * 6;
+          P[o] = ax + ox; P[o + 1] = ay; P[o + 2] = az + oz;
+          P[o + 3] = bx + ox; P[o + 4] = by; P[o + 5] = bz + oz;
+          n++;
+        }
+      };
+      const steps = 22 + Math.floor(Math.random() * 6);
+      let px = cx;
+      let py = top;
+      let pz = cz;
+      let off = 0;
+      const nodes = [];
+      for (let i = 1; i <= steps; i++) {
+        const u = i / steps;
+        off += (Math.random() - 0.5) * 70;
+        off *= 0.92;
+        const taper = Math.pow(Math.sin(Math.min(1, u * 1.02) * Math.PI * 0.5 + 0.0001), 0.3);
+        const x = cx + sx * off * (1 - u * 0.6) * taper + (Math.random() - 0.5) * 14;
+        const z = cz + sz * off * (1 - u * 0.6) * taper + (Math.random() - 0.5) * 14;
+        const y = i === steps ? 8 : top * (1 - u);
+        seg(px, py, pz, x, y, z);
+        if (i > 3 && i < steps - 3) nodes.push([x, y, z]);
+        px = x; py = y; pz = z;
+      }
+      // Forks.
+      const forks = Math.min(nodes.length, 3 + Math.floor(Math.random() * 3));
+      for (let f = 0; f < forks; f++) {
+        const nd = nodes[Math.floor(Math.random() * nodes.length)];
+        let x = nd[0];
+        let y = nd[1];
+        let z = nd[2];
+        const dir = (Math.random() < 0.5 ? -1 : 1) * (0.5 + Math.random() * 0.7);
+        const len = 6 + Math.floor(Math.random() * 7);
+        for (let i = 0; i < len; i++) {
+          const nx = x + sx * dir * 24 + (Math.random() - 0.5) * 30;
+          const nz = z + sz * dir * 24 + (Math.random() - 0.5) * 30;
+          const ny = y - 20 - Math.random() * 26;
+          if (ny < 30) break;
+          seg(x, y, z, nx, ny, nz);
+          x = nx; y = ny; z = nz;
+        }
+      }
+      this.boltGeo.attributes.position.needsUpdate = true;
+      this.boltGeo.setDrawRange(0, n * 2);
+      this._boltT = this.t;
+      this._boltLife = 0.55;
+      this.boltMat.opacity = 1;
+      this.bolt.visible = true;
+    }
+
+    // ------------------------------------------------------------- audio
+    _audio(dt) {
+      this._snd -= dt;
+      if (this._snd > 0) return;
+      this._snd = 0.12;
+      const a = this.game.audio;
+      if (!a || !a.ready) return;
+      if (!this._loops) {
+        if (this.rainNow < 0.02 && this.cur.wind < 0.5) return;
+        const mk = (buf, type, f, q) => a._loop(buf, type, f, q);
+        this._loops = {
+          hiss: mk(a.white, 'highpass', 3800, 0.3),
+          patter: mk(a.white, 'bandpass', 1500, 0.55),
+          roof: mk(a.brown, 'lowpass', 420, 0.6),
+          gale: mk(a.white, 'bandpass', 420, 0.8),
+        };
+      }
+      const L = this._loops;
+      const t = a.ctx.currentTime;
+      const r = this.rainNow;
+      const inCar = this.game.player && this.game.player.inVehicle;
+      const k = inCar ? 0.35 : 1;
+      const gust = 0.75 + 0.25 * Math.sin(this.t * 0.8) * Math.sin(this.t * 0.27 + 0.4);
+      L.hiss.gain.gain.setTargetAtTime(0.05 * r * r * k * gust, t, 0.3);
+      L.patter.gain.gain.setTargetAtTime(0.1 * r * k * (0.8 + 0.2 * gust), t, 0.3);
+      L.patter.filter.frequency.setTargetAtTime(inCar ? 900 : 1500 + r * 600, t, 0.3);
+      L.roof.gain.gain.setTargetAtTime((inCar ? 0.38 : 0.14) * r, t, 0.3);
+      const storm = this.cur.wind;
+      L.gale.gain.gain.setTargetAtTime(Math.max(0, storm - 0.35) * 0.1 * gust * (inCar ? 0.5 : 1), t, 0.5);
+      L.gale.filter.frequency.setTargetAtTime(300 + storm * 380 * gust, t, 0.4);
+    }
+
+    /** Thunder from `dist` metres away: a crack if it is close, then a long rolling rumble. */
+    _thunder(dist, amp) {
+      const a = this.game.audio;
+      if (!a || !a.ready) return;
+      const ctx = a.ctx;
+      const t0 = ctx.currentTime;
+      const k = clamp(1.25 - dist / 1800, 0.18, 1) * amp;
+      const pan = Math.random() * 1.2 - 0.6;
+      const bus = a.sfx;
+      if (dist < 750) {
+        a._hit({ t: t0, type: 'highpass', freq: 1500, q: 0.5, peak: 0.55 * k, attack: 0.002, decay: 0.28, pan, bus });
+        a._hit({ t: t0, freq: 700, freqEnd: 150, q: 0.7, peak: 0.5 * k, attack: 0.004, decay: 0.45, pan, bus });
+      }
+      // The rumble: several overlapping lowpassed noise swells that sink in pitch.
+      const swells = 5 + Math.floor(Math.random() * 3);
+      for (let i = 0; i < swells; i++) {
+        const when = t0 + 0.05 + i * (0.35 + Math.random() * 0.5);
+        a._hit({
+          t: when, brown: true, type: 'lowpass', freq: 380 + Math.random() * 420, freqEnd: 60 + Math.random() * 40, q: 0.9,
+          peak: (0.9 - i * 0.08) * k * (0.5 + Math.random() * 0.6), attack: 0.12 + Math.random() * 0.25, decay: 1.0 + Math.random() * 1.1, pan: pan + (Math.random() - 0.5) * 0.4, bus,
+        });
+      }
+      a._tone({ t: t0 + 0.1, freq: 58, freqEnd: 30, wave: 'sine', peak: 0.38 * k, attack: 0.25, decay: 3.2, bus, pan });
+    }
+
+    // ------------------------------------------------------- the contract
+    stop() {
+      if (this._loops && this.game.audio && this.game.audio.ctx) {
+        const t = this.game.audio.ctx.currentTime;
+        for (const k in this._loops) this._loops[k].gain.gain.setTargetAtTime(0, t, 0.2);
+      }
+      this._thunders.length = 0;
+    }
+
+    reset() {
+      this.stop();
+      this.mode = 'auto';
+      this.flash = 0;
+      this.env.wx.flash = 0;
+      this.goto('clear', 0);
+      this.wet = 0;
+      this.rainNow = 0;
+      this._nextBolt = 25;
+      this.bolt.visible = false;
+      for (const p of this._pulses) p.t = 1e9;
+      this._applySetting(true);
+      this._pushEnv();
+    }
+
+    serialize() {
+      return { state: this.state, wet: +this.wet.toFixed(2), hold: Math.round(this.hold) };
+    }
+
+    load(d) {
+      if (!d || !STATES[d.state]) return;
+      if (this.mode !== 'auto') return;
+      this.goto(d.state, 0);
+      this.wet = clamp(+d.wet || 0, 0, 1);
+      this.rainNow = STATES[d.state].rain;
+      this.hold = clamp(+d.hold || 60, 20, 900);
+      this._pushEnv();
+    }
+
+    stats() {
+      return [];
+    }
+  }
+
+  VH.Weather = Weather;
+})();
+//# sourceURL=js/weather.js
+</script>
   <script data-src="js/ui.js">
 /*
  * ui.js — title screen, pause menu, settings, controls, statistics,
@@ -66282,6 +68424,9 @@ void main() {
         { path: 'gameplay.timeOfDay', label: 'Time of day', type: 'select', options: [['cycle', 'Day and night cycle'], ['stopped', 'Stopped where it is']],
           help: 'Story scenes still set their own time. Stopped keeps the sky as it is now.' },
         { path: 'gameplay.alwaysDay', label: 'Always daytime', type: 'toggle', help: 'Keeps the sun up: no night at all, even in story scenes. T (or D-pad right) switches it in the game.' },
+        { path: 'gameplay.weather', label: 'Weather', type: 'select',
+          options: [['auto', 'Automatic'], ['clear', 'Always clear'], ['cloudy', 'Cloudy'], ['rain', 'Rain'], ['storm', 'Thunderstorm'], ['fog', 'Fog']],
+          help: 'Automatic is mostly sunshine with the odd rainy spell. The other choices hold one kind of weather.' },
         { path: 'gameplay.showHints', label: 'Show the getting-started checklist', type: 'toggle' },
         { path: 'gameplay.confirmClose', label: 'Ask before closing the tab', type: 'toggle',
           help: 'Catches an accidental Ctrl+W while crouch-walking. Your progress is saved either way.' },
@@ -66711,7 +68856,7 @@ void main() {
       para('three.js r186 — © 2010–2026 three.js authors, MIT licence.');
       para('Fonts: whatever your system provides (Bahnschrift and Segoe UI on Windows).');
       body.append(el('h3', '', 'This build'));
-      para(VH.BUILD_NAME + ' (v' + VH.VERSION + ', ' + VH.UPDATE_NAME + '): the full city from Crestline Estates to the Saltmarsh docks, Northgate Heights, the airport and Fort Breakwater, 19 cars, five aircraft and a tank, 11 weapons, 14 corner shops, traffic, crowds, the police, three radio stations, and the story of Jay Mercer: 31 main jobs in four acts, four side stories and the jobs in between.');
+      para(VH.BUILD_NAME + ' (v' + VH.VERSION + ', ' + VH.UPDATE_NAME + '): the full city from Crestline Estates to the Saltmarsh docks, Northgate Heights, the airport and Fort Breakwater, 30 cars, a fleet of aircraft and a tank, 11 weapons, 14 corner shops, traffic, crowds, the police, three radio stations, and the story of Jay Mercer: 31 main jobs in four acts, four side stories and the jobs in between.');
       const foot = el('div', 'panel-foot');
       foot.append(this._button('Back', () => this.back(), { primary: true }));
       panel.append(head, body, foot);
@@ -67092,7 +69237,7 @@ void main() {
           this.print('tp <x> <z> | tp <plaza|park|tower|pier|boardwalk|market|downtown|palm|harbor|yard|roof>');
           this.print('noclip · god · heal · hurt <n> · money <n> · armor <n>');
           this.print('car <type> · heat <0-5> · give <weapon|all> · job <id> · pass <id> · flag <name>');
-          this.print('time <0-24> · clouds <0-1> · fov <deg> · quality <low|medium|high|ultra|max>');
+          this.print('time <0-24> · clouds <0-1> · weather <clear|cloudy|overcast|drizzle|rain|storm|fog|dust|auto> · fov <deg> · quality <low|medium|high|ultra|max>');
           this.print('colliders · pos · respawn · clear · complete (pass the current job) · spawn <faction> (an enemy)');
           break;
         case 'tp': {
@@ -67206,6 +69351,10 @@ void main() {
         case 'clouds':
           g.environment.setCloudCover(num(0, 0.4));
           this.print('Cloud cover ' + g.environment.cloudCover.toFixed(2));
+          break;
+        case 'weather':
+          if (g.weather) this.print(g.weather.command(args[0], args[1]));
+          else this.print('The weather system is not loaded.', 'bad');
           break;
         case 'fov':
           VH.settings.set('graphics.fov', VH.math.clamp(num(0, 65), 40, 100));
@@ -67360,8 +69509,8 @@ void main() {
   const VH = window.VH;
   const FIXED_DT = 1 / 60;
   // World systems constructed after the club, in this order (each optional):
-  // stores.js, airfield.js, fort.js, area51.js, ambient.js.
-  const WORLD_SYSTEMS = ['Stores', 'Airfield', 'Fort', 'Area51', 'Ambient'];
+  // stores.js, airfield.js, fort.js, area51.js, horizon.js, photo.js, ambient.js, weather.js.
+  const WORLD_SYSTEMS = ['Stores', 'Airfield', 'Fort', 'Area51', 'Horizon', 'PhotoMode', 'Ambient', 'Weather'];
   const SEEN_KEY = 'vicehaven.seen.map-v1.1'; // set once the player has opened the new map
   const CDN_THREE = 'https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js';
 
@@ -67371,6 +69520,7 @@ void main() {
     'Tip: Crouch is a toggle — tap Ctrl or C.',
     'Tip: Scroll the mouse wheel to move the camera closer or further away.',
     'Tip: F8 opens the developer overlay with FPS and a command console.',
+    'Tip: F9 opens photo mode: a free camera with depth of field, time of day and colour looks, and Enter saves the picture.',
     'Vicehaven: 312 days of sunshine a year. The other 53 are complicated.',
     'Tip: Settings → Graphics → Quality "Low" helps on older laptops.',
     'Harbor Point hotels offer a sea view, a pool and absolutely no questions.',

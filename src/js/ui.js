@@ -504,7 +504,7 @@
       para('three.js r186 — © 2010–2026 three.js authors, MIT licence.');
       para('Fonts: whatever your system provides (Bahnschrift and Segoe UI on Windows).');
       body.append(el('h3', '', 'This build'));
-      para(VH.BUILD_NAME + ' (v' + VH.VERSION + ', ' + VH.UPDATE_NAME + '): the full city from Crestline Estates to the Saltmarsh docks, Northgate Heights, the airport and Fort Breakwater, 19 cars, five aircraft and a tank, 11 weapons, 14 corner shops, traffic, crowds, the police, three radio stations, and the story of Jay Mercer: 31 main jobs in four acts, four side stories and the jobs in between.');
+      para(VH.BUILD_NAME + ' (v' + VH.VERSION + ', ' + VH.UPDATE_NAME + '): the full city from Crestline Estates to the Saltmarsh docks, Northgate Heights, the airport and Fort Breakwater, 30 cars, a fleet of aircraft and a tank, 11 weapons, 14 corner shops, traffic, crowds, the police, three radio stations, and the story of Jay Mercer: 31 main jobs in four acts, four side stories and the jobs in between.');
       const foot = el('div', 'panel-foot');
       foot.append(this._button('Back', () => this.back(), { primary: true }));
       panel.append(head, body, foot);

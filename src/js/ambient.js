@@ -19,7 +19,7 @@
 
   const VH = window.VH;
   const { clamp, dampAngle } = VH.math;
-  const GETAWAY = ['vireo', 'zephyr', 'drifter', 'ironclad', 'lowrider', 'tern', 'sovereign', 'halcyon', 'beater'];
+  const GETAWAY = ['vireo', 'zephyr', 'drifter', 'ironclad', 'lowrider', 'tern', 'sovereign', 'halcyon', 'beater', 'gallop', 'corvid', 'monolith', 'stinger'];
   const CHASE_GAP = [150, 300]; // seconds of quiet between chases
   const TOUR = { cx: 520, cz: 0, rx: 105, rz: 420, y: 95, speed: 34 };
 
