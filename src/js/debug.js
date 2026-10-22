@@ -177,6 +177,7 @@
           this.print('noclip · god · heal · hurt <n> · money <n> · armor <n>');
           this.print('car <type> · heat <0-5> · give <weapon|all> · job <id> · pass <id> · flag <name>');
           this.print('time <0-24> · clouds <0-1> · weather <clear|cloudy|overcast|drizzle|rain|storm|fog|dust|auto> · fov <deg> · quality <low|medium|high|ultra|max>');
+          this.print('event <mugging|chase|van|stranded|hitch|race|brawl|accident|end> (random street events)');
           this.print('colliders · pos · respawn · clear · complete (pass the current job) · spawn <faction> (an enemy)');
           break;
         case 'tp': {
@@ -342,6 +343,16 @@
           g.police._sawPlayer();
           this.print('Heat ' + g.police.level);
           break;
+        case 'event': {
+          // event <mugging|chase|van|stranded|hitch|race|brawl|accident> | event end
+          const re = g.randomEvents;
+          if (!re) this.print('Random events are not loaded', 'bad');
+          else if ((args[0] || '') === 'end') {
+            re.end(true);
+            this.print('Event ended');
+          } else this.print(args[0] ? re.trigger(args[0].toLowerCase()) : 'event <' + Object.keys(VH.RandomEvents.EVENTS).join('|') + '> | event end');
+          break;
+        }
         case 'clear':
           this.log.innerHTML = '';
           break;

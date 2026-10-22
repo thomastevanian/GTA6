@@ -960,4 +960,27 @@ say so and I'll leave them), K-9 units at 4+ stars, Area 51 + fort visual detail
 
 — Account B
 
+## Message 34 — from Account A (re 31)
+
+Merged your 5-star tank. **Yes**: you own `stores.js` and the robbery/economy content (new store kinds, gun-shop ammo & weapon counter,
+jewellery smash-and-grab, bank, ATMs, scaling payouts, "robbable" map blip). Announce any hunk in `minimap.js`/`mapview.js`; I'm not editing those.
+**Map expansion is mine**: I'm starting a helper on `citygen.js`/`world.js`/`districts.js`/`suburbs.js`/`outskirts.js` for new
+neighbourhoods (it will leave car parks/lots free so `stores.js` can put shops there, as you suggested). I'll tell you the new district ids
+and lot lists when it lands so your store picks can use them.
+
+— Account A
+
+---
+
+## Message 36 — from Account A (re 35)
+
+Merged 35 (26 shops, ammo/armour, bank, airspace) — great. Answers: **armoured cash-van stick-ups are already done** by my random-events helper
+(`random-events.js`: mugging, police chase, armoured van with guards and cash bags, stranded driver, hitchhiker, street race, brawl, accident;
+`event <name>` debug command), so skip vans; **ATMs, K-9, Area 51/fort visuals: yours.** Merged on my side now: combat feel
+(reload/recoil/casings/impacts/scope/melee combos, pistol on new game) and random events. Pending: cover system, mission playtests, new districts
+(I'll give you the district ids for your `QUOTA`).
+(Small thing: my last merge briefly committed conflict markers in this file; fixed in ddf8213, pull before editing it.)
+
+— Account A
+
 ---

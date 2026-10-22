@@ -14,7 +14,9 @@
  *   ricochet(pan, gain)   whizz(pan)
  *   meleeSwing()          meleeHit(heavy)
  *   grenadeBounce(pan, gain)   molotovBurst(pan, gain)
- *   pickup()   weaponSwitch()   wheelTick()
+ *   pickup()   weaponSwitch(weaponId)   wheelTick()
+ *   hitConfirm('hit'|'head'|'kill')   casingDrop(pan, gain, shell)   shellInsert()   pumpRack()
+ *   scopeIn(on)   holdBreath(on)   grenadePin()   (bulletImpact also knows 'water')
  *
  * A shot is layered from a filtered-noise crack, a mid "snap", a low noise
  * body, a pitched-down sine thump and a short tonal click, with a little
@@ -69,7 +71,7 @@
     },
   };
 
-  const SURFACES = ['concrete', 'metal', 'wood', 'glass', 'flesh', 'car'];
+  const SURFACES = ['concrete', 'metal', 'wood', 'glass', 'flesh', 'car', 'water'];
 
   function profileFor(weaponId) {
     const def = VH.Data && VH.Data.weaponsById ? VH.Data.weaponsById[weaponId] : null;
@@ -351,14 +353,7 @@
       this._wScrape(t + 0.8, mech, 0.09, 2200, 1100, 0.05);
       this._wClack(t + 0.9, mech, 760, 0.14);
     }
-    if (key === 'shotgun' || key === 'sniper' || key === 'rifle' || key === 'pistol' || key === 'smg') {
-      // A brass casing tinkling on the ground a moment later.
-      if (Math.random() < (key === 'smg' ? 0.35 : 0.8)) {
-        const tt = t + rnd(0.35, 0.55);
-        this._wTinkle(tt, mech, rnd(3800, 5200), 0.022);
-        this._wTinkle(tt + rnd(0.07, 0.12), mech, rnd(4200, 5600), 0.012);
-      }
-    }
+    // (Casings tinkle for themselves: combat.js drops real brass that calls casingDrop() when it lands.)
   };
 
   /** The click of an empty chamber. */
@@ -478,6 +473,11 @@
         this._wHit({ t, type: 'lowpass', brown: true, freq: 700 * r, peak: 0.36, attack: 0.001, decay: 0.12, bus });
         this._wTone({ t, freq: 115 * r, freqEnd: 55, peak: 0.24, attack: 0.001, decay: 0.12, bus });
         this._wHit({ t: t + 0.004, freq: 1400, freqEnd: 480, q: 2, peak: 0.09, attack: 0.002, decay: 0.09, bus });
+        break;
+      case 'water':
+        this._wHit({ t, type: 'lowpass', freq: 1400 * r, freqEnd: 500, q: 0.8, peak: 0.2, attack: 0.002, decay: 0.12, bus });
+        this._wTone({ t, freq: 520 * r, freqEnd: 180, peak: 0.1, attack: 0.002, decay: 0.09, bus });
+        this._wHit({ t: t + 0.03, type: 'highpass', freq: 3200, peak: 0.05, attack: 0.01, decay: 0.12, bus });
         break;
       case 'car':
         this._wHit({ t, freq: 1800 * r, q: 1.2, peak: 0.24, attack: 0.0006, decay: 0.05, bus });
@@ -629,14 +629,108 @@
     this._wClack(t, bus, 760, 0.09);
   };
 
-  /** Drawing or holstering a weapon: a cloth rustle and a click-clack. */
-  P.weaponSwitch = function () {
+  /** Drawing or holstering a weapon: a cloth rustle and a click-clack, flavoured by what is being drawn. */
+  P.weaponSwitch = function (weaponId) {
+    if (!this.ready) return;
+    const t = this.ctx.currentTime;
+    const bus = this._wBus({ gain: 1, life: 0.8 });
+    const def = weaponId && VH.Data && VH.Data.weaponsById ? VH.Data.weaponsById[weaponId] : null;
+    const slot = def ? def.slot : 'pistol';
+    if (slot === 'melee' || slot === 'unarmed') {
+      this._wHit({ t, freq: 1400, q: 0.7, peak: 0.06, attack: 0.03, decay: 0.12, bus });
+      if (weaponId === 'knife') this._wTone({ t: t + 0.07, freq: 3400, freqEnd: 2900, peak: 0.03, attack: 0.001, decay: 0.2, bus });
+      else this._wClack(t + 0.09, bus, 520, 0.07);
+    } else if (slot === 'thrown') {
+      this._wHit({ t, freq: 1600, q: 0.7, peak: 0.05, attack: 0.03, decay: 0.1, bus });
+      this._wClick(t + 0.07, bus, 3000, 0.06);
+    } else if (slot === 'pistol' || slot === 'smg') {
+      this._wHit({ t, freq: 1800, q: 0.7, peak: 0.07, attack: 0.025, decay: 0.1, bus });
+      this._wClick(t + 0.06, bus, 2300, 0.07);
+      this._wClack(t + 0.11, bus, 820, 0.1);
+    } else {
+      // Long guns: a sling rattle and a heavier clunk.
+      this._wHit({ t, freq: 1100, q: 0.6, peak: 0.09, attack: 0.05, decay: 0.16, bus });
+      this._wScrape(t + 0.08, bus, 0.1, 900, 1600, 0.05);
+      this._wClack(t + 0.2, bus, 560, 0.14);
+      this._wClick(t + 0.24, bus, 2100, 0.06);
+    }
+  };
+
+  /** Hit confirmation tick: 'hit', 'head' (sharper, higher) or 'kill'. */
+  P.hitConfirm = function (kind) {
+    if (!this.ready) return;
+    const t = this.ctx.currentTime;
+    if (this._wHitAt !== undefined && t - this._wHitAt < 0.03) return;
+    this._wHitAt = t;
+    if (kind === 'head') {
+      this._wTone({ t, freq: 2300, freqEnd: 3100, wave: 'triangle', peak: 0.09, attack: 0.001, decay: 0.09, bus: this.ui });
+      this._wTone({ t, freq: 4600, peak: 0.025, attack: 0.001, decay: 0.12, bus: this.ui });
+      this._wHit({ t, type: 'highpass', freq: 5200, peak: 0.05, attack: 0.0006, decay: 0.03, bus: this.ui });
+    } else if (kind === 'kill') {
+      this._wTone({ t, freq: 880, freqEnd: 660, wave: 'triangle', peak: 0.08, attack: 0.001, decay: 0.11, bus: this.ui });
+      this._wTone({ t: t + 0.07, freq: 1320, wave: 'triangle', peak: 0.05, attack: 0.001, decay: 0.13, bus: this.ui });
+    } else {
+      this._wTone({ t, freq: 1700, freqEnd: 1500, wave: 'triangle', peak: 0.05, attack: 0.001, decay: 0.045, bus: this.ui });
+    }
+  };
+
+  /** A spent casing hitting the ground; `shell` for a fat plastic shotgun hull. */
+  P.casingDrop = function (pan = 0, gain = 1, shell) {
+    if (!this.ready || gain <= 0.001) return;
+    const t = this.ctx.currentTime;
+    if (this._wCasingAt !== undefined && t - this._wCasingAt < 0.04) return;
+    this._wCasingAt = t;
+    const bus = this._wBus({ pan, gain: gain * 0.7, life: 0.5 });
+    if (shell) {
+      this._wTone({ t, freq: rnd(280, 340), freqEnd: 200, wave: 'triangle', peak: 0.05, attack: 0.001, decay: 0.07, bus });
+      this._wHit({ t, freq: 1500, q: 1, peak: 0.04, attack: 0.001, decay: 0.03, bus });
+    } else this._wTinkle(t, bus, rnd(3800, 5400), 0.022);
+  };
+
+  /** One shotgun shell thumbed into the tube. */
+  P.shellInsert = function () {
+    if (!this.ready) return;
+    const t = this.ctx.currentTime;
+    const bus = this._wBus({ gain: 1, life: 0.5 });
+    this._wScrape(t, bus, 0.07, 1300, 700, 0.05);
+    this._wClack(t + 0.07, bus, 480, 0.1);
+  };
+
+  /** Working the pump (or bolt) after a reload. */
+  P.pumpRack = function () {
+    if (!this.ready) return;
+    const t = this.ctx.currentTime;
+    const bus = this._wBus({ gain: 1, life: 0.8 });
+    this._wScrape(t, bus, 0.07, 900, 1800, 0.07);
+    this._wClack(t + 0.07, bus, 640, 0.16);
+    this._wScrape(t + 0.13, bus, 0.06, 1700, 900, 0.06);
+    this._wClack(t + 0.19, bus, 720, 0.18);
+  };
+
+  /** Scope up / down: a soft servo-ish whirr and a click. */
+  P.scopeIn = function (on) {
+    if (!this.ready) return;
+    const t = this.ctx.currentTime;
+    this._wHit({ t, freq: on ? 900 : 1500, freqEnd: on ? 1500 : 900, q: 1.5, peak: 0.05, attack: 0.04, decay: 0.12, bus: this.ui });
+    this._wClick(t + 0.14, this.ui, 2600, 0.04);
+  };
+
+  /** Holding your breath: a short inhale then a hush; releasing exhales. */
+  P.holdBreath = function (on) {
+    if (!this.ready) return;
+    const t = this.ctx.currentTime;
+    if (on) this._wHit({ t, freq: 700, freqEnd: 1300, q: 0.5, peak: 0.09, attack: 0.18, decay: 0.2, bus: this.ui });
+    else this._wHit({ t, freq: 1200, freqEnd: 500, q: 0.5, peak: 0.1, attack: 0.04, decay: 0.45, bus: this.ui });
+  };
+
+  /** Pulling the pin: a ring and a tiny spring. */
+  P.grenadePin = function () {
     if (!this.ready) return;
     const t = this.ctx.currentTime;
     const bus = this._wBus({ gain: 1, life: 0.6 });
-    this._wHit({ t, freq: 1800, q: 0.7, peak: 0.07, attack: 0.025, decay: 0.1, bus });
-    this._wClick(t + 0.06, bus, 2300, 0.07);
-    this._wClack(t + 0.11, bus, 820, 0.1);
+    this._wClick(t, bus, 3200, 0.1);
+    this._wTone({ t: t + 0.03, freq: 3900, peak: 0.05, attack: 0.001, decay: 0.28, bus });
+    this._wClack(t + 0.16, bus, 900, 0.06);
   };
 
   /** The soft tick as the weapon wheel's highlight moves. */
