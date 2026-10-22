@@ -1378,6 +1378,15 @@
       const zr = (y) => (w.r === 'C' ? zAt(g.rw, y) + (g.cw || 0.12) : w.r);
       const b = w.b, t = w.t;
       ctx.quad('left', [zf(b), b], [zr(b), b], [zr(t), t], [zf(t), t], { color: COL.glass, rm: RM.glass, nu: 4, nv: 2, off: 0.004, mirror: true });
+      if (g.seats && !ctx.lod) {
+        // Seat backs and headrests seen through the tint (a hint of interior).
+        const wh = t - b, zhi = Math.min(zf(b), zf(t)) - 0.1, zlo = Math.max(zr(b), zr(t)) + 0.1;
+        for (const sz of g.seats) {
+          if (sz > zhi || sz < zlo) continue;
+          ctx.rect('left', sz, b + wh * 0.3, 0.36, wh * 0.58, { color: 0x34363b, rm: RM.plastic, round: 0.4, nu: 3, nv: 2, off: 0.0058, mirror: true });
+          ctx.rect('left', sz, b + wh * 0.8, 0.2, wh * 0.22, { color: 0x3d4046, rm: RM.plastic, round: 0.7, nu: 3, nv: 2, off: 0.0062, mirror: true });
+        }
+      }
       if (w.trim !== false && !ctx.lod) {
         // Belt moulding under the window.
         ctx.quad('left', [zf(b) + 0.01, b - 0.022], [zr(b) - 0.01, b - 0.022], [zr(b) - 0.01, b - 0.004], [zf(b) + 0.01, b - 0.004], { color: g.beltColor || COL.black, rm: g.beltColor ? RM.chrome : RM.gloss, nu: 4, nv: 1, off: 0.003, mirror: true });
@@ -2237,7 +2246,6 @@
     const gh = greenhouse({ zb: 0.8, yb: 0.97, top: [0.02, 1.43], mid: [-0.85, 1.45, 0.6], rear: [-1.75, 1.35], base: [-2.42, 1.02], bot: 0.88, r: [0.03, 0.25, 0.4, 0.1] });
     DEFS.volta = {
       L: 4.98, W: 1.96, H: 1.45, fo: 0.9, ro: 1.12, R: 0.352, tyreW: 0.245, tyreWR: 0.265, sill: 0.2, archGap: 0.05, wheel: 'aero',
-      finishFor: (hex) => (new THREE.Color(hex).r > 0.6 && new THREE.Color(hex).b > 0.6 ? 'pearl' : ''),
       body: [
         [2.4, 0.28, 0.04], [2.49, 0.4, 0.08], [2.49, 0.64, 0.1], [2.38, 0.78, 0.14], [1.5, 0.91, 0.5], [0.84, 1.0, 0.1],
         [-0.9, 1.0, 0.4], [-1.9, 1.02, 0.3], [-2.42, 0.99, 0.14], [-2.5, 0.9, 0.1], [-2.5, 0.55, 0.1], [-2.46, 0.34, 0.05], [-2.36, 0.28, 0.03],
@@ -2246,7 +2254,7 @@
       plan: [[-2.5, 0.88], [-2.1, 0.97], [-1.4, 1.0], [0.8, 1.0], [1.6, 0.98], [2.1, 0.93], [2.5, 0.8]],
       nose: 0.14, tail: 0.1, endLen: 0.55, tumble: [0.7, 1.0, 0.07],
       cabin: { pts: gh.pts, width: 1.66, bevel: 0.08, tumble: 0.17, y0: 0.95, y1: 1.45, crown: 0.025, wf: [0.08, 0.02, 0.8], wr: [0.06, -1.75, -2.42] },
-      glass: { ws: gh.ws, rw: gh.rw, rwT: [0.06, 0.88], aw: 0.09, cw: 0.2, side: [{ f: 'A', r: -0.34, b: 1.04, t: 1.38 }, { f: -0.42, r: -1.3, b: 1.04, t: 1.3 }] },
+      glass: { seats: [-0.05, -1.0], ws: gh.ws, rw: gh.rw, rwT: [0.06, 0.88], aw: 0.09, cw: 0.2, side: [{ f: 'A', r: -0.34, b: 1.04, t: 1.38 }, { f: -0.42, r: -1.3, b: 1.04, t: 1.3 }] },
       seatZ: 0.1,
       details(ctx) {
         ctx.headlight('front', 0.66, 0.7, 0.4, 0.07, { round: 0.8, skew: 0.55, taper: -0.1, drl: { dy: -0.036, h: 0.011, w: 0.96 } });
@@ -2277,7 +2285,6 @@
     const gh = greenhouse({ zb: 0.8, yb: 1.05, top: [0.1, 1.58], mid: [-0.9, 1.61, 0.5], rear: [-1.75, 1.52], base: [-2.33, 1.1], bot: 0.96, r: [0.03, 0.22, 0.3, 0.08], baseOut: 0.03 });
     DEFS.voltaic = {
       L: 4.75, W: 1.94, H: 1.63, fo: 0.88, ro: 0.98, R: 0.365, tyreW: 0.24, tyreWR: 0.255, sill: 0.28, archGap: 0.055, wheel: 'aero',
-      finishFor: (hex) => (new THREE.Color(hex).r > 0.6 && new THREE.Color(hex).b > 0.6 ? 'pearl' : ''),
       body: [
         [2.28, 0.34, 0.04], [2.375, 0.46, 0.08], [2.37, 0.7, 0.1], [2.26, 0.84, 0.14], [1.4, 0.98, 0.5], [0.82, 1.06, 0.1],
         [-1.2, 1.1, 0.4], [-2.2, 1.12, 0.2], [-2.36, 1.08, 0.1], [-2.375, 0.9, 0.1], [-2.375, 0.55, 0.1], [-2.32, 0.38, 0.05], [-2.24, 0.34, 0.03],
@@ -2286,7 +2293,7 @@
       plan: [[-2.375, 0.9], [-2.0, 0.98], [-1.4, 1.0], [0.8, 1.0], [1.6, 0.985], [2.0, 0.95], [2.375, 0.84]],
       nose: 0.12, tail: 0.1, endLen: 0.5, tumble: [0.8, 1.12, 0.07],
       cabin: { pts: gh.pts, width: 1.72, bevel: 0.08, tumble: 0.14, y0: 1.04, y1: 1.62, crown: 0.025, wf: [0.07, 0.1, 0.8], wr: [0.05, -1.75, -2.33] },
-      glass: { ws: gh.ws, rw: gh.rw, rwT: [0.08, 0.88], aw: 0.1, cw: 0.18, side: [{ f: 'A', r: -0.3, b: 1.12, t: 1.5 }, { f: -0.38, r: 'C', b: 1.12, t: 1.44 }] },
+      glass: { seats: [-0.06, -0.98], ws: gh.ws, rw: gh.rw, rwT: [0.08, 0.88], aw: 0.1, cw: 0.18, side: [{ f: 'A', r: -0.3, b: 1.12, t: 1.5 }, { f: -0.38, r: 'C', b: 1.12, t: 1.44 }] },
       seatZ: 0.1,
       details(ctx) {
         ctx.headlight('front', 0.66, 0.9, 0.4, 0.075, { round: 0.8, skew: 0.5, taper: -0.1, drl: { dy: -0.038, h: 0.011, w: 0.96 } });
@@ -2321,7 +2328,7 @@
       bevel: 0.025,
       plan: [[-2.85, 0.95], [-2.0, 1.0], [2.0, 1.0], [2.85, 0.94]],
       nose: 0.0, tail: 0.0, endLen: 0.3, tumble: [1.0, 1.77, 0.17],
-      glass: {
+      glass: { seats: [0.15, -0.7],
         ws: [[1.2, 1.44], [0.48, 1.74]], wsT: [0.0, 0.95], inset: 0.12, aw: 0.1, wipers: false,
         side: [{ f: 'A', r: -0.1, b: 1.36, t: 1.63 }, { f: -0.17, r: -1.1, b: 1.36, t: 1.55 }],
       },
@@ -2363,7 +2370,7 @@
       plan: [[-2.96, 0.99], [1.9, 1.0], [2.4, 0.98], [2.96, 0.93]],
       nose: 0.06, tail: 0.0, endLen: 0.4, tumble: [1.1, 1.42, 0.03],
       cabin: { pts: gh.pts, width: 1.9, bevel: 0.06, tumble: 0.09, y0: 1.4, y1: 1.97, crown: 0.015, wf: [0.05, 0.4, 1.05] },
-      glass: { ws: gh.ws, rw: gh.rw, rwT: [0.15, 0.85], rwInset: 0.25, aw: 0.1, side: [{ f: 'A', r: -0.04, b: 1.5, t: 1.88 }, { f: -0.12, r: -0.84, b: 1.5, t: 1.88 }] },
+      glass: { seats: [0.35, -0.5], ws: gh.ws, rw: gh.rw, rwT: [0.15, 0.85], rwInset: 0.25, aw: 0.1, side: [{ f: 'A', r: -0.04, b: 1.5, t: 1.88 }, { f: -0.12, r: -0.84, b: 1.5, t: 1.88 }] },
       seatZ: 0.35,
       extraBodies(q, lod) {
         const x = 1.015 - 0.045;
@@ -2418,7 +2425,7 @@
       plan: [[-2.375, 0.99], [1.8, 1.0], [2.375, 0.94]],
       nose: 0.05, tail: 0, endLen: 0.4, tumble: [0.9, 1.12, 0.04],
       cabin: { pts: gh.pts, width: 1.58, bevel: 0.06, tumble: 0.1, y0: 1.1, y1: 1.56, crown: 0.012, wf: [0.04, 0.36, 0.78] },
-      glass: { ws: gh.ws, rw: gh.rw, rwT: [0.12, 0.85], rwInset: 0.2, aw: 0.09, side: [{ f: 'A', r: -0.34, b: 1.2, t: 1.48 }] },
+      glass: { seats: [0.1], ws: gh.ws, rw: gh.rw, rwT: [0.12, 0.85], rwInset: 0.2, aw: 0.09, side: [{ f: 'A', r: -0.34, b: 1.2, t: 1.48 }] },
       seatZ: 0.1,
       extraBodies(q, lod) {
         const x = 0.88 - 0.035;
@@ -2465,12 +2472,12 @@
       plan: [[-2.35, 0.97], [-1.9, 1.0], [1.9, 1.0], [2.35, 0.96]],
       nose: 0.03, tail: 0.02, endLen: 0.4, tumble: [1.0, 1.2, 0.03],
       cabin: { pts: gh.pts, width: 1.88, bevel: 0.06, tumble: 0.05, y0: 1.18, y1: 1.84, crown: 0.012, wf: [0.03, 0.48, 0.85], wr: [0.02, -2.17, -2.3] },
-      glass: { ws: gh.ws, rw: gh.rw, rwT: [0.1, 0.85], rwInset: 0.14, aw: 0.07, side: [{ f: 'A', r: -0.04, b: 1.32, t: 1.74 }, { f: -0.12, r: -0.95, b: 1.32, t: 1.74 }, { f: -1.2, r: -2.02, b: 1.34, t: 1.72 }] },
+      glass: { seats: [0.3, -0.55], ws: gh.ws, rw: gh.rw, rwT: [0.1, 0.85], rwInset: 0.14, aw: 0.07, side: [{ f: 'A', r: -0.04, b: 1.32, t: 1.74 }, { f: -0.12, r: -0.95, b: 1.32, t: 1.74 }, { f: -1.2, r: -2.02, b: 1.34, t: 1.72 }] },
       seatZ: 0.2,
       details(ctx) {
         ctx.grille(0.88, 0.88, 0.24, { surround: 0x2b2d30, vbars: 7, bars: 0, round: 0.1, barColor: 0x1a1b1d });
         ctx.rect('front', 0, 0.88, 0.5, 0.05, { part: 'lights', round: 0.5, color: 0xe9ecef, rm: RM.lens, light: G.DRL, nu: 4, off: 0.012, lod0: true });
-        ctx.headlight('front', 0.7, 0.92, 0.22, 0.22, { round: 1, bezel: 0x1c1d1f, pods: 0, drl: { dy: 0, dx: 0, h: 0.012, w: 0.92 } });
+        ctx.headlight('front', 0.7, 0.92, 0.22, 0.22, { round: 1, bezel: 0x1c1d1f, pods: 0 });
         for (const x of [0.65, -0.65]) if (!ctx.lod) ctx.rect('front', x, 0.64, 0.12, 0.08, { part: 'lights', round: 0.6, color: 0xd4d8dc, rm: RM.lens, light: G.WHITE, nu: 3, off: 0.01, lod0: true });
         ctx.box('trim', 0, 0.56, 2.41, 2.0, 0.24, 0.14, 0.04, 0x2a2c2f, RM.satin);
         for (const x of [0.42, -0.42]) ctx.box('trim', x, 0.55, 2.5, 0.06, 0.05, 0.08, 0.02, 0xb01818, RM.gloss, { lod0: true });
@@ -2514,7 +2521,7 @@
       nose: 0.1, tail: 0.06, endLen: 0.45, tumble: [0.7, 1.04, 0.07],
       dip: [[0.8, 2.3, 0.04, 0.8, 0.3]],
       cabin: { pts: gh.pts, width: 1.58, bevel: 0.07, tumble: 0.17, y0: 0.96, y1: 1.36, crown: 0.02, wf: [0.06, -0.3, 0.5], wr: [0.05, -1.12, -2.0] },
-      glass: { ws: gh.ws, rw: gh.rw, rwT: [0.05, 0.6], aw: 0.09, cw: 0.3, side: [{ f: 'A', r: -0.7, b: 1.05, t: 1.3 }] },
+      glass: { seats: [-0.15], ws: gh.ws, rw: gh.rw, rwT: [0.05, 0.6], aw: 0.09, cw: 0.3, side: [{ f: 'A', r: -0.7, b: 1.05, t: 1.3 }] },
       seatZ: -0.2,
       details(ctx) {
         const stripe = GALLOP_STRIPES[ctx.hex];
@@ -2555,9 +2562,9 @@
 
   // ---- 26. Stinger 66: classic two-door hardtop coupe with Coke-bottle hips and chrome.
   (function () {
-    const gh = greenhouse({ zb: 0.58, yb: 0.94, top: [-0.16, 1.28], mid: [-0.7, 1.3, 0.3], rear: [-1.05, 1.26], base: [-1.5, 0.99], bot: 0.84, r: [0.03, 0.2, 0.25, 0.08] });
+    const gh = greenhouse({ zb: 0.62, yb: 0.94, top: [-0.1, 1.34], mid: [-0.7, 1.36, 0.3], rear: [-1.1, 1.32], base: [-1.6, 0.99], bot: 0.84, r: [0.03, 0.2, 0.25, 0.08] });
     DEFS.stinger = {
-      L: 4.95, W: 1.88, H: 1.32, fo: 1.0, ro: 1.13, R: 0.34, tyreW: 0.22, tyreWR: 0.24, sill: 0.22, archGap: 0.06, wheel: 'crager',
+      L: 4.95, W: 1.88, H: 1.38, fo: 1.0, ro: 1.13, R: 0.34, tyreW: 0.22, tyreWR: 0.24, sill: 0.22, archGap: 0.06, wheel: 'crager',
       body: [
         [2.4, 0.3, 0.03], [2.475, 0.4, 0.05], [2.475, 0.72, 0.05], [2.4, 0.84, 0.08], [1.5, 0.9, 0.6], [0.58, 0.94, 0.1],
         [-1.2, 0.96, 0.4], [-2.2, 1.0, 0.15], [-2.4, 0.98, 0.05], [-2.475, 0.9, 0.04], [-2.475, 0.45, 0.05], [-2.4, 0.3, 0.03],
@@ -2565,8 +2572,8 @@
       bevel: 0.05,
       plan: [[-2.475, 0.9], [-2.2, 0.98], [-1.35, 1.0], [-0.4, 0.955], [0.6, 0.95], [1.4, 0.985], [2.0, 0.97], [2.475, 0.92]],
       nose: 0.06, tail: 0.05, endLen: 0.4, tumble: [0.66, 1.0, 0.06],
-      cabin: { pts: gh.pts, width: 1.5, color: 0x1b1b1d, bevel: 0.07, tumble: 0.16, y0: 0.94, y1: 1.3, crown: 0.015, wf: [0.05, -0.16, 0.58], wr: [0.04, -1.05, -1.5] },
-      glass: { ws: gh.ws, rw: gh.rw, rwT: [0.05, 0.85], aw: 0.09, cw: 0.15, beltColor: COL.chrome, side: [{ f: 'A', r: -0.55, b: 1.0, t: 1.22 }, { f: -0.62, r: 'C', b: 1.0, t: 1.2 }] },
+      cabin: { pts: gh.pts, width: 1.5, color: 0x1b1b1d, bevel: 0.07, tumble: 0.16, y0: 0.94, y1: 1.3, crown: 0.015, wf: [0.05, -0.1, 0.62], wr: [0.04, -1.1, -1.6] },
+      glass: { seats: [-0.15], ws: gh.ws, rw: gh.rw, rwT: [0.05, 0.85], aw: 0.09, cw: 0.15, beltColor: COL.chrome, side: [{ f: 'A', r: -0.55, b: 1.0, t: 1.28 }, { f: -0.62, r: 'C', b: 1.0, t: 1.26 }] },
       seatZ: -0.15,
       details(ctx) {
         ctx.headlight('front', 0.56, 0.62, 0.2, 0.2, { round: 1, bezel: COL.chrome, pods: 0 });
@@ -2594,7 +2601,7 @@
 
   // ---- 27. Sprint RS: hot hatch with a honeycomb grille, red trim line and a roof spoiler.
   (function () {
-    const gh = greenhouse({ zb: 0.75, yb: 0.93, top: [0.08, 1.42], mid: [-0.8, 1.45, 0.4], rear: [-1.72, 1.43], base: [-2.05, 1.0], bot: 0.84, r: [0.03, 0.22, 0.14, 0.05], baseOut: 0.02 });
+    const gh = greenhouse({ zb: 0.75, yb: 0.93, top: [0.08, 1.42], mid: [-0.7, 1.45, 0.4], rear: [-1.5, 1.42], base: [-2.08, 1.0], bot: 0.84, r: [0.03, 0.22, 0.14, 0.05], baseOut: 0.02 });
     DEFS.sprint = {
       L: 4.3, W: 1.8, H: 1.47, fo: 0.88, ro: 0.79, R: 0.325, tyreW: 0.225, sill: 0.2, archGap: 0.04, wheel: 'sport',
       body: [
@@ -2604,8 +2611,8 @@
       bevel: 0.06,
       plan: [[-2.15, 0.93], [-1.6, 0.99], [0.4, 1.0], [1.2, 0.99], [1.7, 0.95], [2.15, 0.87]],
       nose: 0.1, tail: 0.05, endLen: 0.45, tumble: [0.62, 0.97, 0.06],
-      cabin: { pts: gh.pts, width: 1.54, bevel: 0.07, tumble: 0.15, y0: 0.92, y1: 1.46, crown: 0.02, wf: [0.06, 0.08, 0.75], wr: [0.03, -1.72, -2.05] },
-      glass: { ws: gh.ws, rw: gh.rw, rwT: [0.06, 0.85], aw: 0.09, cw: 0.14, side: [{ f: 'A', r: -0.28, b: 0.98, t: 1.39 }, { f: -0.36, r: 'C', b: 0.98, t: 1.39 }] },
+      cabin: { pts: gh.pts, width: 1.54, bevel: 0.07, tumble: 0.15, y0: 0.92, y1: 1.46, crown: 0.02, wf: [0.06, 0.08, 0.75], wr: [0.03, -1.5, -2.08] },
+      glass: { seats: [0.0, -0.85], ws: gh.ws, rw: gh.rw, rwT: [0.06, 0.85], aw: 0.09, cw: 0.22, side: [{ f: 'A', r: -0.28, b: 0.98, t: 1.39 }, { f: -0.36, r: 'C', b: 0.98, t: 1.36 }] },
       seatZ: 0.0,
       details(ctx) {
         ctx.headlight('front', 0.62, 0.66, 0.36, 0.085, { round: 0.5, skew: 0.45, taper: -0.1, drl: { dy: -0.04, h: 0.013, w: 0.95 } });
@@ -2645,7 +2652,7 @@
       plan: [[-2.475, 0.9], [-2.0, 0.98], [-1.3, 1.0], [1.4, 1.0], [2.0, 0.96], [2.475, 0.88]],
       nose: 0.1, tail: 0.04, endLen: 0.5, tumble: [0.65, 1.0, 0.06],
       cabin: { pts: gh.pts, width: 1.64, bevel: 0.07, tumble: 0.14, y0: 0.94, y1: 1.47, crown: 0.02, wf: [0.07, 0.05, 0.8], wr: [0.03, -2.15, -2.35] },
-      glass: { ws: gh.ws, rw: gh.rw, rwT: [0.08, 0.86], aw: 0.09, cw: 0.13, side: [{ f: 'A', r: -0.32, b: 1.0, t: 1.38 }, { f: -0.4, r: -1.2, b: 1.0, t: 1.38 }, { f: -1.28, r: 'C', b: 1.0, t: 1.37 }] },
+      glass: { seats: [0.15, -0.8], ws: gh.ws, rw: gh.rw, rwT: [0.08, 0.86], aw: 0.09, cw: 0.13, side: [{ f: 'A', r: -0.32, b: 1.0, t: 1.38 }, { f: -0.4, r: -1.2, b: 1.0, t: 1.38 }, { f: -1.28, r: 'C', b: 1.0, t: 1.37 }] },
       seatZ: 0.2,
       details(ctx) {
         ctx.headlight('front', 0.62, 0.68, 0.42, 0.11, { round: 0.45, taper: 0.1, pods: 2, drl: { dy: -0.046, h: 0.013, w: 0.88 } });
@@ -2688,7 +2695,7 @@
       plan: [[-2.39, 0.9], [-1.9, 0.99], [-1.3, 1.0], [-0.5, 0.92], [0.4, 0.92], [1.2, 0.97], [1.9, 0.88], [2.39, 0.66]],
       nose: 0.08, tail: 0.04, endLen: 0.5, tumble: [0.4, 0.96, 0.12],
       cabin: { pts: gh.pts, width: 1.3, bevel: 0.07, tumble: 0.22, y0: 0.8, y1: 1.1, crown: 0.02, wf: [0.12, -0.2, 0.75], wr: [0.09, -1.0, -2.0] },
-      glass: { ws: gh.ws, rw: gh.rw, rwT: [0.05, 0.45], aw: 0.08, side: [{ f: 'A', r: -0.68, b: 0.86, t: 1.02 }] },
+      glass: { seats: [-0.35], ws: gh.ws, rw: gh.rw, rwT: [0.05, 0.45], aw: 0.08, side: [{ f: 'A', r: -0.68, b: 0.86, t: 1.02 }] },
       seatZ: -0.35,
       details(ctx) {
         ctx.headlight('front', 0.66, 0.46, 0.4, 0.04, { round: 0.8, skew: 0.9, taper: -0.2, drl: null });
@@ -2736,8 +2743,8 @@
     beater: ['Pipit Rustbucket', 'Kobo', 'compact', 980, 36, 0.18, 0.4, 4, [0x7a8c7e, 0x9c6d5a, 0x8f8a73, 0x5f6f86]],
     unmarked: ['Halcyon Detective', 'Merrow', 'police', 1580, 62, 0.7, 0.66, 4, [0x3a3d42, 0x23262b, 0x4a4d52]],
     // Roster v2. [name, make, class, mass kg, top speed m/s, accel 0..1, grip 0..1, seats, palette]
-    volta: ['Volta S', 'Arcus', 'sedan', 2100, 62, 0.95, 0.74, 5, [0xf3f3f1, 0x2a2d33, 0x8a8f95, 0x8a1626, 0x24478a, 0xc9ccd0]],
-    voltaic: ['Volta Y', 'Arcus', 'suv', 1980, 57, 0.86, 0.66, 5, [0xf3f3f1, 0x2a2d33, 0x8a8f95, 0x8a1626, 0x24478a, 0xe8e9ea]],
+    volta: ['Volta S', 'Arcus', 'ev', 2100, 62, 0.95, 0.74, 5, [0xf3f3f1, 0x2a2d33, 0x8a8f95, 0x8a1626, 0x24478a, 0xc9ccd0]],
+    voltaic: ['Volta Y', 'Arcus', 'ev', 1980, 57, 0.86, 0.66, 5, [0xf3f3f1, 0x2a2d33, 0x8a8f95, 0x8a1626, 0x24478a, 0xe8e9ea]],
     monolith: ['Monolith', 'Arcus', 'pickup', 3100, 50, 0.84, 0.62, 5, [0xb7babd, 0x9c9fa3, 0xcdd0d2, 0x3a3d42, 0x4a6a44]],
     forge: ['Forge 1500', 'Dunmore', 'pickup', 2500, 52, 0.6, 0.5, 5, [0xf1f1ee, 0x2a2d33, 0x9aa0a6, 0x8a1d22, 0x2a5a8a, 0x4a6a44]],
     drover: ['Drover', 'Hask', 'pickup', 1450, 40, 0.34, 0.42, 3, [0x7a2a22, 0x2e4a6a, 0xdcd6c4, 0x4a5a3a, 0xb8a66a]],
