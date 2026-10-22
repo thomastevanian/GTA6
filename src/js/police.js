@@ -153,6 +153,15 @@
       v.input.boost = 0;
       // Rubber band a little so units don't fall hopelessly behind.
       v.topSpeedBoost = dist > 40 ? 1.12 : 1;
+      // Three stars and up: the passenger leans out of the window and shoots.
+      this._shootT = (this._shootT === undefined ? 1 + Math.random() * 2 : this._shootT) - dt;
+      if (pol.level >= 3 && dist < 38 && this._shootT <= 0) {
+        this._shootT = 1.1 + Math.random() * 1.3;
+        const k = (v.hx + 1.0) / Math.max(dist, 0.1);
+        const sx = v.pos.x + (tx - v.pos.x) * k;
+        const sz = v.pos.z + (tz - v.pos.z) * k;
+        if (pol.canSee(sx, v.pos.y + 1.4, sz)) pol.fireFrom(sx, v.pos.y, sz, v.army || v.swat ? 'rifle' : 'pistol', 0.3);
+      }
       this._checkStuck(v, dt);
     }
 
@@ -545,6 +554,18 @@
       this.evade = 0;
       this.lastSeen = { x: t.x, z: t.z };
       this.searchArea = null;
+    }
+
+    /** A shot at Jay from a point that isn't a person on the ground (a car window, the helicopter's door). */
+    fireFrom(x, y, z, weapon, accuracy) {
+      const g = this.game;
+      if (!g.combat || this.level === 0) return;
+      const p = g.player;
+      const t = p.inVehicle ? p.vehicle : p;
+      const s = this._shooter || (this._shooter = { id: 7777, pos: new THREE.Vector3(), look: { height: 1 }, anim: { crouch: 0 }, heading: 0, faction: 'police' });
+      s.pos.set(x, y, z);
+      s.heading = Math.atan2(t.pos.x - x, t.pos.z - z);
+      g.combat.npcFire(s, t, weapon, accuracy);
     }
 
     /** Officers step out of a stopped unit. */
@@ -1161,6 +1182,12 @@
       this.root.userData.tailRotor.rotation.x += dt * 60;
       this.root.userData.beacon.visible = Math.floor(this.t * 1.4) % 2 === 0;
       const horiz = Math.hypot(t.pos.x - this.pos.x, t.pos.z - this.pos.z);
+      // A marksman in the open door: a rifle shot every few seconds while it has him.
+      this._snipeT = (this._snipeT === undefined ? 4 : this._snipeT) - dt;
+      if (this.tracking && !this.leaving && pol.level >= 4 && this._snipeT <= 0) {
+        this._snipeT = 2.4 + Math.random() * 1.6;
+        pol.fireFrom(this.pos.x, this.pos.y - 2.6, this.pos.z, 'sniper', 0.45);
+      }
       // Searchlight on Jay while it has him; otherwise sweeping the ground below it.
       const night = game.fx.night || 0;
       const aimX = this.tracking ? t.pos.x : this.pos.x + Math.sin(this.t * 0.9) * 14;
