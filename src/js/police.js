@@ -32,6 +32,8 @@
   const HELI_FUEL = 75; // seconds over the city before it goes back to refuel...
   const HELI_REFUEL = 40; // ...and how long until the next one is up
 
+  const SWAT_LOOK = { skin: 0xc68c64, hair: 0x101010, top: 0x15181d, trim: 0x15181d, shirt: 0x1d2128, bottom: 0x15181d, shoes: 0x0a0a0a, cap: true, longHair: false, height: 1.04, build: 1.15 };
+  const ARMY_COP_LOOK = { skin: 0xc68c64, hair: 0x16110d, top: 0x4b5320, trim: 0x4b5320, shirt: 0x3f4a26, bottom: 0x3d4a2a, shoes: 0x1a1a14, cap: true, longHair: false, height: 1.02, build: 1.12 };
   const COP_LOOK = { skin: 0xc68c64, hair: 0x16110d, top: 0x1c2a4a, trim: 0x1c2a4a, shirt: 0x2a3b61, bottom: 0x141c30, shoes: 0x0e0e0e, cap: true, longHair: false, height: 1.02, build: 1.05 };
 
   // ------------------------------------------------------ pursuit driver
@@ -89,7 +91,7 @@
         v.input.handbrake = v.speed < 1 ? 1 : 0;
         if (!this.deployed && v.speed < 2) {
           this.deployed = true;
-          pol.deployOfficers(v, pol.level >= 3 ? 2 : 1);
+          pol.deployOfficers(v, v.swat ? 3 : v.army ? 2 : pol.level >= 3 ? 2 : 1);
         }
         return;
       }
@@ -186,9 +188,11 @@
 
   // ---------------------------------------------------- officers on foot
   class OfficerBrain {
-    constructor(police, car) {
+    constructor(police, car, opts) {
       this.police = police;
       this.car = car;
+      this.weapon = (opts && opts.weapon) || 'pistol'; // SWAT and soldiers carry rifles
+      this.reach = (opts && opts.reach) || 32;
       this._fireT = 1 + Math.random();
       this._strafe = Math.random() < 0.5 ? 1 : -1;
       this._strafeT = 0;
@@ -215,12 +219,12 @@
         if (this.car && !this.car.removed) a.heading = VH.math.dampAngle(a.heading, Math.atan2(this.car.pos.x - a.pos.x, this.car.pos.z - a.pos.z), 5, dt);
         return;
       }
-      const armed = pol.level >= 3 || pol.playerArmed;
-      if (armed && d < 32 && pol.canSee(a.pos.x, a.pos.y + 1.5, a.pos.z)) {
+      const armed = pol.level >= 3 || pol.playerArmed || this.weapon !== 'pistol';
+      if (armed && d < this.reach && pol.canSee(a.pos.x, a.pos.y + 1.5, a.pos.z)) {
         // Shoot from where they stand, sidestepping now and then.
         a.heading = VH.math.dampAngle(a.heading, face, 8, dt);
         a.anim.aim = 1;
-        a.anim.weaponPose = 'pistol';
+        a.anim.weaponPose = this.weapon === 'rifle' ? 'rifle' : 'pistol';
         this._strafeT -= dt;
         if (this._strafeT <= 0) {
           this._strafeT = 1.5 + Math.random() * 2;
@@ -233,8 +237,8 @@
         }
         this._fireT -= dt;
         if (this._fireT <= 0) {
-          this._fireT = 0.55 + Math.random() * 0.7;
-          if (game.combat) game.combat.npcFire(a, tgt, 'pistol');
+          this._fireT = this.weapon === 'rifle' ? 0.3 + Math.random() * 0.5 : 0.55 + Math.random() * 0.7;
+          if (game.combat) game.combat.npcFire(a, tgt, this.weapon);
         }
         return;
       }
@@ -268,6 +272,8 @@
       this._spawnT = 0;
       this._blockT = 20;
       this._reports = [];
+      this.strips = []; // spike strips laid at roadblocks
+      this._backupT = 0;
       this._sayT = 0;
       this._lastLine = '';
       this.enabled = true;
@@ -288,9 +294,16 @@
       VH.events.on('ped:hitByCar', (e) => {
         if (e.v.driver === 'player' && e.speed > 5) this.crime(e.agent.dead ? 'killPed' : 'hitPed', e.agent.pos.x, e.agent.pos.z);
       });
+      // An officer shot at: the rest call for backup (at most every 12 s).
+      VH.events.on('agent:hurt', (e) => {
+        if (e.source === 'player' && e.agent && e.agent.faction === 'police') this._backup(e.agent.pos.x, e.agent.pos.z);
+      });
       VH.events.on('agent:died', (e) => {
         if (e.source !== 'player') return;
-        if (e.agent.faction === 'police') this.crime('killCop', e.agent.pos.x, e.agent.pos.z);
+        if (e.agent.faction === 'police') {
+          this.crime('killCop', e.agent.pos.x, e.agent.pos.z);
+          this._backup(e.agent.pos.x, e.agent.pos.z);
+        }
         else if (e.agent.faction === 'civilian') this.crime('killPed', e.agent.pos.x, e.agent.pos.z);
       });
       VH.events.on('gunshot', (e) => {
@@ -419,10 +432,15 @@
       for (let i = 0; i < n; i++) {
         const side = i % 2 ? -1 : 1;
         const w = car.localToWorld(side * (car.hx + 0.8), 0.3, {});
-        const look = Object.assign({}, COP_LOOK, { skin: VH.Crowd.randomLook().skin });
-        const a = crowd.spawn(w.x, w.z, { look, faction: 'police', role: 'cop', health: 100, armor: 50, heading: car.yaw });
-        a.brain = new OfficerBrain(this, car);
-        a.weapon = 'pistol';
+        // SWAT (from a Bulwark van) wear black and carry rifles; soldiers (from an army scout) wear olive.
+        const swat = !!car.swat;
+        const army = !!car.army;
+        const base = swat ? SWAT_LOOK : army ? ARMY_COP_LOOK : COP_LOOK;
+        const look = Object.assign({}, base, { skin: VH.Crowd.randomLook().skin });
+        const a = crowd.spawn(w.x, w.z, { look, faction: 'police', role: 'cop', health: swat || army ? 140 : 100, armor: swat ? 120 : army ? 90 : 50, heading: car.yaw });
+        const weapon = swat || army ? 'rifle' : 'pistol';
+        a.brain = new OfficerBrain(this, car, { weapon, reach: swat || army ? 48 : 32 });
+        a.weapon = weapon;
         this.officers.push(a);
       }
     }
@@ -521,6 +539,7 @@
         }
       }
       this._updateHeli(dt, this.level >= 4);
+      this._updateStrips(dt);
       this._updateBust(dt);
     }
 
@@ -542,8 +561,21 @@
         break;
       }
       if (!best) return;
-      const type = this.level >= 5 && Math.random() < 0.35 && VH.Vehicle.typeSpec('bulwark') ? 'bulwark' : Math.random() < 0.2 && VH.Vehicle.typeSpec('unmarked') ? 'unmarked' : 'interceptor';
+      // 4 stars: SWAT vans join the patrol cars. 5 stars: more of them, and the army's scouts.
+      let type = 'interceptor';
+      if (this.level >= 4 && Math.random() < (this.level >= 5 ? 0.4 : 0.3) && VH.Vehicle.typeSpec('bulwark')) type = 'bulwark';
+      else if (this.level >= 5 && Math.random() < 0.3 && VH.Vehicle.typeSpec('scout')) type = 'scout';
+      else if (Math.random() < 0.2 && VH.Vehicle.typeSpec('unmarked')) type = 'unmarked';
       const v = game.vehicles.spawn(type, best.x, best.z, best.heading, { role: 'police' });
+      v.swat = type === 'bulwark';
+      v.army = type === 'scout';
+      if (v.swat && !this._saidSwat) {
+        this._saidSwat = true;
+        this._dispatch('swat');
+      } else if (v.army && !this._saidArmy) {
+        this._saidArmy = true;
+        this._dispatch('army');
+      }
       v.role = 'police';
       v.driver = 'ai';
       v.isPolice = true;
@@ -551,6 +583,59 @@
       v.controller = new PursuitDriver(this, v);
       v.setSpeed(12);
       this.units.push(v);
+    }
+
+    /** An officer is down or under fire: radio for backup and send two more units now. */
+    _backup() {
+      if (this.level === 0 || this.game.time - this._backupT < 12) return;
+      this._backupT = this.game.time;
+      const p = this.game.player;
+      const t = p.inVehicle ? p.vehicle.pos : p.pos;
+      this._dispatch('backup');
+      this._spawnUnit(t);
+      this._spawnUnit(t);
+    }
+
+    /** A spike strip across the road at (x, z); `along` is the road's axis. */
+    _layStrip(x, z, axis, width) {
+      const geo = new THREE.BoxGeometry(axis === 'z' ? width : 1.0, 0.06, axis === 'z' ? 1.0 : width);
+      const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: 0x2a2d31, roughness: 0.5, metalness: 0.5 }));
+      m.position.set(x, 0.05, z);
+      // A row of bright teeth along the strip.
+      const teeth = new THREE.Mesh(new THREE.BoxGeometry(axis === 'z' ? width : 0.12, 0.12, axis === 'z' ? 0.12 : width), new THREE.MeshStandardMaterial({ color: 0xc9ccd0, roughness: 0.3, metalness: 0.8 }));
+      teeth.position.y = 0.07;
+      m.add(teeth);
+      m.castShadow = true;
+      this.game.scene.add(m);
+      this.strips.push({ x, z, axis, half: width / 2, mesh: m, t: 0 });
+    }
+
+    _updateStrips(dt) {
+      const p = this.game.player;
+      const v = p.inVehicle ? p.vehicle : null;
+      this.strips = this.strips.filter((s) => {
+        s.t += dt;
+        let hit = false;
+        if (v && !v.flying && v.speed > 2 && !v.flatTyres) {
+          const dx = Math.abs(v.pos.x - s.x);
+          const dz = Math.abs(v.pos.z - s.z);
+          hit = s.axis === 'z' ? dx < s.half && dz < 1.6 : dz < s.half && dx < 1.6;
+        }
+        if (hit) {
+          // The tyres go: the car can't get above half speed any more.
+          v.flatTyres = true;
+          v.topSpeedBoost = 0.45;
+          this.game.hud.notify({ title: 'Spike strip', text: 'Your tyres are shredded. Get a new car.', icon: '⚠', tone: 'bad' });
+          if (this.game.audio.crash) this.game.audio.crash(0.6);
+        }
+        const far = Math.hypot(s.x - p.pos.x, s.z - p.pos.z) > 420;
+        if (hit || far || this.level === 0 || s.t > 120) {
+          this.game.scene.remove(s.mesh);
+          s.mesh.geometry.dispose();
+          return false;
+        }
+        return true;
+      });
     }
 
     _roadblock(pv) {
@@ -591,6 +676,9 @@
         this.units.push(v);
         this.deployOfficers(v, 1);
       }
+      // A spike strip on the approach, ahead of the two cars.
+      const back = 11 * lp.dir;
+      this._layStrip(lp.road.axis === 'z' ? center.x : center.x - back, lp.road.axis === 'z' ? center.z - back : center.z, lp.road.axis, lp.road.width);
       this._dispatch('roadblock', { street: lp.road.name });
     }
 
@@ -646,6 +734,13 @@
       this.bust = 0;
       this.kills = 0;
       this._reports.length = 0;
+      this._saidSwat = false;
+      this._saidArmy = false;
+      for (const s of this.strips) {
+        this.game.scene.remove(s.mesh);
+        s.mesh.geometry.dispose();
+      }
+      this.strips.length = 0;
       for (const v of this.units) {
         v.siren = false;
         if (hard && v.driver !== 'player') this.game.vehicles.remove(v);
@@ -736,7 +831,16 @@
           line = pick([`Suspect has evaded pursuit. All units, return to patrol.`, `No sign of him. Dispatch, we're calling it off.`, `Damn it, he's gone. Units resume patrol.`]);
           break;
         case 'roadblock':
-          line = `Roadblock set on ${info.street}. Nobody gets through.`;
+          line = `Roadblock and spike strips set on ${info.street}. Nobody gets through.`;
+          break;
+        case 'backup':
+          line = pick([`Officer down! Officer down! Send everything we have to ${street}!`, `Shots at officers, requesting immediate backup on ${street}.`, `All available units, officers under fire on ${street}. Backup, now.`]);
+          break;
+        case 'swat':
+          line = pick([`SWAT is rolling. All units, hold your positions until they arrive.`, `Tactical units deployed. Suspect is considered extremely dangerous.`]);
+          break;
+        case 'army':
+          line = pick([`Military has been authorised. Army units are joining the pursuit.`, `Be advised, the army is on the road. Stay clear of the suspect.`]);
           break;
         case 'arrest':
           line = `Suspect in custody. Good work, everyone.`;
