@@ -327,9 +327,16 @@
         if (!(g.missions && g.missions.ejectDriver && g.missions.ejectDriver(v, e.side))) {
           if (v.isPolice && g.police) g.police.deployOfficers(v, 1);
           else {
-            const w = v.localToWorld((e.side || 1) * (v.hx + 1.1), v.hz * 0.1, {});
-            const a = this.spawn(w.x, w.z, { y: v.pos.y, heading: v.yaw + (e.side || 1) * Math.PI / 2 });
-            this._flee(a, v.pos.x, v.pos.z, 6 + Math.random() * 3);
+            // Hauled out of the seat and thrown clear: he lands in a heap by the door, then scrambles away.
+            const side = e.side || 1;
+            const seat = v.model && v.model.anchors && v.model.anchors.driverSeat;
+            const w = v.localToWorld(side * (v.hx - 0.15), seat ? seat.z : v.hz * 0.1, {});
+            const a = this.spawn(w.x, w.z, { y: v.pos.y + 0.3, heading: v.yaw + side * Math.PI / 2 });
+            const ox = side * Math.cos(v.yaw);
+            const oz = -side * Math.sin(v.yaw);
+            a.down = { t: 0, vx: ox * 4.6 + v.vel.x * 0.5, vy: 3.4, vz: oz * 4.6 + v.vel.z * 0.5, spin: (Math.random() - 0.5) * 5, rest: false, flip: 0 };
+            a.state = 'down';
+            a.grounded = false;
           }
         }
         this.threat(e.x, e.z, 14, 'jack');
@@ -685,6 +692,7 @@
 
       const cam = game.renderer.camera.position;
       const player = game.player;
+      const aim = this._aimRay(player);
       for (const a of this.agents) {
         const dist = Math.hypot(a.pos.x - cam.x, a.pos.z - cam.z);
         a.camDist = dist;
@@ -694,6 +702,7 @@
         else if (a.state === 'flee') this._fleeStep(a, dt);
         else if (a.walk) this._walkerStep(a, dt);
         else this._rejoinWalk(a);
+        if (!a.brain && a.state !== 'down' && !a.dead) this._aimReaction(a, dt, aim, player);
         if (a.state !== 'down') {
           this._move(a, dt);
           this._carCheck(a);
@@ -705,6 +714,59 @@
       this._separate(dt);
       if (player && !player.inVehicle) this._scareNearCars();
       this.renderer.draw(this.agents);
+    }
+
+    /** The camera ray when Jay is on foot with a gun raised (else null). */
+    _aimRay(player) {
+      const g = this.game;
+      if (!player || player.inVehicle || !player.aiming || player.state === 'dead' || !g.combat) return null;
+      const w = g.combat.weapon;
+      if (!w || w.kind === 'melee') return null;
+      const cam = g.renderer.camera;
+      if (!this._aim) this._aim = { x: 0, y: 0, z: 0, dx: 0, dy: 0, dz: 0 };
+      const r = this._aim;
+      cam.updateMatrixWorld();
+      cam.getWorldDirection(this._aimV || (this._aimV = new THREE.Vector3()));
+      r.x = cam.position.x; r.y = cam.position.y; r.z = cam.position.z;
+      r.dx = this._aimV.x; r.dy = this._aimV.y; r.dz = this._aimV.z;
+      return r;
+    }
+
+    /**
+     * People with a gun pointed at them freeze and put their hands up; if he
+     * lowers it they back away, and if he holds it on them for long they bolt.
+     */
+    _aimReaction(a, dt, aim, player) {
+      const an = a.anim;
+      let target = 0;
+      if (aim && a.state !== 'flee') {
+        const dx = a.pos.x - aim.x;
+        const dy = a.pos.y + 1.2 - aim.y;
+        const dz = a.pos.z - aim.z;
+        const d = Math.hypot(dx, dy, dz);
+        if (d < 20 && d > 0.8 && (dx * aim.dx + dy * aim.dy + dz * aim.dz) / d > 0.975) {
+          a.aimT = (a.aimT || 0) + dt;
+          target = 1;
+        }
+      }
+      if (target === 0) a.aimT = Math.max(0, (a.aimT || 0) - dt * 1.5);
+      const hold = (a.aimT || 0) > 0.3;
+      if (hold) {
+        a.scared = true;
+        a.moveSpeed = 0;
+        a.heading = dampAngle(a.heading, Math.atan2(player.pos.x - a.pos.x, player.pos.z - a.pos.z), 8, dt);
+        if (a.aimT > 7) {
+          a.aimT = 0;
+          this._flee(a, player.pos.x, player.pos.z, 6);
+        }
+      } else if (a.scared && (a.aimT || 0) <= 0) {
+        // He lowered the gun: they scatter.
+        a.scared = false;
+        if (an.handsUp > 0.4) this._flee(a, player.pos.x, player.pos.z, 5 + Math.random() * 3);
+      }
+      const want = hold ? 1 : 0;
+      an.handsUp += (want - an.handsUp) * Math.min(1, dt * 6);
+      if (an.handsUp < 0.01) an.handsUp = 0;
     }
 
     _move(a, dt) {

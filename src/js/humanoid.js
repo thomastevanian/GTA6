@@ -1650,6 +1650,57 @@ ${vis}        return true;
         T.roll = L(T.roll, 0, sit);
         T.sway = L(T.sway, 0, sit);
       }
+      // Reaching for a door handle (s.reach 0..1): right arm out and down, leaning in.
+      const reach = s.reach || 0;
+      if (reach > 0) {
+        const L = VH.math.lerp;
+        T.shoulderR = L(T.shoulderR, 0.95, reach);
+        T.elbowR = L(T.elbowR, 0.45, reach);
+        T.lean += 0.1 * reach;
+        T.headPitch += 0.12 * reach;
+        T.splay = L(T.splay, 0.12, reach);
+      }
+      // Hauling someone out of a car (s.pull 0..1): both hands grab, then heave back.
+      const pull = s.pull || 0;
+      if (pull > 0) {
+        const L = VH.math.lerp;
+        const heave = smoothstep(0.3, 0.78, pull);
+        const settle = smoothstep(0.85, 1, pull);
+        const sh = L(1.55, 0.25, heave) * (1 - settle) + 0.2 * settle;
+        T.shoulderL = L(T.shoulderL, sh, 1);
+        T.shoulderR = L(T.shoulderR, sh + 0.1, 1);
+        T.elbowL = L(T.elbowL, L(0.35, 1.7, heave), 1);
+        T.elbowR = L(T.elbowR, L(0.35, 1.7, heave), 1);
+        T.lean = L(T.lean, L(0.3, -0.22, heave) * (1 - settle), 1);
+        T.hipL = L(T.hipL, 0.25 * heave, 1);
+        T.hipR = L(T.hipR, -0.35 * heave, 1);
+        T.kneeL = L(T.kneeL, 0.2 + 0.4 * heave, 1);
+        T.kneeR = L(T.kneeR, 0.15 + 0.2 * heave, 1);
+        T.splay = L(T.splay, 0.2, 1);
+        T.headPitch += 0.1;
+      }
+      // Getting into (0 -> 1) or out of (1 -> 0) a car seat: a leg over the sill, then down into the seat.
+      if (s.board !== undefined && s.board >= 0) {
+        const L = VH.math.lerp;
+        const b = s.board;
+        const sitK = smoothstep(0.3, 0.95, b);
+        const legUp = Math.sin(clamp(b / 0.55, 0, 1) * Math.PI) * (1 - sitK * 0.7);
+        T.hipL = 0.95 * legUp + 1.5 * sitK;
+        T.kneeL = 1.15 * legUp + 1.55 * sitK;
+        T.hipR = 0.1 * (1 - sitK) + 1.5 * sitK;
+        T.kneeR = 0.15 * (1 - sitK) + 1.4 * sitK;
+        T.ankleL = L(0, -0.05, sitK);
+        T.ankleR = L(0, -0.2, sitK);
+        T.pelvisY = 0.95 - 0.39 * sitK - 0.08 * legUp;
+        T.lean = 0.38 * (1 - sitK) - 0.05 * sitK;
+        T.shoulderL = L(0.5 * (1 - sitK), 0.85, sitK);
+        T.shoulderR = L(-0.2 * (1 - sitK), 0.85, sitK);
+        T.elbowL = L(0.7, 1.0, sitK);
+        T.elbowR = L(0.7, 1.0, sitK);
+        T.splay = 0.12;
+        T.roll = 0; T.sway = 0; T.headBob = 0;
+        T.headPitch += 0.18 * (1 - sitK);
+      }
       // Swimming: face down, alternate arm strokes, flutter kick (s.swim 0..1).
       const swim = s.swim || 0;
       if (swim > 0) {
