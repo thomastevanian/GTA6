@@ -110,6 +110,28 @@
     ctx.screen.box(h.x0 + 4, h.h - 1.8, h.z1 - 5, h.x1 - 4, h.h - 1.7, h.z1 - 4, VH.col(0xfff4dc, 2.0));
     ctx.prop.box(h.x1 - 0.85, 4.5, h.z0 + 8, h.x1 - 0.8, 7, h.z1 - 8, VH.col(0x2b2f36)); // dark back panel
     (world.signs || (world.signs = [])).push({ x: h.x0 - 1.3, y: h.h - 3.2, z: (h.z0 + h.z1) / 2, yaw: -Math.PI / 2, w: 12, h: 1.6, lines: ['HANGAR ' + (i + 1)], style: 'monolith' });
+    // Ribs down the outside of the side and back walls, and a darker roof edge.
+    const rib = VH.col(0x9aa0a6);
+    for (let x = h.x0 + 4; x < h.x1 - 1; x += 4) {
+      ctx.prop.box(x - 0.15, 0, h.z0 - 0.25, x + 0.15, h.h - 1.6, h.z0, rib);
+      ctx.prop.box(x - 0.15, 0, h.z1, x + 0.15, h.h - 1.6, h.z1 + 0.25, rib);
+    }
+    for (let z = h.z0 + 4; z < h.z1 - 1; z += 4) ctx.prop.box(h.x1, 0, z - 0.15, h.x1 + 0.25, h.h - 1.6, z + 0.15, rib);
+    // The big sliding doors, rolled back to either side of the opening.
+    for (const [z0, z1] of [[h.z0 + 0.8, h.z0 + 7], [h.z1 - 7, h.z1 - 0.8]]) {
+      ctx.prop.box(h.x0 + 0.2, 0, z0, h.x0 + 0.6, h.h - 1.7, z1, VH.col(0xa9aeb4));
+      for (let z = z0 + 1; z < z1; z += 1.2) ctx.prop.box(h.x0 + 0.15, 0.3, z - 0.05, h.x0 + 0.2, h.h - 2, z + 0.05, rib);
+      world.physics.addBox(h.x0 + 0.2, 0, z0, h.x0 + 0.6, h.h - 1.7, z1, 'building', F().ALL);
+    }
+    // Hazard stripes along the threshold and a painted pad in front.
+    for (let z = h.z0 + 0.5, n = 0; z < h.z1 - 0.5; z += 1.2, n++) K().mark(world, h.x0 - 1.2, z, h.x0 - 0.2, z + 1.2, n % 2 ? 0x1a1a1a : 0xf2c500, 0.03);
+    const pc = { x: h.x0 - 14, z: (h.z0 + h.z1) / 2 };
+    K().mark(world, pc.x - 9, pc.z - 9, pc.x + 9, pc.z - 8.4, 0xf2c500, 0.025);
+    K().mark(world, pc.x - 9, pc.z + 8.4, pc.x + 9, pc.z + 9, 0xf2c500, 0.025);
+    K().mark(world, pc.x - 9, pc.z - 8.4, pc.x - 8.4, pc.z + 8.4, 0xf2c500, 0.025);
+    K().mark(world, pc.x + 8.4, pc.z - 8.4, pc.x + 9, pc.z + 8.4, 0xf2c500, 0.025);
+    K().mark(world, pc.x - 0.3, pc.z - 6, pc.x + 0.3, pc.z + 6, 0xf4f4ef, 0.03); // taxi line to the runway
+    K().mark(world, RUNWAY.x + RUNWAY.w / 2, pc.z - 0.3, pc.x - 9, pc.z + 0.3, 0xf2c500, 0.03);
   }
 
   /** The recovered flying saucer, resting on three legs in the middle hangar. */
@@ -153,6 +175,29 @@
     K().mark(world, x0, z0, x1, z1, color, y);
   }
 
+  /** A boulder (a few tumbled blocks) or a Joshua tree. */
+  function desertProp(world, x, z, rng) {
+    const ctx = world.ctxAt(x, z);
+    if (rng.chance(0.55)) {
+      const c = VH.col(rng.pick([0xa58a62, 0x8f7653, 0xb39b72]));
+      const r = rng.range(0.8, 2.4);
+      ctx.propMatte.box(x - r, 0, z - r * 0.8, x + r, r * 1.1, z + r * 0.8, c);
+      ctx.propMatte.box(x - r * 0.6 + 0.4, r * 1.1, z - r * 0.5, x + r * 0.5, r * 1.6, z + r * 0.4, c);
+      world.physics.addBox(x - r, 0, z - r * 0.8, x + r, r * 1.6, z + r * 0.8, 'rock', F().ALL);
+    } else {
+      const trunk = VH.col(0x6b5a44);
+      const leaf = VH.col(0x5d7a3a);
+      const h = rng.range(2.5, 4.5);
+      ctx.propMatte.box(x - 0.18, 0, z - 0.18, x + 0.18, h, z + 0.18, trunk);
+      for (const [dx, dz, hh] of [[0.9, 0.2, 0.7], [-0.8, -0.3, 0.5], [0.2, 0.9, 0.9]]) {
+        ctx.propMatte.box(Math.min(x, x + dx) - 0.12, h * hh, Math.min(z, z + dz) - 0.12, Math.max(x, x + dx) + 0.12, h * hh + 0.22, Math.max(z, z + dz) + 0.12, trunk);
+        ctx.propMatte.box(x + dx - 0.35, h * hh + 0.1, z + dz - 0.35, x + dx + 0.35, h * hh + 0.8, z + dz + 0.35, leaf);
+      }
+      ctx.propMatte.box(x - 0.4, h - 0.2, z - 0.4, x + 0.4, h + 0.6, z + 0.4, leaf);
+      world.physics.addBox(x - 0.2, 0, z - 0.2, x + 0.2, h, z + 0.2, 'tree', F().ALL);
+    }
+  }
+
   /** A radar mast; the dish itself is a runtime object (it turns). */
   function radarMast(world, x, z) {
     const ctx = world.ctxAt(x, z);
@@ -172,7 +217,15 @@
       const data = { base: BASE, gate: GATE, runway: RUNWAY, hangars: HANGARS, labs: LABS, control: CONTROL, dishes: DISHES, bunker: BUNKER, fuel: FUEL, saucer: SAUCER, towers: TOWERS };
       layout.area51 = data;
       // Desert ground inside the fence, the runway, the access road.
+      // Desert across the whole reserved zone (it was grass outside the fence).
+      const Z = layout.zones && layout.zones.area51 ? layout.zones.area51 : { minX: BASE.x0 - 40, maxX: BASE.x1 + 10, minZ: BASE.z0 - 50, maxZ: BASE.z1 + 300 };
+      k.pave(world, Z.minX, Z.minZ, Z.maxX, Z.maxZ, 0xc9b27f, 0.006);
       k.pave(world, BASE.x0, BASE.z0, BASE.x1, BASE.z1, SAND, 0.008);
+      // A patrol road just inside the fence.
+      k.asphalt(world, BASE.x0 + 4, BASE.z0 + 4, BASE.x1 - 4, BASE.z0 + 12, 0x7f7f7f);
+      k.asphalt(world, BASE.x0 + 4, BASE.z1 - 12, BASE.x1 - 4, BASE.z1 - 4, 0x7f7f7f);
+      k.asphalt(world, BASE.x1 - 12, BASE.z0 + 12, BASE.x1 - 4, GATE.z0, 0x7f7f7f);
+      k.asphalt(world, BASE.x1 - 12, GATE.z1, BASE.x1 - 4, BASE.z1 - 12, 0x7f7f7f);
       k.asphalt(world, RUNWAY.x - RUNWAY.w / 2, RUNWAY.z0, RUNWAY.x + RUNWAY.w / 2, RUNWAY.z1, 0x7d7d7d);
       for (let z = RUNWAY.z0 + 30; z < RUNWAY.z1 - 30; z += 36) k.mark(world, RUNWAY.x - 0.4, z, RUNWAY.x + 0.4, z + 20, 0xf4f4ef);
       k.mark(world, RUNWAY.x - RUNWAY.w / 2 + 1, RUNWAY.z0, RUNWAY.x - RUNWAY.w / 2 + 1.7, RUNWAY.z1, 0xf4f4ef);
@@ -233,6 +286,18 @@
       bctx.prop.box(BUNKER.x1 - 0.05, 0, (BUNKER.z0 + BUNKER.z1) / 2 - 3, BUNKER.x1 + 0.4, 5, (BUNKER.z0 + BUNKER.z1) / 2 + 3, VH.col(0x2b2f36)); // blast door
       world.physics.addBox(BUNKER.x0 - 7.5, 0, BUNKER.z0 - 4.5, BUNKER.x1 + 7.5, BUNKER.h, BUNKER.z1 + 4.5, 'building', F().ALL);
       signs.push({ x: BUNKER.x1 + 0.6, y: 6.2, z: (BUNKER.z0 + BUNKER.z1) / 2, yaw: Math.PI / 2, w: 8, h: 1.2, lines: ['SUBLEVEL 3 · NO ACCESS'], style: 'monolith' });
+      // Warning signs every so often along the outside of the fence.
+      for (let z = BASE.z0 + 60; z < BASE.z1 - 40; z += 110) if (Math.abs(z - CENTER.z) > 40) signs.push({ x: BASE.x1 + 0.4, y: 1.8, z, yaw: Math.PI / 2, w: 4.2, h: 1.6, lines: ['RESTRICTED AREA', 'NO TRESPASSING'], style: 'brand', posts: true });
+      for (let x = BASE.x0 + 60; x < BASE.x1 - 40; x += 110) signs.push({ x, y: 1.8, z: BASE.z1 + 0.4, yaw: 0, w: 4.2, h: 1.6, lines: ['RESTRICTED AREA', 'NO TRESPASSING'], style: 'brand', posts: true });
+      // Boulders and Joshua trees out in the desert, clear of the base and its road.
+      const rng = new VH.RNG('area51desert');
+      for (let i = 0; i < 70; i++) {
+        const x = rng.range(Z.minX + 6, Z.maxX - 6);
+        const z = rng.range(Z.minZ + 6, Z.maxZ - 6);
+        if (x > BASE.x0 - 8 && x < BASE.x1 + 30 && z > BASE.z0 - 8 && z < BASE.z1 + 8) continue;
+        if (Math.abs(z - CENTER.z) < 20 && x > BASE.x1) continue; // the access road
+        desertProp(world, x, z, rng);
+      }
       // Clutter and light.
       k.crates(world, -1385, -1180, 8, 51);
       k.crates(world, -1300, -1580, 6, 52);
