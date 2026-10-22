@@ -176,7 +176,7 @@
           this.print('tp <x> <z> | tp <plaza|park|tower|pier|boardwalk|market|downtown|palm|harbor|yard|roof>');
           this.print('noclip · god · heal · hurt <n> · money <n> · armor <n>');
           this.print('car <type> · heat <0-5> · give <weapon|all> · job <id> · pass <id> · flag <name>');
-          this.print('time <0-24> · clouds <0-1> · fov <deg> · quality <low|medium|high|ultra>');
+          this.print('time <0-24> · clouds <0-1> · fov <deg> · quality <low|medium|high|ultra|max>');
           this.print('colliders · pos · respawn · clear · complete (pass the current job) · spawn <faction> (an enemy)');
           break;
         case 'tp': {
@@ -299,7 +299,7 @@
           if (VH.SETTINGS_PRESETS[args[0]]) {
             VH.settings.applyPreset(args[0]);
             this.print('Quality preset: ' + args[0]);
-          } else this.print('usage: quality <low|medium|high|ultra>', 'bad');
+          } else this.print('usage: quality <low|medium|high|ultra|max>', 'bad');
           break;
         case 'colliders':
           this._toggleColliders();

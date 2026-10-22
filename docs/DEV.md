@@ -23,6 +23,8 @@ Never edit it by hand: edit `src/` and run `node tools/build.mjs`.
 
 ## Testing changes
 
+**Always pass `--quality high` (or `max`).** The headless browser reports a software GPU, so the game's first-visit auto-detect picks the Low preset (no shadows, no post-processing) and your screenshots would not show what players see.
+
 ```sh
 node tools/shots.mjs --scenario my-shots.json --out shots --quality high
 ```

@@ -37,6 +37,14 @@
       antialias: true, propDensity: 1.0, effects: 'high',
       ambientOcclusion: 'high', lightShafts: 'on', motionBlur: 'full', lensEffects: 'on',
     },
+    // Everything the engine has, for a desktop GPU with power to spare: the picture is
+    // rendered at 1.5x and scaled down (supersampling), 8k shadows, full-resolution
+    // ambient occlusion and sun shafts, the longest view distance and densest detail.
+    max: {
+      renderScale: 1.5, maxPixelRatio: 2, shadows: 'max', drawDistance: 2000,
+      antialias: true, propDensity: 1.5, effects: 'high',
+      ambientOcclusion: 'max', lightShafts: 'on', motionBlur: 'full', lensEffects: 'on',
+    },
   };
 
   /** Shadow tiers: shadow map resolution and the half-width of the area it covers. */
@@ -45,6 +53,7 @@
     low: { enabled: true, mapSize: 1024, extent: 55 },
     high: { enabled: true, mapSize: 2048, extent: 85 },
     ultra: { enabled: true, mapSize: 4096, extent: 120 },
+    max: { enabled: true, mapSize: 8192, extent: 150 },
   };
 
   /**

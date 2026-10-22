@@ -253,25 +253,38 @@
     uniform vec3 uShallow;
     varying vec3 vWorld;
 
-    // Sum of directional waves; returns the height gradient (d/dx, d/dz).
-    vec2 wave(vec2 p, vec2 dir, float len, float amp, float speed, float t) {
+    float h21(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+    float vnoise(vec2 p) {
+      vec2 i = floor(p);
+      vec2 f = fract(p);
+      f = f * f * (3.0 - 2.0 * f);
+      return mix(mix(h21(i), h21(i + vec2(1.0, 0.0)), f.x), mix(h21(i + vec2(0.0, 1.0)), h21(i + vec2(1.0, 1.0)), f.x), f.y);
+    }
+
+    // Sum of directional waves: returns the height in .z and the gradient (d/dx, d/dz) in .xy.
+    vec3 wave(vec2 p, vec2 dir, float len, float amp, float speed, float t) {
       float k = 6.2831853 / len;
       float ph = dot(dir, p) * k + t * speed * k;
-      return dir * (amp * k * cos(ph));
+      return vec3(dir * (amp * k * cos(ph)), amp * sin(ph));
     }
 
     void main() {
       float t = uTime;
       vec2 p = vWorld.xz;
       float dist = length(cameraPosition - vWorld);
-      vec2 g = vec2(0.0);
-      g += wave(p, normalize(vec2(1.0, 0.25)), 23.0, 0.20, 1.6, t);
-      g += wave(p, normalize(vec2(0.7, -0.7)), 11.0, 0.08, 1.2, t);
-      g += wave(p, normalize(vec2(-0.3, 1.0)), 5.3, 0.035, 0.9, t);
+      vec3 w = vec3(0.0);
+      w += wave(p, normalize(vec2(1.0, 0.25)), 23.0, 0.20, 1.6, t);
+      w += wave(p, normalize(vec2(0.7, -0.7)), 11.0, 0.08, 1.2, t);
+      w += wave(p, normalize(vec2(-0.3, 1.0)), 5.3, 0.035, 0.9, t);
       float near = exp(-dist / 90.0);
-      g += wave(p, normalize(vec2(0.9, 0.5)), 1.9, 0.012, 0.7, t) * near;
-      g += wave(p, normalize(vec2(-0.6, 0.8)), 1.1, 0.006, 0.6, t) * near;
-      g *= mix(0.25, 1.0, exp(-dist / 450.0));
+      w += wave(p, normalize(vec2(0.9, 0.5)), 1.9, 0.012, 0.7, t) * near;
+      w += wave(p, normalize(vec2(-0.6, 0.8)), 1.1, 0.006, 0.6, t) * near;
+      vec2 g = w.xy * mix(0.25, 1.0, exp(-dist / 450.0));
+      // Wind ripples: fine drifting noise on top of the swell (close range only).
+      float rip = exp(-dist / 140.0);
+      vec2 q = p * 1.6 + vec2(t * 0.35, t * 0.12);
+      vec2 r2 = p * 2.9 + vec2(-t * 0.22, t * 0.3);
+      g += vec2(vnoise(q) - vnoise(q + vec2(7.3, 1.7)), vnoise(r2) - vnoise(r2 + vec2(2.1, 8.4))) * 0.07 * rip;
 
       vec3 N = normalize(vec3(-g.x, 1.0, -g.y));
       vec3 V = normalize(cameraPosition - vWorld);
@@ -281,10 +294,30 @@
       float fres = 0.02 + 0.98 * pow(1.0 - ndv, 5.0);
       vec3 sky = mix(uSkyHorizon, uSkyZenith, pow(clamp(R.y, 0.0, 1.0), 0.55));
       float sd = max(dot(R, uSunDir), 0.0);
-      vec3 spec = uSunColor * (pow(sd, 900.0) * 9.0 + pow(sd, 90.0) * 0.35) * smoothstep(-0.05, 0.1, uSunDir.y);
-      float light = 0.25 + 0.75 * clamp(uSunDir.y + 0.1, 0.0, 1.0);
-      vec3 body = mix(uDeep, uShallow, clamp(0.35 + g.x * 1.5, 0.0, 1.0)) * light;
+      float sunUp = smoothstep(-0.05, 0.1, uSunDir.y);
+      // Sun glitter: a tight lobe, broken up by tiny facets so it sparkles instead of smearing.
+      float facet = 0.55 + 0.9 * vnoise(p * 6.0 + t * vec2(0.9, 0.6));
+      vec3 spec = uSunColor * (pow(sd, 900.0) * 9.0 * facet + pow(sd, 90.0) * 0.35) * sunUp;
+
+      // Shore: the seawall runs at x = 424; foam breaks against it and the water shallows.
+      float shore = max(vWorld.x - 424.0, 0.0);
+      float shallow = exp(-shore / 38.0);
+      float lightK = 0.25 + 0.75 * clamp(uSunDir.y + 0.1, 0.0, 1.0);
+      vec3 body = mix(uDeep, uShallow, clamp(0.35 + g.x * 1.5 + shallow * 0.45, 0.0, 1.0)) * lightK;
+      // Light scattering through thin crests that face the sun.
+      float crestLit = smoothstep(0.05, 0.3, w.z) * pow(max(dot(normalize(vec3(uSunDir.x, 0.0, uSunDir.z)), -V * vec3(1.0, 0.0, 1.0)), 0.0), 2.0);
+      body += uShallow * uSunColor * crestLit * 0.9 * sunUp;
+
       vec3 col = mix(body, sky, fres) + spec;
+
+      // Foam: along wave crests, and in surf lines at the seawall and around pier piles.
+      float fn = vnoise(p * 0.8 + t * 0.04) * 0.6 + vnoise(p * 3.3 - t * 0.09) * 0.4;
+      float crestFoam = smoothstep(0.3, 0.42, w.z * 0.9 + (fn - 0.5) * 0.12) * exp(-dist / 200.0);
+      float surf = smoothstep(9.0, 0.0, shore + sin(shore * 0.9 - t * 1.1) * 1.6 + (fn - 0.5) * 4.0) * step(0.0, vWorld.x - 423.0);
+      float foam = clamp(crestFoam * 0.8 + surf * (0.55 + 0.45 * fn), 0.0, 1.0) * smoothstep(0.35, 0.6, fn + surf * 0.3);
+      vec3 foamCol = mix(vec3(0.82, 0.88, 0.92), uSunColor * 0.8 + vec3(0.2), 0.35) * lightK;
+      col = mix(col, foamCol, foam * 0.7);
+
       gl_FragColor = vec4(col, 1.0);
       #include <tonemapping_fragment>
       #include <colorspace_fragment>
