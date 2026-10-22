@@ -40,6 +40,8 @@
   const RADAR = { x: -1460, z: -320 };
   const CENTER = { x: -1310, z: 0 };
   const KERB = 0.15;
+  const RANGE = { x0: -1372, x1: -1272, z0: 80, z1: 232 }; // the firing range (lanes run north to south)
+  const COURSE = { x0: -1385, x1: -1300, z0: -390, z1: -303 }; // the obstacle course
 
   function pave(world, x0, z0, x1, z1, color, y) {
     for (let x = x0; x < x1; x += 96) {
@@ -357,7 +359,101 @@
       nctx.propMatte.box(-1444, 3.5, 226, -1426, 3.62, 246, VH.col(0x4b5320), { bottom: true });
       // (Clear of the airstrip: masts beside it, not on its centre line.)
       for (const [x, z] of [[-1190, 0], [-1300, -140], [-1300, 140], [-1440, -200], [-1440, 200], [-1180, 250], [-1180, -200]]) floodMast(world, x, z, 34);
+      Fort._range(world);
+      Fort._course(world);
+      Fort._motorPoolDressing(world);
       return data;
+    }
+
+    /** A firing range: a concrete pad, six lanes, a sandbag firing line and targets on posts. */
+    static _range(world) {
+      const R = RANGE;
+      pave(world, R.x0, R.z0, R.x1, R.z1, 0xa9a69c, 0.014);
+      const ctx = world.ctxAt((R.x0 + R.x1) / 2, (R.z0 + R.z1) / 2);
+      const lane = (R.x1 - R.x0) / 6;
+      for (let i = 1; i < 6; i++) mark(world, R.x0 + i * lane - 0.15, R.z0 + 6, R.x0 + i * lane + 0.15, R.z1 - 4, 0xf4f4ef, 0.022);
+      // The firing line: sandbags with a gap for each lane, and a red flag pole.
+      for (let i = 0; i < 6; i++) {
+        const x0 = R.x0 + i * lane + 1.2;
+        ctx.propMatte.box(x0, 0, R.z0 + 4, x0 + lane - 2.4, 0.9, R.z0 + 5, VH.col(0xa8956a));
+        world.physics.addBox(x0, 0, R.z0 + 4, x0 + lane - 2.4, 0.9, R.z0 + 5, 'sandbags', F().ALL);
+      }
+      ctx.prop.box(R.x0 - 2.1, 0, R.z0 + 2, R.x0 - 1.9, 6, R.z0 + 2.2, VH.col(0xd8dcdf));
+      ctx.prop.box(R.x0 - 1.9, 5, R.z0 + 2.1, R.x0 - 0.4, 5.9, R.z0 + 2.15, VH.col(0xd8262e));
+      // Targets at the far end: a board, rings, two posts; an earth berm behind.
+      for (let i = 0; i < 6; i++) {
+        const cx = R.x0 + (i + 0.5) * lane;
+        const z = R.z1 - 10;
+        ctx.prop.box(cx - 0.9, 0, z - 0.05, cx - 0.8, 2.2, z + 0.05, VH.col(0x6b5a44));
+        ctx.prop.box(cx + 0.8, 0, z - 0.05, cx + 0.9, 2.2, z + 0.05, VH.col(0x6b5a44));
+        ctx.prop.box(cx - 0.8, 0.9, z - 0.04, cx + 0.8, 2.3, z + 0.04, VH.col(0xf1f2ef));
+        ctx.prop.box(cx - 0.55, 1.15, z - 0.05, cx + 0.55, 2.05, z - 0.04, VH.col(0xd8262e));
+        ctx.prop.box(cx - 0.35, 1.35, z - 0.06, cx + 0.35, 1.85, z - 0.05, VH.col(0xf1f2ef));
+        ctx.prop.box(cx - 0.15, 1.52, z - 0.07, cx + 0.15, 1.68, z - 0.06, VH.col(0xd8262e));
+      }
+      ctx.propMatte.box(R.x0, 0, R.z1 - 6, R.x1, 4, R.z1, VH.col(0x8f7653));
+      world.physics.addBox(R.x0, 0, R.z1 - 6, R.x1, 4, R.z1, 'building', F().ALL);
+    }
+
+    /** An obstacle course: walls to vault, a tyre run, a rope frame and a cargo net. */
+    static _course(world) {
+      const C = COURSE;
+      const ctx = world.ctxAt((C.x0 + C.x1) / 2, (C.z0 + C.z1) / 2);
+      const wood = VH.col(0x7a5a3a);
+      const rng = new VH.RNG('fortcourse');
+      for (let k = 0; k < 4; k++) {
+        const z = C.z0 + 8 + k * 16;
+        const h = [1.0, 1.6, 2.2, 1.3][k];
+        ctx.propMatte.box(C.x0 + 6, 0, z, C.x0 + 18, h, z + 0.4, wood);
+        world.physics.addBox(C.x0 + 6, 0, z, C.x0 + 18, h, z + 0.4, 'crate', F().ALL);
+      }
+      // A tyre run: two rows of tyres lying flat.
+      for (let z = C.z0 + 6; z < C.z1 - 6; z += 1.6) {
+        for (const x of [C.x0 + 26, C.x0 + 27.6]) world.ctxAt(x, z).prop.cylinder(x, 0, z, 0.7, 0.7, 0.3, 12, VH.col(0x161616), true, VH.col(0x2a2a2a));
+      }
+      // A rope frame: two posts, a beam and hanging ropes.
+      const fx = C.x0 + 38;
+      const fz = (C.z0 + C.z1) / 2;
+      for (const z of [fz - 6, fz + 6]) {
+        ctx.prop.box(fx - 0.15, 0, z - 0.15, fx + 0.15, 7, z + 0.15, wood);
+        world.physics.addBox(fx - 0.15, 0, z - 0.15, fx + 0.15, 7, z + 0.15, 'pole', F().ALL);
+      }
+      ctx.prop.box(fx - 0.15, 6.8, fz - 6, fx + 0.15, 7.1, fz + 6, wood);
+      for (let z = fz - 5; z <= fz + 5; z += 2.5) ctx.prop.box(fx - 0.03, 1.2, z - 0.03, fx + 0.03, 6.8, z + 0.03, VH.col(0xc9b27f));
+      // A cargo net climb: a sloping frame of ropes.
+      const nx = C.x0 + 50;
+      for (let i = 0; i <= 6; i++) {
+        const z = C.z0 + 10 + i * 2;
+        ctx.prop.box(nx, 0, z - 0.03, nx + 0.06, 5, z + 0.03, VH.col(0xc9b27f));
+      }
+      for (let y = 0.5; y < 5; y += 0.7) ctx.prop.box(nx, y, C.z0 + 10, nx + 0.06, y + 0.05, C.z0 + 22, VH.col(0xc9b27f));
+      ctx.prop.box(nx - 0.2, 5, C.z0 + 9.8, nx + 0.26, 5.25, C.z0 + 22.2, wood);
+      // Some crates and a water tank for good measure.
+      crates(world, C.x1 - 10, C.z0 + 4, 5, 9 + rng.int(0, 3));
+      ctx.prop.cylinder(C.x1 - 6, 0, C.z1 - 8, 2.2, 2.2, 3.5, 14, VH.col(0x5d6b3c), true, VH.col(0x4b5320));
+      world.physics.addBox(C.x1 - 8.2, 0, C.z1 - 10.2, C.x1 - 3.8, 3.5, C.z1 - 5.8, 'tank', F().ALL);
+    }
+
+    /** Painted bays and a camouflage net over the tanks in the motor pool. */
+    static _motorPoolDressing(world) {
+      for (let z = MOTOR.z0 + 30; z < MOTOR.z0 + 105; z += 25) mark(world, ROAD_X + 14, z - 0.15, MOTOR.x1 - 4, z + 0.15, 0xf2c500, 0.02);
+      const ctx = world.ctxAt(-1180, MOTOR.z0 + 60);
+      const x0 = -1215;
+      const x1 = -1145;
+      const z0 = MOTOR.z0 + 35;
+      const z1 = MOTOR.z0 + 92;
+      for (const [x, z] of [[x0, z0], [x1, z0], [x0, z1], [x1, z1], [(x0 + x1) / 2, z0], [(x0 + x1) / 2, z1]]) {
+        ctx.prop.box(x - 0.1, 0, z - 0.1, x + 0.1, 5.2, z + 0.1, VH.col(0x3a3d36));
+        world.physics.addBox(x - 0.12, 0, z - 0.12, x + 0.12, 5.2, z + 0.12, 'pole', F().ALL);
+      }
+      ctx.propMatte.box(x0, 5.1, z0, x1, 5.22, z1, VH.col(0x4b5320), { bottom: true });
+      // Leafy tufts over the net.
+      const rng = new VH.RNG('camonet');
+      for (let i = 0; i < 60; i++) {
+        const x = rng.range(x0 + 1, x1 - 1);
+        const z = rng.range(z0 + 1, z1 - 1);
+        ctx.propMatte.box(x - 0.8, 5.2, z - 0.8, x + 0.8, 5.5, z + 0.8, VH.col(rng.pick([0x5d6b3c, 0x6b6545, 0x3f4a26])));
+      }
     }
 
     static registerPlaces(world, places) {
