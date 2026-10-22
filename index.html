@@ -11993,23 +11993,958 @@ void main() {
     return c;
   }
 
+  // ======================================================================
+  // High-resolution painters. These keep the old texture keys but replace
+  // the cloudy 256/512px versions with sharper, better detailed ones, plus
+  // matching tangent-space normal maps derived from the colour's luminance.
+  // ======================================================================
+
+  /** Like paint(), but fn(u, v, x, y, out) fills out[0..2] (no allocation per pixel). */
+  function paintFast(size, fn) {
+    const c = makeCanvas(size);
+    const ctx = c.getContext('2d', { willReadFrequently: true });
+    const img = ctx.createImageData(size, size);
+    const d = img.data;
+    const o = [0, 0, 0];
+    let i = 0;
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        fn(x / size, y / size, x, y, o);
+        d[i++] = o[0];
+        d[i++] = o[1];
+        d[i++] = o[2];
+        d[i++] = 255;
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+    return ctx;
+  }
+
+  /** A tileable fbm field sampled on a res x res grid (cheap to upsample). */
+  function field(noise, res, freq, oct, ox, oy) {
+    const f = new Float32Array(res * res);
+    for (let y = 0; y < res; y++) {
+      for (let x = 0; x < res; x++) f[y * res + x] = noise.fbm2((x / res) * freq + (ox || 0), (y / res) * freq + (oy || 0), oct, freq);
+    }
+    f.res = res;
+    return f;
+  }
+
+  /** Bilinear, wrapping lookup, u and v in [0, 1). */
+  function fld(f, u, v) {
+    const res = f.res;
+    const x = u * res;
+    const y = v * res;
+    const x0 = Math.floor(x);
+    const y0 = Math.floor(y);
+    const fx = x - x0;
+    const fy = y - y0;
+    const xa = ((x0 % res) + res) % res;
+    const ya = ((y0 % res) + res) % res;
+    const xb = (xa + 1) % res;
+    const yb = (ya + 1) % res;
+    const a = f[ya * res + xa] + (f[ya * res + xb] - f[ya * res + xa]) * fx;
+    const b = f[yb * res + xa] + (f[yb * res + xb] - f[yb * res + xa]) * fx;
+    return a + (b - a) * fy;
+  }
+
+  const smooth = (a, b, x) => {
+    const t = Math.max(0, Math.min(1, (x - a) / (b - a)));
+    return t * t * (3 - 2 * t);
+  };
+
+  /** Tangent-space normal map from a canvas's luminance (wraps at the edges). */
+  function normalMapFrom(canvas, strength) {
+    const size = canvas.width;
+    const src = canvas.getContext('2d').getImageData(0, 0, size, size).data;
+    const h = new Float32Array(size * size);
+    for (let i = 0; i < h.length; i++) h[i] = (src[i * 4] * 0.3 + src[i * 4 + 1] * 0.59 + src[i * 4 + 2] * 0.11) / 255;
+    const out = makeCanvas(size);
+    const octx = out.getContext('2d', { willReadFrequently: true });
+    const img = octx.createImageData(size, size);
+    const d = img.data;
+    let i = 0;
+    for (let y = 0; y < size; y++) {
+      const yt = ((y - 1 + size) % size) * size;
+      const yb = ((y + 1) % size) * size;
+      const yc = y * size;
+      for (let x = 0; x < size; x++) {
+        const xl = (x - 1 + size) % size;
+        const xr = (x + 1) % size;
+        const dx = (h[yc + xr] - h[yc + xl]) * strength;
+        const dy = (h[yb + x] - h[yt + x]) * strength;
+        const il = 1 / Math.sqrt(dx * dx + dy * dy + 1);
+        d[i++] = (-dx * il * 0.5 + 0.5) * 255;
+        d[i++] = (dy * il * 0.5 + 0.5) * 255;
+        d[i++] = (il * 0.5 + 0.5) * 255;
+        d[i++] = 255;
+      }
+    }
+    octx.putImageData(img, 0, 0);
+    return out;
+  }
+
+  /** Cracks as meandering polylines (with the odd branch), wrapped over the tile edges. */
+  function drawCracks(ctx, size, rng, count, widthMin, widthMax, style, S) {
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    for (let n = 0; n < count; n++) {
+      const strokes = [];
+      const walk = (x, y, a, steps, w) => {
+        const pts = [];
+        for (let s = 0; s < steps; s++) {
+          pts.push([x, y]);
+          a += rng.range(-0.55, 0.55);
+          const step = rng.range(5, 16) * S;
+          x += Math.cos(a) * step;
+          y += Math.sin(a) * step;
+          if (s > 3 && rng.chance(0.07) && w > 1) walk(x, y, a + rng.range(-1.2, 1.2), Math.floor(steps / 2), w * 0.6);
+        }
+        strokes.push({ pts, w });
+      };
+      walk(rng.range(0, size), rng.range(0, size), rng.range(0, Math.PI * 2), rng.int(8, 24), rng.range(widthMin, widthMax) * S);
+      drawWrapped(ctx, size, (g) => {
+        for (const st of strokes) {
+          g.strokeStyle = style;
+          g.lineWidth = st.w;
+          g.beginPath();
+          st.pts.forEach((p, i) => (i ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1])));
+          g.stroke();
+        }
+      });
+    }
+  }
+
+  /** Draw `fn` at the tile position and again wherever it spills over an edge. */
+  function wrapNear(size, x, y, r, fn) {
+    for (let ox = -1; ox <= 1; ox++) {
+      for (let oy = -1; oy <= 1; oy++) {
+        const px = x + ox * size;
+        const py = y + oy * size;
+        if (px < -r || py < -r || px > size + r || py > size + r) continue;
+        fn(px, py);
+      }
+    }
+  }
+
+  function asphaltHD(size, rng, noise) {
+    const S = size / 512;
+    const low = field(noise, 128, 5, 4, 0, 0);
+    const mid = field(noise, 256, 40, 3, 3, 5);
+    const ctx = paintFast(size, (u, v, x, y, o) => {
+      const L = fld(low, u, v);
+      const M = fld(mid, u, v);
+      const grain = rng.next();
+      const r2 = rng.next();
+      let g = 0.235 + (L - 0.5) * 0.085 + (M - 0.5) * 0.075 + (grain - 0.5) * 0.11;
+      if (r2 > 0.972) g += 0.05 + rng.next() * 0.13; // aggregate stones catching the light
+      else if (r2 < 0.025) g -= 0.05; // pits between stones
+      const k = g * 255;
+      const warm = (L - 0.5) * 6;
+      o[0] = k * 0.97 + warm;
+      o[1] = k * 0.985;
+      o[2] = k * 1.035 - warm;
+    });
+    // Repair patches, with a sealed seam round the edge.
+    for (let n = 0; n < 3; n++) {
+      const w = rng.range(0.1, 0.28) * size;
+      const h = rng.range(0.08, 0.22) * size;
+      const px = rng.range(0, size);
+      const py = rng.range(0, size);
+      const dark = rng.chance(0.65);
+      drawWrapped(ctx, size, (g) => {
+        g.fillStyle = dark ? 'rgba(6,6,8,0.30)' : 'rgba(150,150,155,0.10)';
+        g.fillRect(px, py, w, h);
+        g.strokeStyle = 'rgba(8,8,10,0.55)';
+        g.lineWidth = 2.2 * S;
+        g.strokeRect(px, py, w, h);
+        g.strokeStyle = 'rgba(190,190,195,0.08)';
+        g.lineWidth = 1 * S;
+        g.strokeRect(px + 2.5 * S, py + 2.5 * S, w - 5 * S, h - 5 * S);
+      });
+    }
+    // Oil drips and tyre-rubber smears.
+    for (let n = 0; n < 7; n++) {
+      const px = rng.range(0, size);
+      const py = rng.range(0, size);
+      const r = rng.range(10, 34) * S;
+      const sq = rng.range(0.6, 1);
+      const rot = rng.range(0, 3);
+      wrapNear(size, px, py, r, (cx, cy) => {
+        const grd = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+        grd.addColorStop(0, 'rgba(6,6,9,0.34)');
+        grd.addColorStop(0.6, 'rgba(8,8,10,0.16)');
+        grd.addColorStop(1, 'rgba(8,8,10,0)');
+        ctx.fillStyle = grd;
+        ctx.beginPath();
+        ctx.ellipse(cx, cy, r, r * sq, rot, 0, Math.PI * 2);
+        ctx.fill();
+      });
+    }
+    ctx.lineCap = 'round';
+    for (let n = 0; n < 7; n++) {
+      const horiz = rng.chance(0.5);
+      const a = rng.range(0, size);
+      const b = rng.range(0, size);
+      const len = rng.range(0.25, 0.6) * size;
+      const wd = rng.range(8, 20) * S;
+      const wob = rng.range(-6, 6);
+      drawWrapped(ctx, size, (g) => {
+        g.strokeStyle = 'rgba(4,4,6,0.075)';
+        g.lineWidth = wd;
+        g.beginPath();
+        if (horiz) { g.moveTo(b, a); g.lineTo(b + len, a + wob); } else { g.moveTo(a, b); g.lineTo(a + wob, b + len); }
+        g.stroke();
+      });
+    }
+    drawCracks(ctx, size, rng, 8, 0.7, 1.7, 'rgba(10,10,12,0.62)', S);
+    drawCracks(ctx, size, rng, 2, 2.5, 4, 'rgba(8,8,10,0.5)', S); // a couple of old wide ones
+    return ctx.canvas;
+  }
+
+  function pavingHD(size, rng, noise, opts) {
+    const S = size / 512;
+    const tiles = opts.tiles;
+    const tile = size / tiles;
+    const tones = [];
+    for (let i = 0; i < tiles * tiles; i++) tones.push(rng.range(-0.06, 0.06));
+    const stainF = field(noise, 128, 5, 4, 0, 0);
+    const fineF = field(noise, 256, 36, 2, 1, 2);
+    const jw = (opts.joint || 1.5) * S;
+    const ctx = paintFast(size, (u, v, x, y, o) => {
+      const tx = Math.floor(x / tile);
+      const ty = Math.floor(y / tile);
+      const lx = x - tx * tile;
+      const ly = y - ty * tile;
+      const edge = Math.min(lx, ly, tile - 1 - lx, tile - 1 - ly);
+      let base = opts.base;
+      if (opts.alt && (tx + ty) % 2 === 1) base = opts.alt;
+      const stain = fld(stainF, u, v);
+      const fine = fld(fineF, u, v);
+      const grain = rng.next();
+      let m = 1 + tones[ty * tiles + tx] + (stain - 0.5) * 0.22 + (fine - 0.5) * 0.1 + (grain - 0.5) * 0.09;
+      // Slabs are a touch darker and dirtier at their edges.
+      m *= 0.93 + 0.07 * smooth(0, 14 * S, edge);
+      if (edge < jw) m *= 0.5; // sealed joint
+      else if (edge < jw + 1.6 * S) m *= 1.07; // chamfer catching the light
+      else if (edge < jw + 3.2 * S) m *= 0.93;
+      if (grain > 0.985) m *= 1.12;
+      else if (grain < 0.012) m *= 0.8;
+      o[0] = base[0] * m;
+      o[1] = base[1] * m;
+      o[2] = base[2] * m;
+    });
+    ctx.lineCap = 'round';
+    // Chewing gum, dirt spots and the odd hairline crack.
+    for (let n = 0; n < 60; n++) {
+      const x = rng.range(0, size);
+      const y = rng.range(0, size);
+      const r = rng.range(0.8, 2.6) * S;
+      ctx.fillStyle = rng.chance(0.5) ? 'rgba(40,36,32,0.30)' : 'rgba(250,246,236,0.12)';
+      wrapNear(size, x, y, r, (cx, cy) => { ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill(); });
+    }
+    drawCracks(ctx, size, rng, tiles * tiles > 4 ? 6 : 3, 0.6, 1.2, 'rgba(30,28,26,0.5)', S);
+    for (let n = 0; n < 3; n++) {
+      const x = rng.range(0, size);
+      const y = rng.range(0, size);
+      const r = rng.range(14, 40) * S;
+      wrapNear(size, x, y, r, (cx, cy) => {
+        const grd = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+        grd.addColorStop(0, 'rgba(40,34,26,0.20)');
+        grd.addColorStop(1, 'rgba(40,34,26,0)');
+        ctx.fillStyle = grd;
+        ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
+      });
+    }
+    return ctx.canvas;
+  }
+
+  function grassHD(size, rng, noise) {
+    const S = size / 512;
+    const patchF = field(noise, 128, 4, 4, 0, 0);
+    const bareF = field(noise, 128, 7, 3, 9, 4);
+    const clumpF = field(noise, 256, 30, 3, 5, 7);
+    const ctx = paintFast(size, (u, v, x, y, o) => {
+      const patch = fld(patchF, u, v);
+      const clump = fld(clumpF, u, v);
+      const bare = smooth(0.66, 0.74, fld(bareF, u, v)) * smooth(0.45, 0.65, clump);
+      const dry = Math.max(0, patch - 0.55) * 2.0;
+      const blade = rng.next();
+      const m = 0.68 + clump * 0.55 + (blade - 0.5) * 0.24;
+      let r = (46 + dry * 62) * m;
+      let g = (94 + dry * 30) * m;
+      let b = (32 + dry * 10) * m;
+      r += (104 - r) * bare * 0.7;
+      g += (88 - g) * bare * 0.7;
+      b += (56 - b) * bare * 0.7;
+      o[0] = r;
+      o[1] = g;
+      o[2] = b;
+    });
+    // Blades: thousands of short strokes, lighter and darker than the base.
+    ctx.lineCap = 'round';
+    const palette = ['rgba(120,170,60,0.32)', 'rgba(22,58,22,0.34)', 'rgba(150,176,70,0.22)', 'rgba(60,110,36,0.3)'];
+    for (const col of palette) {
+      ctx.strokeStyle = col;
+      ctx.lineWidth = 1.1 * S + 0.3;
+      for (let batch = 0; batch < 6; batch++) {
+        ctx.beginPath();
+        for (let n = 0; n < 1100; n++) {
+          const x = rng.range(0, size);
+          const y = rng.range(0, size);
+          const a = -Math.PI / 2 + rng.range(-0.9, 0.9);
+          const len = rng.range(3, 9) * S;
+          wrapNear(size, x, y, 12 * S, (cx, cy) => {
+            ctx.moveTo(cx, cy);
+            ctx.lineTo(cx + Math.cos(a) * len, cy + Math.sin(a) * len);
+          });
+        }
+        ctx.stroke();
+      }
+    }
+    // Clover patches and the odd wildflower.
+    for (let n = 0; n < 20; n++) {
+      const x = rng.range(0, size);
+      const y = rng.range(0, size);
+      const r = rng.range(8, 22) * S;
+      wrapNear(size, x, y, r, (cx, cy) => {
+        const grd = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+        grd.addColorStop(0, 'rgba(46,112,44,0.38)');
+        grd.addColorStop(1, 'rgba(46,112,44,0)');
+        ctx.fillStyle = grd;
+        ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
+      });
+    }
+    const flowers = ['rgba(240,240,228,0.9)', 'rgba(240,212,70,0.9)', 'rgba(236,236,226,0.85)', 'rgba(176,130,206,0.85)', 'rgba(244,150,170,0.8)'];
+    for (let n = 0; n < 110; n++) {
+      const x = rng.range(0, size);
+      const y = rng.range(0, size);
+      const r = rng.range(0.7, 1.4) * S;
+      ctx.fillStyle = flowers[n % flowers.length];
+      wrapNear(size, x, y, r, (cx, cy) => { ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill(); });
+    }
+    return ctx.canvas;
+  }
+
+  /** Runway / apron / yard concrete: 2x2 poured slabs with sealed joints, stains, tyre marks. */
+  function concreteHD(size, rng, noise) {
+    const S = size / 512;
+    const slabs = 2;
+    const slab = size / slabs;
+    const tones = [];
+    for (let i = 0; i < slabs * slabs; i++) tones.push(rng.range(-0.05, 0.05));
+    const stainF = field(noise, 128, 6, 4, 0, 0);
+    const fineF = field(noise, 256, 48, 3, 2, 3);
+    const jw = 2 * S;
+    const ctx = paintFast(size, (u, v, x, y, o) => {
+      const tx = Math.floor(x / slab);
+      const ty = Math.floor(y / slab);
+      const lx = x - tx * slab;
+      const ly = y - ty * slab;
+      const edge = Math.min(lx, ly, slab - 1 - lx, slab - 1 - ly);
+      const stain = fld(stainF, u, v);
+      const fine = fld(fineF, u, v);
+      const g = rng.next();
+      let k = 152 * (0.88 + tones[ty * slabs + tx] + (stain - 0.5) * 0.26 + (fine - 0.5) * 0.12 + (g - 0.5) * 0.07);
+      k *= 0.95 + 0.05 * smooth(0, 16 * S, edge);
+      if (g > 0.99) k *= 1.1;
+      else if (g < 0.008) k *= 0.78; // air pits
+      if (edge < jw) k *= 0.58;
+      else if (edge < jw + 2 * S) k *= 1.06;
+      o[0] = k;
+      o[1] = k * 0.99;
+      o[2] = k * 0.955;
+    });
+    // Hairline cracks, tyre-rubber arcs and oil.
+    drawCracks(ctx, size, rng, 5, 0.6, 1.4, 'rgba(40,38,34,0.5)', S);
+    ctx.lineCap = 'round';
+    for (let n = 0; n < 5; n++) {
+      const cx = rng.range(0, size);
+      const cy = rng.range(0, size);
+      const rad = rng.range(80, 260) * S;
+      const a0 = rng.range(0, 6.28);
+      const span = rng.range(0.3, 0.9);
+      const wd = rng.range(5, 9) * S;
+      for (const off of [0, 11 * S]) {
+        drawWrapped(ctx, size, (g) => {
+          g.strokeStyle = 'rgba(14,14,16,0.10)';
+          g.lineWidth = wd;
+          g.beginPath();
+          g.arc(cx, cy, rad + off, a0, a0 + span);
+          g.stroke();
+        });
+      }
+    }
+    for (let n = 0; n < 4; n++) {
+      const x = rng.range(0, size);
+      const y = rng.range(0, size);
+      const r = rng.range(14, 38) * S;
+      wrapNear(size, x, y, r, (cx, cy) => {
+        const grd = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+        grd.addColorStop(0, 'rgba(24,20,16,0.30)');
+        grd.addColorStop(1, 'rgba(24,20,16,0)');
+        ctx.fillStyle = grd;
+        ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
+      });
+    }
+    return ctx.canvas;
+  }
+
+  /** Gravel: hundreds of individually shaded stones over a dark bed. */
+  function gravelHD(size, rng, noise) {
+    const S = size / 512;
+    const bedF = field(noise, 128, 8, 3, 0, 0);
+    const ctx = paintFast(size, (u, v, x, y, o) => {
+      const n = fld(bedF, u, v);
+      const g = rng.next();
+      const k = 62 * (0.7 + n * 0.5 + (g - 0.5) * 0.3);
+      o[0] = k;
+      o[1] = k * 0.96;
+      o[2] = k * 0.9;
+    });
+    const tones = [[150, 142, 128], [120, 114, 104], [176, 164, 140], [96, 92, 86], [140, 120, 98]];
+    const count = Math.round(2600 * S * S);
+    for (let n = 0; n < count; n++) {
+      const x = rng.range(0, size);
+      const y = rng.range(0, size);
+      const rx = rng.range(2.2, 6.5) * S;
+      const ry = rx * rng.range(0.6, 1);
+      const rot = rng.range(0, 3.14);
+      const t = rng.pick(tones);
+      const k = rng.range(0.82, 1.12);
+      wrapNear(size, x, y, rx + 2, (cx, cy) => {
+        const grd = ctx.createRadialGradient(cx - rx * 0.3, cy - ry * 0.35, 0, cx, cy, rx * 1.1);
+        grd.addColorStop(0, `rgb(${Math.min(255, t[0] * k * 1.18) | 0},${Math.min(255, t[1] * k * 1.18) | 0},${Math.min(255, t[2] * k * 1.18) | 0})`);
+        grd.addColorStop(1, `rgb(${(t[0] * k * 0.62) | 0},${(t[1] * k * 0.62) | 0},${(t[2] * k * 0.62) | 0})`);
+        ctx.fillStyle = grd;
+        ctx.beginPath();
+        ctx.ellipse(cx, cy, rx, ry, rot, 0, Math.PI * 2);
+        ctx.fill();
+      });
+    }
+    return ctx.canvas;
+  }
+
+  /** Dry beach / outskirts sand with wind ripples. */
+  function sandHD(size, rng, noise) {
+    const warpF = field(noise, 128, 4, 3, 0, 0);
+    const fineF = field(noise, 256, 64, 2, 1, 1);
+    const ctx = paintFast(size, (u, v, x, y, o) => {
+      const w = fld(warpF, u, v);
+      const ripple = 0.5 + 0.5 * Math.sin((u * 5 + v * 2 + w * 1.6) * Math.PI * 2);
+      const fine = fld(fineF, u, v);
+      const g = rng.next();
+      const m = 0.84 + ripple * 0.12 + (fine - 0.5) * 0.14 + (g - 0.5) * 0.12 + (w - 0.5) * 0.1;
+      o[0] = 206 * m;
+      o[1] = 184 * m;
+      o[2] = 140 * m;
+    });
+    return ctx.canvas;
+  }
+
+  /** Large-scale mottling used to break tiling on huge surfaces (sampled in world space, see materials.js). */
+  function macroMottle(size, rng, noise) {
+    const a = field(noise, 128, 4, 4, 0, 0);
+    const b = field(noise, 128, 12, 3, 4, 6);
+    const ctx = paintFast(size, (u, v, x, y, o) => {
+      const k = (0.62 * fld(a, u, v) + 0.38 * fld(b, u, v)) * 255;
+      o[0] = o[1] = o[2] = k;
+    });
+    return ctx.canvas;
+  }
+
+  // ======================================================================
+  // Vegetation atlas: one RGBA texture holding every leaf, frond and bark
+  // the trees and palms use, so a whole tree is one material (one draw call,
+  // one shadow draw). Leaves are alpha-tested cards; bark cells are tiled
+  // by the vegetation shader (materials.js), which repeats a cell inside
+  // its own rectangle when a vertex's V coordinate is >= 100.
+  // ======================================================================
+  const ATLAS_SIZE = 1024;
+  const ATLAS = {
+    size: ATLAS_SIZE,
+    cells: {
+      oak: { x: 0, y: 0, w: 256, h: 256 },
+      bloom: { x: 256, y: 0, w: 256, h: 256 },
+      pine: { x: 512, y: 0, w: 256, h: 256 },
+      bush: { x: 768, y: 0, w: 256, h: 256 },
+      frondA: { x: 0, y: 256, w: 1024, h: 128 },
+      frondB: { x: 0, y: 384, w: 1024, h: 128 },
+      fan: { x: 0, y: 512, w: 256, h: 256 },
+      barkOak: { x: 256, y: 512, w: 256, h: 256 },
+      barkPalm: { x: 512, y: 512, w: 256, h: 256 },
+      barkDate: { x: 768, y: 512, w: 256, h: 256 },
+      white: { x: 0, y: 768, w: 64, h: 64 },
+      barkRoyal: { x: 256, y: 768, w: 256, h: 256 },
+      barkPine: { x: 512, y: 768, w: 256, h: 256 },
+      bloom2: { x: 768, y: 768, w: 256, h: 256 },
+    },
+    /** Bark cells in the order the shader indexes them (V >= 100 * (index + 1)). */
+    barks: ['barkOak', 'barkPalm', 'barkDate', 'barkRoyal', 'barkPine'],
+    /** UV rectangle (V up) of a cell, `inset` pixels in from its edge. */
+    rect(name, inset) {
+      const c = this.cells[name];
+      const i = inset === undefined ? 1.5 : inset;
+      const S = this.size;
+      return { u0: (c.x + i) / S, u1: (c.x + c.w - i) / S, v0: 1 - (c.y + c.h - i) / S, v1: 1 - (c.y + i) / S };
+    },
+  };
+
+  function leafPath(g, len, wid, curl) {
+    g.beginPath();
+    g.moveTo(0, 0);
+    g.bezierCurveTo(len * 0.25, -wid * 1.1 + curl, len * 0.75, -wid * 0.8 + curl, len, curl * 0.5);
+    g.bezierCurveTo(len * 0.75, wid * 0.8 + curl, len * 0.25, wid * 1.1 + curl, 0, 0);
+    g.closePath();
+  }
+
+  function drawLeaf(g, x, y, ang, len, wid, fill, vein, curl) {
+    g.save();
+    g.translate(x, y);
+    g.rotate(ang);
+    leafPath(g, len, wid, curl || 0);
+    g.fillStyle = fill;
+    g.fill();
+    if (vein) {
+      g.strokeStyle = vein;
+      g.lineWidth = 0.9;
+      g.beginPath();
+      g.moveTo(len * 0.05, 0);
+      g.quadraticCurveTo(len * 0.5, (curl || 0) * 0.8, len * 0.92, (curl || 0) * 0.4);
+      g.stroke();
+    }
+    g.restore();
+  }
+
+  function paintLeafCluster(g, cell, rng, opts) {
+    g.save();
+    g.beginPath();
+    g.rect(cell.x, cell.y, cell.w, cell.h);
+    g.clip();
+    g.translate(cell.x, cell.y);
+    const cx = cell.w / 2;
+    const cy = cell.h / 2;
+    const R = cell.w * 0.41;
+    // Twigs first.
+    g.strokeStyle = 'rgb(70,54,38)';
+    g.lineWidth = 2;
+    for (let i = 0; i < 6; i++) {
+      const a = rng.range(0, 6.28);
+      g.beginPath();
+      g.moveTo(cx, cy);
+      g.lineTo(cx + Math.cos(a) * R * 0.7, cy + Math.sin(a) * R * 0.7);
+      g.stroke();
+    }
+    const passes = [
+      { n: opts.n, cols: opts.dark, k: 1 },
+      { n: Math.round(opts.n * 0.8), cols: opts.mid, k: 0.9 },
+      { n: Math.round(opts.n * 0.5), cols: opts.light, k: 0.75 },
+    ];
+    for (const p of passes) {
+      for (let i = 0; i < p.n; i++) {
+        const r = R * Math.sqrt(rng.next()) * p.k;
+        const a = rng.range(0, 6.28);
+        const x = cx + Math.cos(a) * r;
+        const y = cy + Math.sin(a) * r;
+        const ang = a + rng.range(-0.9, 0.9);
+        const len = rng.range(opts.len[0], opts.len[1]);
+        const wid = len * rng.range(opts.aspect[0], opts.aspect[1]);
+        drawLeaf(g, x, y, ang, len, wid, rng.pick(p.cols), opts.vein, rng.range(-3, 3));
+      }
+    }
+    g.restore();
+  }
+
+  function paintBloom(g, cell, rng, count, rMin, rMax, petals) {
+    g.save();
+    g.beginPath();
+    g.rect(cell.x, cell.y, cell.w, cell.h);
+    g.clip();
+    g.translate(cell.x, cell.y);
+    const c = cell.w / 2;
+    const R = cell.w * 0.4;
+    for (let n = 0; n < count; n++) {
+      const rr = R * Math.sqrt(rng.next());
+      const a = rng.range(0, 6.28);
+      const x = c + Math.cos(a) * rr;
+      const y = c + Math.sin(a) * rr;
+      const fr = rng.range(rMin, rMax);
+      const rot = rng.range(0, 6.28);
+      const shade = rng.range(0.86, 1);
+      for (let p = 0; p < petals; p++) {
+        const pa = rot + (p / petals) * Math.PI * 2;
+        g.fillStyle = `rgb(${(250 * shade) | 0},${(244 * shade) | 0},${(246 * shade) | 0})`;
+        g.beginPath();
+        g.ellipse(x + Math.cos(pa) * fr * 0.55, y + Math.sin(pa) * fr * 0.55, fr * 0.55, fr * 0.36, pa, 0, Math.PI * 2);
+        g.fill();
+      }
+      g.fillStyle = 'rgb(255,214,120)';
+      g.beginPath();
+      g.arc(x, y, fr * 0.2, 0, Math.PI * 2);
+      g.fill();
+    }
+    // A scatter of leaves peeking out, so the cluster is not all petals.
+    for (let n = 0; n < 14; n++) {
+      const rr = R * Math.sqrt(rng.next());
+      const a = rng.range(0, 6.28);
+      drawLeaf(g, c + Math.cos(a) * rr, c + Math.sin(a) * rr, a + rng.range(-1, 1), rng.range(26, 38), rng.range(7, 11), 'rgb(120,150,90)', null, 0);
+    }
+    g.restore();
+  }
+
+  function paintPineSpray(g, cell, rng) {
+    g.save();
+    g.beginPath();
+    g.rect(cell.x, cell.y, cell.w, cell.h);
+    g.clip();
+    g.translate(cell.x, cell.y);
+    const cx = cell.w / 2;
+    const sprays = [[cx, cell.h - 6, 0, 1], [cx - 70, cell.h - 20, -0.5, 0.6], [cx + 70, cell.h - 20, 0.5, 0.6]];
+    for (const [sx, sy, tilt, sc] of sprays) {
+      g.save();
+      g.translate(sx, sy);
+      g.rotate(tilt);
+      const H = (cell.h - 20) * sc;
+      g.strokeStyle = 'rgb(86,62,40)';
+      g.lineWidth = 3.2;
+      g.beginPath();
+      g.moveTo(0, 0);
+      g.lineTo(0, -H);
+      g.stroke();
+      const N = Math.round(62 * sc);
+      for (let i = 0; i < N; i++) {
+        const t = i / N;
+        const y = -t * H;
+        const len = (36 + 38 * Math.sin(Math.PI * Math.min(1, t * 0.9 + 0.12))) * (0.85 + 0.3 * rng.next()) * (0.55 + 0.45 * sc);
+        for (const side of [-1, 1]) {
+          const ang = -Math.PI / 2 + side * rng.range(0.7, 1.15);
+          const tx = Math.cos(ang) * len;
+          const ty = y + Math.sin(ang) * len;
+          const grd = g.createLinearGradient(0, y, tx, ty);
+          grd.addColorStop(0, 'rgb(34,66,32)');
+          grd.addColorStop(1, 'rgb(84,128,58)');
+          g.strokeStyle = grd;
+          g.lineWidth = 2.4;
+          g.beginPath();
+          g.moveTo(0, y);
+          g.lineTo(tx, ty);
+          g.stroke();
+          // Needle fringe along each shoot.
+          g.lineWidth = 1.3;
+          for (let k = 1; k < 5; k++) {
+            const f = k / 5;
+            const px = tx * f;
+            const py = y + (ty - y) * f;
+            g.beginPath();
+            g.moveTo(px, py);
+            g.lineTo(px + Math.cos(ang - side * 0.9) * len * 0.3, py + Math.sin(ang - side * 0.9) * len * 0.3 - 3);
+            g.stroke();
+          }
+        }
+      }
+      g.restore();
+    }
+    g.restore();
+  }
+
+  /** A palm frond lying along +x in a wide strip: rachis plus pairs of leaflets. */
+  function paintFrond(g, cell, rng, style) {
+    g.save();
+    g.beginPath();
+    g.rect(cell.x, cell.y, cell.w, cell.h);
+    g.clip();
+    g.translate(cell.x, cell.y);
+    const W = cell.w;
+    const mid = cell.h / 2;
+    const x0 = 8;
+    const x1 = W - 6;
+    const N = style === 'date' ? 62 : 100;
+    const maxL = cell.h * (style === 'date' ? 0.5 : 0.46);
+    const lw = style === 'date' ? 5.4 : 6.2;
+    for (let i = 0; i < N; i++) {
+      const f = i / N;
+      const x = x0 + f * (x1 - x0);
+      const prof = Math.sin(Math.PI * Math.min(1, f * 0.9 + 0.1));
+      const base = style === 'date' ? 0.5 : 0.35;
+      const L = maxL * (base + (1 - base) * prof) * (1 - 0.25 * f) * rng.range(0.9, 1.08);
+      for (const side of [-1, 1]) {
+        const fwd = style === 'date' ? 0.35 + rng.range(-0.1, 0.15) : 0.62 + rng.range(-0.08, 0.08);
+        const tx = x + L * fwd;
+        const ty = mid + side * L * (style === 'date' ? 0.96 : 0.82);
+        const bow = side * L * 0.08;
+        const grd = g.createLinearGradient(x, mid, tx, ty);
+        const lt = rng.range(0.9, 1.1);
+        if (style === 'date') {
+          grd.addColorStop(0, `rgb(${(54 * lt) | 0},${(100 * lt) | 0},${(44 * lt) | 0})`);
+          grd.addColorStop(1, `rgb(${(104 * lt) | 0},${(152 * lt) | 0},${(66 * lt) | 0})`);
+        } else {
+          grd.addColorStop(0, `rgb(${(50 * lt) | 0},${(104 * lt) | 0},${(36 * lt) | 0})`);
+          grd.addColorStop(1, `rgb(${(110 * lt) | 0},${(160 * lt) | 0},${(60 * lt) | 0})`);
+        }
+        g.fillStyle = grd;
+        g.beginPath();
+        g.moveTo(x - lw * 0.4, mid);
+        g.quadraticCurveTo(x + (tx - x) * 0.5 - side * 0, mid + (ty - mid) * 0.5 + bow, tx, ty);
+        g.quadraticCurveTo(x + (tx - x) * 0.5 + lw * 0.6, mid + (ty - mid) * 0.5 + bow, x + lw * 0.9, mid);
+        g.closePath();
+        g.fill();
+      }
+    }
+    // Rachis (midrib), tapering towards the tip.
+    const grd = g.createLinearGradient(x0, 0, x1, 0);
+    grd.addColorStop(0, 'rgb(150,150,70)');
+    grd.addColorStop(1, 'rgb(120,150,70)');
+    g.fillStyle = grd;
+    g.beginPath();
+    g.moveTo(0, mid - 3.2);
+    g.lineTo(x1, mid - 0.8);
+    g.lineTo(x1, mid + 0.8);
+    g.lineTo(0, mid + 3.2);
+    g.closePath();
+    g.fill();
+    g.restore();
+  }
+
+  function paintFan(g, cell, rng) {
+    g.save();
+    g.beginPath();
+    g.rect(cell.x, cell.y, cell.w, cell.h);
+    g.clip();
+    g.translate(cell.x, cell.y);
+    const bx = cell.w / 2;
+    const by = cell.h - 10;
+    const segs = 23;
+    const span = (210 * Math.PI) / 180;
+    for (let i = 0; i < segs; i++) {
+      const a = -span / 2 + (i / (segs - 1)) * span; // from vertical
+      const L = 112 + 108 * Math.cos(a * 0.9) * (0.92 + 0.12 * rng.next());
+      const arc = (span / (segs - 1)) * 0.95;
+      g.save();
+      g.translate(bx, by);
+      g.rotate(a);
+      const lt = rng.range(0.88, 1.1);
+      const grd = g.createLinearGradient(0, 0, 0, -L);
+      grd.addColorStop(0, `rgb(${(70 * lt) | 0},${(100 * lt) | 0},${(40 * lt) | 0})`);
+      grd.addColorStop(1, `rgb(${(96 * lt) | 0},${(150 * lt) | 0},${(56 * lt) | 0})`);
+      g.fillStyle = grd;
+      g.beginPath();
+      g.moveTo(-2, -8);
+      g.lineTo(-L * arc * 0.5, -L * 0.62);
+      g.lineTo(0, -L); // pointed tip
+      g.lineTo(L * arc * 0.5, -L * 0.62);
+      g.lineTo(2, -8);
+      g.closePath();
+      g.fill();
+      g.strokeStyle = 'rgba(190,200,110,0.7)';
+      g.lineWidth = 1.2;
+      g.beginPath();
+      g.moveTo(0, -8);
+      g.lineTo(0, -L * 0.96);
+      g.stroke();
+      g.restore();
+    }
+    // Petiole.
+    g.strokeStyle = 'rgb(120,130,60)';
+    g.lineWidth = 6;
+    g.beginPath();
+    g.moveTo(bx, cell.h);
+    g.lineTo(bx, by - 6);
+    g.stroke();
+    g.restore();
+  }
+
+  function barkTile(size, rng, noise, kind) {
+    const warp = field(noise, 64, 4, 3, 0, 0);
+    const fine = field(noise, 128, 24, 2, 2, 3);
+    const blot = field(noise, 64, 3, 3, 7, 2);
+    const hash = (a, b) => {
+      let h = Math.imul(a * 73856093 ^ b * 19349663, 2654435761) >>> 0;
+      h ^= h >>> 15;
+      return (h % 1000) / 1000;
+    };
+    let vor = null;
+    if (kind === 'pine') {
+      const cols = 6;
+      const rows = 11;
+      vor = { cols, rows, pts: [] };
+      for (let i = 0; i < cols * rows; i++) vor.pts.push([rng.next(), rng.next(), rng.next()]);
+    }
+    return paintFast(size, (u, v, x, y, o) => {
+      const w = fld(warp, u, v);
+      const f = fld(fine, u, v);
+      const b = fld(blot, u, v);
+      const g = rng.next();
+      let r;
+      let gr;
+      let bl;
+      if (kind === 'oak') {
+        const t = Math.abs(Math.sin((u * 17 + w * 2.6) * Math.PI));
+        const fis = smooth(0.55, 0.95, t) * (0.35 + 0.9 * fld(warp, (u * 2) % 1, (v * 3) % 1));
+        const k = 0.78 + f * 0.5 + (g - 0.5) * 0.14;
+        const m = Math.min(0.8, fis);
+        r = 118 * k * (1 - m) + 52 * m;
+        gr = 104 * k * (1 - m) + 44 * m;
+        bl = 90 * k * (1 - m) + 38 * m;
+      } else if (kind === 'palm') {
+        const t = 0.5 + 0.5 * Math.sin((v * 8 + (w - 0.5) * 0.5) * Math.PI * 2);
+        const groove = smooth(0.62, 1, t);
+        const streak = 0.9 + 0.1 * Math.sin((u * 48 + w * 5) * Math.PI);
+        const k = (0.8 + f * 0.4 + (g - 0.5) * 0.14) * streak * (1 - 0.18 * (1 - t));
+        r = 150 * k * (1 - groove * 0.6);
+        gr = 128 * k * (1 - groove * 0.62);
+        bl = 100 * k * (1 - groove * 0.66);
+      } else if (kind === 'date') {
+        const a = (u * 5 + v * 5) % 1;
+        const c = (u * 5 - v * 5 + 5) % 1;
+        const dd = Math.max(Math.abs(a - 0.5), Math.abs(c - 0.5));
+        const ia = Math.floor((u * 5 + v * 5) % 10);
+        const ib = Math.floor(((u * 5 - v * 5) % 10 + 10) % 10);
+        const tone = 0.75 + hash(ia, ib) * 0.5;
+        const seam = smooth(0.36, 0.5, dd) * 0.75;
+        const k = tone * (0.8 + f * 0.45) * (1 + (g - 0.5) * 0.14);
+        r = 150 * k * (1 - seam * 0.6);
+        gr = 120 * k * (1 - seam * 0.64);
+        bl = 84 * k * (1 - seam * 0.68);
+      } else if (kind === 'royal') {
+        const t = 0.5 + 0.5 * Math.sin((v * 3 + (w - 0.5) * 0.3) * Math.PI * 2);
+        const ring = smooth(0.8, 1, t);
+        const streak = 0.94 + 0.06 * Math.sin((u * 60 + w * 6) * Math.PI);
+        const k = (0.9 + f * 0.2 + (g - 0.5) * 0.07) * streak * (1 - ring * 0.22);
+        const lichen = smooth(0.58, 0.8, b) * 0.15;
+        r = 178 * k * (1 - lichen);
+        gr = 172 * k;
+        bl = 160 * k * (1 - lichen * 0.8);
+      } else {
+        // pine plates: wrapped voronoi
+        const cx = u * vor.cols;
+        const cy = v * vor.rows;
+        const ix = Math.floor(cx);
+        const iy = Math.floor(cy);
+        let d1 = 9;
+        let d2 = 9;
+        let id = 0;
+        for (let j = -1; j <= 1; j++) {
+          for (let i = -1; i <= 1; i++) {
+            const nx = (((ix + i) % vor.cols) + vor.cols) % vor.cols;
+            const ny = (((iy + j) % vor.rows) + vor.rows) % vor.rows;
+            const p = vor.pts[ny * vor.cols + nx];
+            const dx = ix + i + p[0] - cx;
+            const dy = (iy + j + p[1] - cy) * 0.5; // plates are taller than wide
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist < d1) { d2 = d1; d1 = dist; id = p[2]; } else if (dist < d2) d2 = dist;
+          }
+        }
+        const plate = smooth(0.0, 0.14, d2 - d1);
+        const k = (0.7 + id * 0.5) * (0.8 + f * 0.4) * (1 + (g - 0.5) * 0.12) * (0.75 + 0.25 * plate);
+        r = 118 * k * (0.25 + 0.75 * plate);
+        gr = 82 * k * (0.25 + 0.75 * plate);
+        bl = 60 * k * (0.25 + 0.75 * plate);
+      }
+      o[0] = r;
+      o[1] = gr;
+      o[2] = bl;
+    }).canvas;
+  }
+
+  function vegetationAtlasCanvas() {
+    const rng = new VH.RNG('vicehaven-vegetation');
+    const noise = new VH.ValueNoise(777);
+    const c = makeCanvas(ATLAS_SIZE);
+    const g = c.getContext('2d', { willReadFrequently: true });
+    const C = ATLAS.cells;
+    paintLeafCluster(g, C.oak, rng, {
+      n: 56, len: [34, 54], aspect: [0.36, 0.52], vein: 'rgba(190,210,120,0.55)',
+      dark: ['rgb(44,86,36)', 'rgb(50,92,38)', 'rgb(40,78,34)'],
+      mid: ['rgb(66,116,44)', 'rgb(72,122,46)', 'rgb(60,108,42)'],
+      light: ['rgb(98,148,58)', 'rgb(110,158,62)', 'rgb(88,138,54)'],
+    });
+    paintBloom(g, C.bloom, rng, 30, 11, 17, 5);
+    paintPineSpray(g, C.pine, rng);
+    paintLeafCluster(g, C.bush, rng, {
+      n: 120, len: [20, 32], aspect: [0.4, 0.55], vein: null,
+      dark: ['rgb(36,78,34)', 'rgb(40,84,36)'],
+      mid: ['rgb(56,108,42)', 'rgb(62,114,44)'],
+      light: ['rgb(86,138,54)', 'rgb(96,148,58)'],
+    });
+    paintFrond(g, C.frondA, rng, 'queen');
+    paintFrond(g, C.frondB, rng, 'date');
+    paintFan(g, C.fan, rng);
+    paintBloom(g, C.bloom2, rng, 70, 5, 8, 5);
+    g.fillStyle = 'rgb(255,255,255)';
+    g.fillRect(C.white.x, C.white.y, C.white.w, C.white.h);
+    const barks = { barkOak: 'oak', barkPalm: 'palm', barkDate: 'date', barkRoyal: 'royal', barkPine: 'pine' };
+    for (const key of Object.keys(barks)) g.drawImage(barkTile(256, rng, noise, barks[key]), C[key].x, C[key].y);
+    return c;
+  }
+
+  /** Canvas -> mipmapped sRGB DataTexture with clean colour under transparent pixels (no dark halos). */
+  function atlasTexture(canvas, anisotropy) {
+    const W = canvas.width;
+    const src = canvas.getContext('2d').getImageData(0, 0, W, W).data;
+    // Mean opaque colour per cell, to fill the colour under transparent pixels.
+    for (const key of Object.keys(ATLAS.cells)) {
+      const c = ATLAS.cells[key];
+      let r = 0, gg = 0, b = 0, n = 0;
+      for (let y = c.y; y < c.y + c.h; y++) {
+        for (let x = c.x; x < c.x + c.w; x++) {
+          const i = (y * W + x) * 4;
+          if (src[i + 3] > 200) { r += src[i]; gg += src[i + 1]; b += src[i + 2]; n++; }
+        }
+      }
+      if (!n) continue;
+      r /= n; gg /= n; b /= n;
+      for (let y = c.y; y < c.y + c.h; y++) {
+        for (let x = c.x; x < c.x + c.w; x++) {
+          const i = (y * W + x) * 4;
+          if (src[i + 3] < 48) { src[i] = r; src[i + 1] = gg; src[i + 2] = b; }
+        }
+      }
+    }
+    // Fill the atlas's unused area with a neutral green too.
+    const out = new Uint8Array(W * W * 4);
+    for (let y = 0; y < W; y++) {
+      out.set(src.subarray(y * W * 4, (y + 1) * W * 4), (W - 1 - y) * W * 4);
+    }
+    const tex = new THREE.DataTexture(out, W, W, THREE.RGBAFormat, THREE.UnsignedByteType);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+    tex.minFilter = THREE.LinearMipmapLinearFilter;
+    tex.magFilter = THREE.LinearFilter;
+    tex.generateMipmaps = true;
+    tex.anisotropy = anisotropy || 1;
+    tex.flipY = false;
+    tex.needsUpdate = true;
+    return tex;
+  }
+
   // ------------------------------------------------------------ public API
   const Textures = {
     list: {},
+    ATLAS,
 
     /** Generate every texture, yielding between them. onProgress(0..1, label). */
     async generate(anisotropy, onProgress) {
       const rng = new VH.RNG('vicehaven-textures');
       const noise = new VH.ValueNoise(4242);
       const jobs = [
-        ['asphalt', 'Paving the roads', () => toTexture(asphalt(512, rng, noise), true, anisotropy)],
-        ['sidewalk', 'Laying pavements', () => toTexture(paving(512, rng, noise, { tiles: 2, base: [184, 180, 170] }), true, anisotropy)],
-        ['plaza', 'Tiling the plaza', () => toTexture(paving(512, rng, noise, { tiles: 4, base: [200, 191, 175], alt: [184, 178, 168] }), true, anisotropy)],
-        ['grass', 'Growing grass', () => toTexture(grass(512, rng, noise), true, anisotropy)],
-        ['concrete', 'Pouring concrete', () => toTexture(concrete(256, rng, noise), true, anisotropy)],
+        ['asphalt', 'Paving the roads', () => toTexture(asphaltHD(1024, rng, noise), true, anisotropy)],
+        ['sidewalk', 'Laying pavements', () => toTexture(pavingHD(1024, rng, noise, { tiles: 2, base: [184, 180, 170] }), true, anisotropy)],
+        ['plaza', 'Tiling the plaza', () => toTexture(pavingHD(1024, rng, noise, { tiles: 4, base: [200, 191, 175], alt: [184, 178, 168], joint: 1.2 }), true, anisotropy)],
+        ['grass', 'Growing grass', () => toTexture(grassHD(1024, rng, noise), true, anisotropy)],
+        ['concrete', 'Pouring concrete', () => toTexture(concreteHD(1024, rng, noise), true, anisotropy)],
         ['wood', 'Cutting boardwalk planks', () => toTexture(wood(512, rng, noise), true, anisotropy)],
-        ['gravel', 'Spreading roof gravel', () => toTexture(gravel(256, rng, noise), true, anisotropy)],
+        ['gravel', 'Spreading roof gravel', () => toTexture(gravelHD(512, rng, noise), true, anisotropy)],
         ['grime', 'Weathering walls', () => toTexture(grime(256, rng, noise), false, anisotropy)],
+        ['sand', 'Raking the sand', () => toTexture(sandHD(512, rng, noise), true, anisotropy)],
+        ['macro', 'Mottling the ground', () => toTexture(macroMottle(256, rng, noise), false, anisotropy)],
+        ['vegAtlas', 'Growing trees', () => atlasTexture(vegetationAtlasCanvas(), anisotropy)],
+        // Tangent-space normal maps (same UVs as the colour textures).
+        ['asphaltN', 'Roughing up the roads', () => toTexture(normalMapFrom(this.list.asphalt.image, 5.5), false, anisotropy)],
+        ['sidewalkN', 'Chamfering slabs', () => toTexture(normalMapFrom(this.list.sidewalk.image, 4.5), false, anisotropy)],
+        ['plazaN', 'Chamfering tiles', () => toTexture(normalMapFrom(this.list.plaza.image, 4.5), false, anisotropy)],
+        ['concreteN', 'Casting joints', () => toTexture(normalMapFrom(this.list.concrete.image, 4), false, anisotropy)],
+        ['grassN', 'Combing the lawn', () => toTexture(normalMapFrom(this.list.grass.image, 2.4), false, anisotropy)],
+        ['gravelN', 'Raking gravel', () => toTexture(normalMapFrom(this.list.gravel.image, 5), false, anisotropy)],
       ];
       for (let i = 0; i < jobs.length; i++) {
         const [key, label, make] = jobs[i];
@@ -12408,6 +13343,180 @@ void main() {
     return { material: mat, depth };
   }
 
+  // ------------------------------------------------------ ground surfaces
+  // Roads, pavements, lawns and runway concrete get a matching normal map
+  // (so the sun rakes across aggregate, joints and tufts) and a world-space
+  // mottling term that breaks up the visible tiling of huge areas such as the
+  // airport apron. Chained onto any onBeforeCompile already on the material.
+  const GROUND_VERTEX_PARS = /* glsl */ `
+    varying vec3 vhGP;
+  `;
+  const GROUND_VERTEX_MAIN = /* glsl */ `
+    vhGP = (modelMatrix * vec4(transformed, 1.0)).xyz;
+  `;
+  const GROUND_FRAGMENT_PARS = /* glsl */ `
+    uniform sampler2D uMacro;
+    uniform vec3 uMacroAmt; // x: strength, y: warm/green shift, z: unused
+    varying vec3 vhGP;
+  `;
+  const GROUND_FRAGMENT_MAIN = /* glsl */ `
+    {
+      float vhM = texture2D(uMacro, vhGP.xz * 0.0105).r * 0.6 + texture2D(uMacro, vhGP.xz * 0.043 + 0.31).r * 0.4;
+      float vhD = (vhM - 0.5) * 2.0 * uMacroAmt.x;
+      diffuseColor.rgb *= vec3(1.0 + vhD * (1.0 + uMacroAmt.y), 1.0 + vhD, 1.0 + vhD * (1.0 - uMacroAmt.y));
+    }
+  `;
+
+  function addGroundMacro(mat, macroTex, amount, shift, key) {
+    const prev = mat.onBeforeCompile;
+    const prevKey = mat.customProgramCacheKey;
+    mat.onBeforeCompile = function (shader, renderer) {
+      if (prev) prev.call(this, shader, renderer);
+      shader.uniforms.uMacro = { value: macroTex };
+      shader.uniforms.uMacroAmt = { value: new THREE.Vector3(amount, shift, 0) };
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', '#include <common>\n' + GROUND_VERTEX_PARS)
+        .replace('#include <project_vertex>', '#include <project_vertex>\n' + GROUND_VERTEX_MAIN);
+      shader.fragmentShader = shader.fragmentShader
+        .replace('#include <common>', '#include <common>\n' + GROUND_FRAGMENT_PARS)
+        .replace('#include <map_fragment>', '#include <map_fragment>\n' + GROUND_FRAGMENT_MAIN);
+    };
+    mat.customProgramCacheKey = function () {
+      return (prevKey ? prevKey.call(this) : '') + key;
+    };
+  }
+
+  function applyGroundDetail(list, t) {
+    const set = (names, normal, scale, macro, amount, shift) => {
+      for (const n of names) {
+        const mat = list[n];
+        if (!mat) continue;
+        if (normal) {
+          mat.normalMap = normal;
+          mat.normalScale = new THREE.Vector2(scale, scale);
+        }
+        if (macro) addGroundMacro(mat, macro, amount, shift, '|vh-ground-' + amount + '-' + shift);
+        mat.needsUpdate = true;
+      }
+    };
+    set(['road', 'asphaltTop'], t.asphaltN, 0.9, t.macro, 0.22, 0.0);
+    set(['sidewalk'], t.sidewalkN, 0.8, t.macro, 0.12, 0.05);
+    set(['plaza', 'plazaTop'], t.plazaN, 0.8, t.macro, 0.1, 0.05);
+    set(['concrete'], t.concreteN, 0.8, t.macro, 0.2, 0.04);
+    set(['grass', 'grassTop'], t.grassN, 0.7, t.macro, 0.3, -0.35);
+  }
+
+  // ---------------------------------------------------------- vegetation
+  // Trees and palms: one atlas-textured, alpha-tested, double-sided material.
+  //   * Leaf cards, fronds and bark share the atlas. Vertices whose V >= 100
+  //     are bark: V = 100 * (barkIndex + 1) + localV, and the shader tiles that
+  //     bark cell inside its own rectangle (textureGrad keeps mips seamless).
+  //   * aFlex (0 trunk .. 1 leaf tip) drives gentle wind flutter on top of the
+  //     whole-tree sway; the shadow pass uses the same code so shadows move.
+  //   * Leaves glow a little when seen against the sun (cheap translucency).
+  function barkTable(atlasInfo) {
+    const rows = atlasInfo.barks.map((name) => {
+      const r = atlasInfo.rect(name, 0);
+      return `vec4(${r.u0.toFixed(6)}, ${r.v0.toFixed(6)}, ${(r.u1 - r.u0).toFixed(6)}, ${(r.v1 - r.v0).toFixed(6)})`;
+    });
+    return `const vec4 VH_BARK[${rows.length}] = vec4[${rows.length}](${rows.join(', ')});`;
+  }
+
+  const VEG_VERTEX_PARS = /* glsl */ `
+    attribute float aFlex;
+    uniform float uTime;
+    uniform float uWind;
+    varying vec3 vhWP;
+  `;
+  const VEG_SWAY = /* glsl */ `
+    #ifdef USE_INSTANCING
+      vec3 vhOrigin = vec3(instanceMatrix[3][0], instanceMatrix[3][1], instanceMatrix[3][2]);
+      float vhPhase = dot(vhOrigin.xz, vec2(0.13, 0.17));
+      float vhH = max(transformed.y, 0.0);
+      float vhBend = vhH * vhH * 0.0014 * uWind;
+      transformed.x += sin(uTime * 1.3 + vhPhase) * vhBend + sin(uTime * 3.7 + vhPhase * 2.0 + transformed.z) * vhBend * 0.2;
+      transformed.z += cos(uTime * 1.1 + vhPhase) * vhBend * 0.7;
+      float vhF = aFlex * uWind;
+      float vhQ = transformed.x * 1.7 + transformed.z * 2.3 + transformed.y * 1.3 + vhPhase * 3.0;
+      transformed += vec3(sin(uTime * 2.9 + vhQ), sin(uTime * 2.3 + vhQ * 1.3) * 0.5, cos(uTime * 2.6 + vhQ * 0.8)) * vhF * 0.11;
+    #endif
+  `;
+  const VEG_VERTEX_WORLD = /* glsl */ `
+    {
+      vec4 vhW = vec4(transformed, 1.0);
+      #ifdef USE_INSTANCING
+        vhW = instanceMatrix * vhW;
+      #endif
+      vhWP = (modelMatrix * vhW).xyz;
+    }
+  `;
+
+  function vegSampler(barks) {
+    return /* glsl */ `
+      ${barks}
+      #ifdef USE_MAP
+        vec4 sampledDiffuseColor;
+        {
+          vec2 vhDx = dFdx(vMapUv);
+          vec2 vhDy = dFdy(vMapUv);
+          if (vMapUv.y > 50.0) {
+            float vhKk = floor(vMapUv.y / 100.0);
+            vec4 vhCr = VH_BARK[int(clamp(vhKk - 1.0, 0.0, float(VH_BARK.length() - 1)))];
+            vec2 vhLoc = vec2(vMapUv.x, vMapUv.y - 100.0 * vhKk);
+            vec2 vhAuv = vhCr.xy + (0.012 + 0.976 * fract(vhLoc)) * vhCr.zw;
+            sampledDiffuseColor = textureGrad(map, vhAuv, vhDx * vhCr.zw, vhDy * vhCr.zw);
+          } else {
+            sampledDiffuseColor = textureGrad(map, vMapUv, vhDx, vhDy);
+          }
+        }
+        diffuseColor *= sampledDiffuseColor;
+      #endif
+    `;
+  }
+
+  function createVegetationMaterial(shared, atlas) {
+    const barks = barkTable(VH.Textures.ATLAS);
+    const alphaTest = 0.4;
+    const mat = new THREE.MeshStandardMaterial({
+      map: atlas, vertexColors: true, alphaTest, side: THREE.DoubleSide, roughness: 0.8, metalness: 0,
+    });
+    mat.onBeforeCompile = (shader) => {
+      shader.uniforms.uTime = shared.uTime;
+      shader.uniforms.uWind = shared.uWind;
+      shader.uniforms.uSunDir = shared.uSunDir;
+      shader.uniforms.uSunColor = shared.uSunColor;
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', '#include <common>\n' + VEG_VERTEX_PARS)
+        .replace('#include <begin_vertex>', '#include <begin_vertex>\n' + VEG_SWAY)
+        .replace('#include <project_vertex>', '#include <project_vertex>\n' + VEG_VERTEX_WORLD);
+      shader.fragmentShader = shader.fragmentShader
+        .replace('#include <common>', '#include <common>\nvarying vec3 vhWP;\nuniform vec3 uSunDir;\nuniform vec3 uSunColor;')
+        .replace('#include <map_fragment>', vegSampler(barks))
+        .replace(
+          '#include <emissivemap_fragment>',
+          `#include <emissivemap_fragment>
+          {
+            vec3 vhV = normalize(vhWP - cameraPosition);
+            float vhT = pow(max(dot(vhV, uSunDir), 0.0), 3.0) * smoothstep(0.02, 0.3, uSunDir.y);
+            float vhLeaf = vMapUv.y > 50.0 ? 0.0 : 1.0;
+            totalEmissiveRadiance += diffuseColor.rgb * uSunColor * vhT * 0.3 * vhLeaf;
+          }`
+        );
+    };
+    mat.customProgramCacheKey = () => 'vh-vegetation-v1';
+    const depth = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, map: atlas, alphaTest, side: THREE.DoubleSide });
+    depth.onBeforeCompile = (shader) => {
+      shader.uniforms.uTime = shared.uTime;
+      shader.uniforms.uWind = shared.uWind;
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', '#include <common>\n' + VEG_VERTEX_PARS)
+        .replace('#include <begin_vertex>', '#include <begin_vertex>\n' + VEG_SWAY);
+      shader.fragmentShader = shader.fragmentShader.replace('#include <map_fragment>', vegSampler(barks));
+    };
+    depth.customProgramCacheKey = () => 'vh-vegetation-depth-v1';
+    return { material: mat, depth };
+  }
+
   // --------------------------------------------------------------- water
   const WATER_VERTEX = /* glsl */ `
     #include <common>
@@ -12578,6 +13687,12 @@ void main() {
         })(),
         emissiveScreen: new THREE.MeshBasicMaterial({ vertexColors: true, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2 }),
       };
+      applyGroundDetail(this.list, t);
+      if (t.vegAtlas) {
+        const veg = createVegetationMaterial(shared, t.vegAtlas);
+        this.list.vegetation = veg.material;
+        this.list.vegetationDepth = veg.depth;
+      }
       // Rain-ready surfaces (see addWet above).
       const wetKinds = {
         road: 0, asphaltTop: 0, markings: 0, decal: 0, sidewalk: 1, plaza: 1, plazaTop: 1, concrete: 1,
@@ -15671,108 +16786,518 @@ void main() {
   const F = () => VH.COLLIDE;
 
   // ------------------------------------------------------------- modelling
-  function palmGeometry(height, lean, seed) {
-    const rng = new VH.RNG(seed);
-    const b = new VH.GeometryBuilder();
-    const up = new THREE.Vector3(0, 1, 0);
-    const m = new THREE.Matrix4();
-    const q = new THREE.Quaternion();
-    const segs = 7;
-    const pts = [];
-    for (let i = 0; i <= segs; i++) {
-      const t = i / segs;
-      pts.push(new THREE.Vector3(lean * t * t, height * t, 0));
-    }
-    const barkA = VH.col(0x8b7152);
-    const barkB = VH.col(0x6f583f);
-    for (let i = 0; i < segs; i++) {
-      const p0 = pts[i];
-      const p1 = pts[i + 1];
-      const dir = new THREE.Vector3().subVectors(p1, p0);
-      const len = dir.length();
-      dir.normalize();
-      const r0 = 0.26 - 0.1 * (i / segs);
-      const r1 = 0.26 - 0.1 * ((i + 1) / segs);
-      const g = new THREE.CylinderGeometry(r1, r0 * 1.08, len, 6, 1, true);
-      q.setFromUnitVectors(up, dir);
-      m.compose(new THREE.Vector3().addVectors(p0, p1).multiplyScalar(0.5), q, new THREE.Vector3(1, 1, 1));
-      b.merge(g, m, i % 2 ? barkA : barkB);
-      g.dispose();
-    }
-    const top = pts[segs];
-    // Coconuts.
-    const nut = new THREE.IcosahedronGeometry(0.17, 0);
-    for (let i = 0; i < 4; i++) {
-      const a = (i / 4) * Math.PI * 2 + 0.4;
-      m.makeTranslation(top.x + Math.cos(a) * 0.28, top.y - 0.3, top.z + Math.sin(a) * 0.28);
-      b.merge(nut, m, VH.col(0x5a4326));
-    }
-    nut.dispose();
-    // Fronds: a folded V-strip that arches out and droops.
-    const fronds = 8;
-    for (let f = 0; f < fronds; f++) {
-      const az = (f / fronds) * Math.PI * 2 + rng.range(-0.2, 0.2);
-      const L = rng.range(3.4, 4.4);
-      const lift = rng.range(0.25, 0.6);
-      const dx = Math.cos(az);
-      const dz = Math.sin(az);
-      const sideX = -dz;
-      const sideZ = dx;
-      const steps = 5;
-      const base = VH.col(0x3f6b2a);
-      const tip = VH.col(0x7fa846);
-      let prev = null;
-      for (let s = 0; s <= steps; s++) {
-        const t = s / steps;
-        const reach = L * t;
-        const y = top.y + L * (lift * t - 0.9 * t * t);
-        const cx = top.x + dx * reach;
-        const cz = top.z + dz * reach;
-        const w = 0.75 * Math.sin(Math.PI * Math.min(1, t * 1.1 + 0.05)) + 0.05;
-        const fold = 0.18 * w;
-        const cur = {
-          c: [cx, y, cz],
-          l: [cx + sideX * w, y - fold, cz + sideZ * w],
-          r: [cx - sideX * w, y - fold, cz - sideZ * w],
-          col: VH.colMix(base, tip, t),
-        };
-        if (prev) {
-          b.quad(prev.l, cur.l, cur.c, prev.c, [0, 1, 0], cur.col);
-          b.quad(prev.c, cur.c, cur.r, prev.r, [0, 1, 0], cur.col);
-        }
-        prev = cur;
-      }
-    }
-    return fixFlatNormals(b.build());
-  }
-
-  /** Quads above were given placeholder normals; compute real ones. */
-  function fixFlatNormals(geo) {
-    geo.computeVertexNormals();
-    return geo;
-  }
-
   const ZERO_MATRIX = new THREE.Matrix4().makeScale(0, 0, 0);
 
-  function treeGeometry(seed) {
-    const rng = new VH.RNG(seed);
-    const b = new VH.GeometryBuilder();
-    const m = new THREE.Matrix4();
-    const bark = VH.col(0x5b4432);
-    b.cylinder(0, 0, 0, 0.24, 0.15, 3.4, 7, bark, false);
-    const leafCols = [0x2f5d2a, 0x3b6e2f, 0x46783a, 0x355f2c];
-    const blob = new THREE.IcosahedronGeometry(1, 1);
-    const blobs = rng.int(4, 6);
-    for (let i = 0; i < blobs; i++) {
-      const a = (i / blobs) * Math.PI * 2 + rng.range(-0.3, 0.3);
-      const r = i === 0 ? 0 : rng.range(0.9, 1.6);
-      const s = rng.range(1.3, 2.0);
-      const y = 4.2 + rng.range(-0.4, 1.0) + (i === 0 ? 0.8 : 0);
-      m.compose(new THREE.Vector3(Math.cos(a) * r, y, Math.sin(a) * r), new THREE.Quaternion(), new THREE.Vector3(s, s * 0.85, s));
-      b.merge(blob, m, VH.col(rng.pick(leafCols), rng.range(0.9, 1.1)));
+  // ------------------------------------------------------- vegetation
+  // Every tree and palm is one geometry drawn with the shared vegetation
+  // material (materials.js): an atlas holding bark, leaf clusters, palm
+  // fronds and blossoms. Trunks and branches are smooth tapered tubes with
+  // tiled bark; foliage is alpha-tested cards. Per-vertex attributes:
+  // position, normal, colour (tint/gradient), uv (atlas), aFlex (wind flutter).
+  const V3 = {
+    sub: (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]],
+    add: (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]],
+    mul: (a, k) => [a[0] * k, a[1] * k, a[2] * k],
+    dot: (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2],
+    cross: (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]],
+    len: (a) => Math.hypot(a[0], a[1], a[2]),
+    norm(a) {
+      const l = Math.hypot(a[0], a[1], a[2]) || 1;
+      return [a[0] / l, a[1] / l, a[2] / l];
+    },
+    lerp: (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t],
+  };
+
+  class VegBuilder {
+    constructor() {
+      this.pos = [];
+      this.nrm = [];
+      this.col = [];
+      this.uv = [];
+      this.flex = [];
+      this.idx = [];
     }
-    blob.dispose();
+
+    vert(p, n, c, u, v, f) {
+      this.pos.push(p[0], p[1], p[2]);
+      this.nrm.push(n[0], n[1], n[2]);
+      this.col.push(c[0], c[1], c[2]);
+      this.uv.push(u, v);
+      this.flex.push(f || 0);
+      return this.pos.length / 3 - 1;
+    }
+
+    tri(a, b, c) {
+      this.idx.push(a, b, c);
+    }
+
+    /**
+     * A smooth tube along `pts` (array of [x,y,z]) with radii `rad` (same length).
+     * bark: index into the atlas bark cells (tiled by the shader), or -1 for a flat colour.
+     */
+    tube(pts, rad, sides, color, bark, tile, flex) {
+      const n = pts.length;
+      const A = VH.Textures.ATLAS;
+      const white = A.rect('white', 8);
+      const tans = [];
+      for (let i = 0; i < n; i++) {
+        const a = pts[Math.max(0, i - 1)];
+        const b = pts[Math.min(n - 1, i + 1)];
+        tans.push(V3.norm(V3.sub(b, a)));
+      }
+      let nv = Math.abs(tans[0][0]) < 0.9 ? [1, 0, 0] : [0, 0, 1];
+      const base = this.pos.length / 3;
+      const rAvg = (rad[0] + rad[n - 1]) * 0.5;
+      const ucount = Math.max(1, Math.round((Math.PI * 2 * rAvg) / (tile || 1.2)));
+      let dist = 0;
+      for (let i = 0; i < n; i++) {
+        const t = tans[i];
+        nv = V3.norm(V3.sub(nv, V3.mul(t, V3.dot(nv, t))));
+        const bv = V3.cross(t, nv);
+        if (i) dist += V3.len(V3.sub(pts[i], pts[i - 1]));
+        const c = typeof color === 'function' ? color(i / (n - 1)) : color;
+        const f = typeof flex === 'function' ? flex(i / (n - 1)) : flex || 0;
+        for (let j = 0; j <= sides; j++) {
+          const a = (j / sides) * Math.PI * 2;
+          const ox = nv[0] * Math.cos(a) + bv[0] * Math.sin(a);
+          const oy = nv[1] * Math.cos(a) + bv[1] * Math.sin(a);
+          const oz = nv[2] * Math.cos(a) + bv[2] * Math.sin(a);
+          const p = [pts[i][0] + ox * rad[i], pts[i][1] + oy * rad[i], pts[i][2] + oz * rad[i]];
+          let u;
+          let v;
+          if (bark >= 0) {
+            u = (j / sides) * ucount;
+            v = 100 * (bark + 1) + dist / (tile || 1.2);
+          } else {
+            u = (white.u0 + white.u1) / 2;
+            v = (white.v0 + white.v1) / 2;
+          }
+          this.vert(p, [ox, oy, oz], c, u, v, f);
+        }
+      }
+      const row = sides + 1;
+      for (let i = 0; i < n - 1; i++) {
+        for (let j = 0; j < sides; j++) {
+          const a = base + i * row + j;
+          this.tri(a, a + row, a + 1);
+          this.tri(a + 1, a + row, a + row + 1);
+        }
+      }
+      return this;
+    }
+
+    /** A flat card centred at c, spanned by tangent t and bitangent b (half-sizes folded in). */
+    card(c, t, b, n, rect, col, flex, flipU) {
+      const p = [
+        [c[0] - t[0] - b[0], c[1] - t[1] - b[1], c[2] - t[2] - b[2]],
+        [c[0] + t[0] - b[0], c[1] + t[1] - b[1], c[2] + t[2] - b[2]],
+        [c[0] + t[0] + b[0], c[1] + t[1] + b[1], c[2] + t[2] + b[2]],
+        [c[0] - t[0] + b[0], c[1] - t[1] + b[1], c[2] - t[2] + b[2]],
+      ];
+      const ua = flipU ? rect.u1 : rect.u0;
+      const ub = flipU ? rect.u0 : rect.u1;
+      const uvs = [[ua, rect.v0], [ub, rect.v0], [ub, rect.v1], [ua, rect.v1]];
+      const ids = p.map((q, i) => this.vert(q, n, col, uvs[i][0], uvs[i][1], flex));
+      this.tri(ids[0], ids[1], ids[2]);
+      this.tri(ids[0], ids[2], ids[3]);
+    }
+
+    /**
+     * A ribbon made of rows; each row is { p: [left, centre, right], uv: [[u,v] x3], col, flex }.
+     * Normals lean upwards so fronds read as lit from above.
+     */
+    strip(rows, upBlend) {
+      const base = this.pos.length / 3;
+      const nr = rows.length;
+      for (let i = 0; i < nr; i++) {
+        const r = rows[i];
+        const nx = rows[Math.min(nr - 1, i + 1)];
+        const pv = rows[Math.max(0, i - 1)];
+        const across = V3.sub(r.p[2], r.p[0]);
+        const along = V3.sub(nx.p[1], pv.p[1]);
+        let nn = V3.norm(V3.cross(across, along));
+        if (nn[1] < 0) nn = V3.mul(nn, -1);
+        nn = V3.norm(V3.lerp(nn, [0, 1, 0], upBlend === undefined ? 0.45 : upBlend));
+        for (let k = 0; k < 3; k++) this.vert(r.p[k], nn, r.col, r.uv[k][0], r.uv[k][1], r.flex);
+      }
+      for (let i = 0; i < nr - 1; i++) {
+        const a = base + i * 3;
+        const b = a + 3;
+        this.tri(a, b, a + 1); this.tri(a + 1, b, b + 1);
+        this.tri(a + 1, b + 1, a + 2); this.tri(a + 2, b + 1, b + 2);
+      }
+    }
+
+    /** A low-poly rounded blob (fruit, coconuts) in a flat colour. */
+    blob(c, r, sy, col) {
+      const g = VegBuilder.ico || (VegBuilder.ico = new THREE.OctahedronGeometry(1, 0));
+      const A = VH.Textures.ATLAS.rect('white', 8);
+      const pa = g.attributes.position;
+      const base = this.pos.length / 3;
+      for (let i = 0; i < pa.count; i++) {
+        const x = pa.getX(i);
+        const y = pa.getY(i);
+        const z = pa.getZ(i);
+        const l = Math.hypot(x, y, z);
+        this.vert([c[0] + x * r, c[1] + y * r * sy, c[2] + z * r], [x / l, y / l, z / l], col, (A.u0 + A.u1) / 2, (A.v0 + A.v1) / 2, 0.1);
+      }
+      for (let i = 0; i < pa.count; i += 3) this.tri(base + i, base + i + 1, base + i + 2);
+    }
+
+    build() {
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(this.pos, 3));
+      g.setAttribute('normal', new THREE.Float32BufferAttribute(this.nrm, 3));
+      g.setAttribute('color', new THREE.Float32BufferAttribute(this.col, 3));
+      g.setAttribute('uv', new THREE.Float32BufferAttribute(this.uv, 2));
+      g.setAttribute('aFlex', new THREE.Float32BufferAttribute(this.flex, 1));
+      g.setIndex(this.idx);
+      g.computeBoundingSphere();
+      g.computeBoundingBox();
+      return g;
+    }
+  }
+
+  const BARK = { oak: 0, palm: 1, date: 2, royal: 3, pine: 4 };
+
+  /** A trunk centre-line with a gentle lean and S-bend; returns points and radii. */
+  function trunkPath(rng, height, lean, bend, r0, r1, segs, flare) {
+    const pts = [];
+    const rad = [];
+    const phase = rng.range(0, 6.28);
+    for (let i = 0; i <= segs; i++) {
+      const t = i / segs;
+      const x = lean * Math.pow(t, 1.7) + Math.sin(t * 3.1 + phase) * bend * t;
+      const z = Math.cos(t * 2.3 + phase) * bend * 0.6 * t;
+      const y = height * (t - 0.04 * t * t);
+      pts.push([x, y, z]);
+      let r = r0 + (r1 - r0) * t;
+      if (flare) r *= 1 + flare * Math.exp(-y / 0.55);
+      rad.push(r);
+    }
+    return { pts, rad };
+  }
+
+  /** One pinnate frond arching from `top` at azimuth `az`. */
+  function addFrond(b, rng, top, az, L, e0, droop, rectName, cols, o) {
+    const A = VH.Textures.ATLAS;
+    const R = A.rect(rectName, 1);
+    const dx = Math.cos(az);
+    const dz = Math.sin(az);
+    const side = [-dz, 0, dx];
+    const segs = o.segs || 5;
+    const width = L * (o.wmul || 0.34);
+    const rows = [];
+    let p = [top[0], top[1], top[2]];
+    let a = e0;
+    for (let i = 0; i <= segs; i++) {
+      const t = i / segs;
+      if (i) {
+        a = e0 - droop * t * (0.5 + 0.7 * t);
+        p = [p[0] + dx * Math.cos(a) * (L / segs), p[1] + Math.sin(a) * (L / segs), p[2] + dz * Math.cos(a) * (L / segs)];
+      }
+      const phi = (o.fold || 0.35) + 0.65 * t * t + (o.hang || 0) * t;
+      const hw = width * 0.5 * (0.9 + 0.1 * Math.sin(Math.PI * t));
+      const l = [p[0] + side[0] * hw * Math.cos(phi), p[1] - hw * Math.sin(phi), p[2] + side[2] * hw * Math.cos(phi)];
+      const r = [p[0] - side[0] * hw * Math.cos(phi), p[1] - hw * Math.sin(phi), p[2] - side[2] * hw * Math.cos(phi)];
+      const u = R.u0 + (R.u1 - R.u0) * t;
+      rows.push({
+        p: [l, p, r],
+        uv: [[u, R.v1], [u, (R.v0 + R.v1) / 2], [u, R.v0]],
+        col: VH.colMix(cols[0], cols[1], Math.min(1, t * 1.2)),
+        flex: 0.15 + 0.85 * t,
+      });
+    }
+    b.strip(rows, 0.5);
+  }
+
+  function addCrownShaft(b, top, h, r, col) {
+    const pts = [];
+    const rad = [];
+    for (let i = 0; i <= 2; i++) {
+      pts.push([top[0], top[1] - h + (i / 2) * h, top[2]]);
+      rad.push(r * (i === 0 ? 1 : i === 2 ? 0.8 : 1.12));
+    }
+    b.tube(pts, rad, 8, col, -1);
+  }
+
+  const PALM_TYPES = {
+    // Queen palm: medium, graceful, dense drooping fronds and orange fruit clusters.
+    queen: { h: 8.4, lean: 0.9, bend: 0.25, r0: 0.3, r1: 0.19, bark: BARK.palm, fronds: 14, L: [3.7, 4.6], e0: [0.35, 0.8], droop: [1.1, 1.8], rect: 'frondA', shaft: 1.1, fruit: 'orange', seed: 11 },
+    // Royal palm: tall, ramrod straight, smooth grey column and a green crownshaft.
+    royal: { h: 12.6, lean: 0.5, bend: 0.1, r0: 0.38, r1: 0.26, bark: BARK.royal, fronds: 11, L: [4.4, 5.4], e0: [0.5, 1.0], droop: [0.9, 1.6], rect: 'frondA', shaft: 1.7, fruit: 'purple', seed: 23, bulge: true },
+    // Coconut palm: tall and leaning, long drooping fronds, coconuts.
+    coconut: { h: 11.5, lean: 1.9, bend: 0.55, r0: 0.3, r1: 0.17, bark: BARK.palm, fronds: 13, L: [4.0, 5.0], e0: [0.3, 0.75], droop: [1.3, 2.0], rect: 'frondA', shaft: 0, fruit: 'coconut', seed: 31 },
+    // Date palm: stocky shaggy trunk with diamond leaf-scars, stiff upright fronds, date bunches.
+    date: { h: 7.2, lean: 0.4, bend: 0.2, r0: 0.4, r1: 0.32, bark: BARK.date, fronds: 18, L: [3.6, 4.4], e0: [0.7, 1.25], droop: [0.9, 1.5], rect: 'frondB', shaft: 0, fruit: 'date', seed: 47, wmul: 0.3, fold: 0.5 },
+  };
+
+  function palmGeometry(type) {
+    const P = PALM_TYPES[type];
+    const rng = new VH.RNG(P.seed);
+    const b = new VegBuilder();
+    const trunk = trunkPath(rng, P.h, P.lean, P.bend, P.r0, P.r1, 8, 0.55);
+    if (P.bulge) for (let i = 0; i < trunk.rad.length; i++) trunk.rad[i] *= 1 + 0.12 * Math.sin((i / (trunk.rad.length - 1)) * 3.1);
+    const tcol = (t) => [0.78 + 0.22 * t, 0.76 + 0.22 * t, 0.74 + 0.2 * t];
+    const sides = 7;
+    b.tube(trunk.pts, trunk.rad, sides, tcol, P.bark, 1.0, 0);
+    const top = trunk.pts[trunk.pts.length - 1];
+    const topR = trunk.rad[trunk.rad.length - 1];
+    if (P.shaft) addCrownShaft(b, top, P.shaft, topR * 1.02, VH.col(0x7ba84a));
+    // Dome over the trunk top.
+    const crown = [top[0], top[1] + 0.25, top[2]];
+    b.blob([top[0], top[1] + 0.05, top[2]], topR * 1.25, 0.9, VH.col(0x5d7f3a));
+    // Fruit.
+    const fc = { orange: VH.col(0xe0782a), purple: VH.col(0x5a3a6a), coconut: VH.col(0x6a8a3a), date: VH.col(0xd9892e) }[P.fruit];
+    const nFruit = P.fruit === 'date' ? 3 : P.fruit === 'purple' ? 4 : 5;
+    for (let i = 0; i < nFruit; i++) {
+      const a = (i / nFruit) * Math.PI * 2 + rng.range(0, 1);
+      const rr = topR * 1.1 + rng.range(0.05, 0.3);
+      if (P.fruit === 'date') {
+        for (let k = 0; k < 3; k++) b.blob([top[0] + Math.cos(a) * (rr + k * 0.05), top[1] - 0.35 - k * 0.18, top[2] + Math.sin(a) * (rr + k * 0.05)], 0.1, 1.4, fc);
+      } else {
+        b.blob([top[0] + Math.cos(a) * rr, top[1] - 0.25 - rng.range(0, 0.35), top[2] + Math.sin(a) * rr], P.fruit === 'coconut' ? 0.2 : 0.1, 1, fc);
+      }
+    }
+    // Fronds.
+    const cA = [[0.7, 0.78, 0.66], [1.15, 1.12, 0.95]];
+    for (let i = 0; i < P.fronds; i++) {
+      const ring = i % 3; // inner (upright) ring to outer (drooping) ring
+      const az = (i / P.fronds) * Math.PI * 2 + rng.range(-0.18, 0.18);
+      const L = rng.range(P.L[0], P.L[1]) * (ring === 0 ? 0.85 : 1);
+      const e0 = rng.range(P.e0[0], P.e0[1]) + (ring === 0 ? 0.35 : ring === 2 ? -0.18 : 0);
+      const droop = rng.range(P.droop[0], P.droop[1]) * (ring === 2 ? 1.12 : 1);
+      const k = rng.range(0.9, 1.1);
+      const cols = [VH.colMul(cA[0], k), VH.colMul(cA[1], k * (0.95 + 0.1 * rng.next()))];
+      addFrond(b, rng, crown, az, L, e0, droop, P.rect, cols, { wmul: P.wmul, fold: P.fold, segs: type === 'date' ? 4 : 5 });
+    }
+    // A couple of old, drooping brown-green fronds.
+    if (type === 'queen' || type === 'coconut') {
+      for (let i = 0; i < 2; i++) {
+        const az = rng.range(0, 6.28);
+        addFrond(b, rng, [top[0], top[1] - 0.2, top[2]], az, rng.range(2.4, 3.1), -0.3, 1.1, P.rect, [[3.0, 1.05, 1.1], [4.2, 1.3, 1.4]], { wmul: 0.26, fold: 0.5 });
+      }
+    }
     return b.build();
+  }
+
+  /** Mexican fan palm: thick shaggy trunk, a ball of stiff fans and a skirt of dead leaves. */
+  function fanPalmGeometry() {
+    const rng = new VH.RNG(59);
+    const b = new VegBuilder();
+    const H = 6.6;
+    const trunk = trunkPath(rng, H, 0.35, 0.18, 0.34, 0.25, 9, 0.5);
+    b.tube(trunk.pts, trunk.rad, 8, (t) => [0.8 + 0.2 * t, 0.78 + 0.2 * t, 0.74 + 0.18 * t], BARK.date, 1.0, 0);
+    const top = trunk.pts[trunk.pts.length - 1];
+    const R = VH.Textures.ATLAS.rect('fan', 1);
+    const mkLeaf = (az, len, e0, droop, col, wmul) => {
+      const dx = Math.cos(az);
+      const dz = Math.sin(az);
+      const rows = [];
+      let p = [top[0], top[1] + 0.1, top[2]];
+      let a = e0;
+      const segs = 3;
+      for (let i = 0; i <= segs; i++) {
+        const t = i / segs;
+        if (i) {
+          a = e0 - droop * t;
+          p = [p[0] + dx * Math.cos(a) * (len / segs), p[1] + Math.sin(a) * (len / segs), p[2] + dz * Math.cos(a) * (len / segs)];
+        }
+        const hw = len * wmul * (0.55 + 0.45 * Math.min(1, t * 2.2));
+        const droopSide = 0.18 * t * hw;
+        const l = [p[0] - dz * hw, p[1] - droopSide, p[2] + dx * hw];
+        const r = [p[0] + dz * hw, p[1] - droopSide, p[2] - dx * hw];
+        const v = R.v0 + (R.v1 - R.v0) * t;
+        rows.push({ p: [l, p, r], uv: [[R.u0, v], [(R.u0 + R.u1) / 2, v], [R.u1, v]], col: VH.colMul(col, 0.92 + 0.08 * t), flex: 0.2 + 0.8 * t });
+      }
+      b.strip(rows, 0.5);
+    };
+    const n = 17;
+    for (let i = 0; i < n; i++) {
+      const az = (i / n) * Math.PI * 2 + rng.range(-0.15, 0.15);
+      const ring = i % 3;
+      mkLeaf(az, rng.range(2.3, 2.9) * (ring === 0 ? 0.85 : 1), ring === 0 ? 0.95 : ring === 1 ? 0.55 : 0.2, ring === 2 ? 1.1 : 0.9, VH.colMul([1.0, 1.0, 0.95], rng.range(0.9, 1.1)), 0.46);
+    }
+    // The dead-leaf skirt hanging below the crown.
+    for (let i = 0; i < 7; i++) {
+      const az = (i / 7) * Math.PI * 2 + rng.range(0, 0.8);
+      mkLeaf(az, rng.range(1.6, 2.2), -0.2 - rng.range(0, 0.4), 1.0, VH.colMul([4.5, 1.1, 1.6], rng.range(0.8, 1)), 0.4);
+    }
+    return b.build();
+  }
+
+  // ---- broadleaf trees -------------------------------------------------
+  function leafCardsAround(b, rng, center, rx, ry, count, sizeRange, rectName, colFn, tips, opts) {
+    const R = VH.Textures.ATLAS.rect(rectName, 1.5);
+    for (let i = 0; i < count; i++) {
+      let c;
+      if (tips && tips.length && rng.chance(opts && opts.tipBias !== undefined ? opts.tipBias : 0.45)) {
+        const tp = tips[rng.int(0, tips.length - 1)];
+        c = [tp[0] + rng.range(-1.2, 1.2), tp[1] + rng.range(-0.7, 1.0), tp[2] + rng.range(-1.2, 1.2)];
+      } else {
+        let v = [rng.range(-1, 1), rng.range(-1, 1), rng.range(-1, 1)];
+        if (v[0] * v[0] + v[1] * v[1] + v[2] * v[2] < 0.01) v = [0.5, 0.5, 0.5];
+        v = V3.norm(v);
+        if (v[1] < 0) v[1] *= 0.55;
+        const f = 0.55 + 0.45 * Math.sqrt(rng.next());
+        c = [center[0] + v[0] * rx * f, center[1] + v[1] * ry * f, center[2] + v[2] * rx * f];
+      }
+      const rel = [(c[0] - center[0]) / rx, (c[1] - center[1]) / ry, (c[2] - center[2]) / rx];
+      const radial = Math.min(1, V3.len(rel));
+      let out = V3.norm([rel[0], rel[1] * 0.8, rel[2]]);
+      if (radial < 0.05) out = [0, 1, 0];
+      let n = V3.norm(V3.add(V3.mul(out, 0.55), [rng.range(-0.55, 0.55), rng.range(-0.45, 0.65), rng.range(-0.55, 0.55)]));
+      if (V3.dot(n, out) < 0.1) n = V3.norm(V3.add(n, V3.mul(out, 0.8)));
+      let t = V3.cross(n, [0, 1, 0]);
+      if (V3.len(t) < 0.2) t = [1, 0, 0];
+      t = V3.norm(t);
+      let bt = V3.cross(n, t);
+      const phi = rng.range(0, 6.28);
+      const t2 = V3.add(V3.mul(t, Math.cos(phi)), V3.mul(bt, Math.sin(phi)));
+      const b2 = V3.add(V3.mul(t, -Math.sin(phi)), V3.mul(bt, Math.cos(phi)));
+      const s = rng.range(sizeRange[0], sizeRange[1]) * (1 - 0.18 * (1 - radial));
+      const shadeN = V3.norm(V3.add(V3.mul(out, 0.8), V3.mul(n, 0.2)));
+      const col = colFn(radial, rel[1], rng);
+      b.card(c, V3.mul(t2, s * 0.5), V3.mul(b2, s * 0.5), shadeN, R, col, 0.35 + 0.65 * radial, rng.chance(0.5));
+    }
+  }
+
+  function broadleafGeometry(seed, o) {
+    const rng = new VH.RNG(seed);
+    const b = new VegBuilder();
+    const trunkH = o.trunkH;
+    const trunk = trunkPath(rng, trunkH, o.lean, 0.3, 0.27, 0.13, 7, 0.9);
+    const bark = VH.col(0xffffff, 0.85);
+    b.tube(trunk.pts, trunk.rad, 8, bark, BARK.oak, 1.2, 0);
+    const crown = [o.lean * 0.5, o.crownY, 0];
+    const tips = [];
+    const nb = rng.int(o.branches[0], o.branches[1]);
+    for (let i = 0; i < nb; i++) {
+      const t = rng.range(0.5, 0.92);
+      const idx = Math.min(trunk.pts.length - 1, Math.floor(t * (trunk.pts.length - 1)));
+      const s = trunk.pts[idx];
+      const az = (i / nb) * Math.PI * 2 + rng.range(-0.4, 0.4);
+      const el = rng.range(0.35, 0.95);
+      const len = rng.range(o.branchLen[0], o.branchLen[1]);
+      const dir = [Math.cos(az) * Math.cos(el), Math.sin(el), Math.sin(az) * Math.cos(el)];
+      const pts = [];
+      const rad = [];
+      for (let k = 0; k <= 4; k++) {
+        const f = k / 4;
+        pts.push([s[0] + dir[0] * len * f, s[1] + dir[1] * len * f + 0.18 * len * f * f, s[2] + dir[2] * len * f]);
+        rad.push(Math.max(0.025, trunk.rad[idx] * 0.55 * (1 - f * 0.85)));
+      }
+      b.tube(pts, rad, 4, bark, BARK.oak, 1.0, 0);
+      tips.push(pts[4]);
+    }
+    const colFn = (radial, ry, r) => {
+      const k = (0.62 + 0.4 * radial + 0.18 * ry) * r.range(0.88, 1.12);
+      const j = r.range(-1, 1) * 0.07;
+      const c = o.tint;
+      return [c[0] * k * (1 + j), c[1] * k, c[2] * k * (1 - j)];
+    };
+    leafCardsAround(b, rng, crown, o.rx, o.ry, o.cards, o.size, o.leaf || 'oak', colFn, tips, { tipBias: o.tipBias });
+    if (o.bloom) {
+      const bc = (radial, ry, r) => {
+        const c = o.bloom.color;
+        const k = r.range(0.85, 1.1);
+        return [c[0] * k, c[1] * k, c[2] * k];
+      };
+      leafCardsAround(b, rng, crown, o.rx * 1.02, o.ry * 1.02, o.bloom.cards, o.bloom.size, o.bloom.rect, bc, tips, { tipBias: 0.2 });
+    }
+    return b.build();
+  }
+
+  function pineGeometry(seed) {
+    const rng = new VH.RNG(seed);
+    const b = new VegBuilder();
+    const H = 8.8;
+    const trunk = trunkPath(rng, H, 0.25, 0.15, 0.24, 0.05, 8, 0.6);
+    b.tube(trunk.pts, trunk.rad, 7, VH.col(0xffffff, 0.8), BARK.pine, 1.0, 0);
+    const R = VH.Textures.ATLAS.rect('pine', 1.5);
+    const levels = 11;
+    for (let lv = 0; lv < levels; lv++) {
+      const t = lv / (levels - 1);
+      const y = 2.0 + t * (H - 2.4);
+      const reach = 3.0 * (1 - t) + 0.9;
+      const cnt = Math.round(8 - t * 3);
+      const rot = rng.range(0, 6.28);
+      for (let k = 0; k < cnt; k++) {
+        const az = rot + (k / cnt) * Math.PI * 2 + rng.range(-0.2, 0.2);
+        const dx = Math.cos(az);
+        const dz = Math.sin(az);
+        const sz = reach * rng.range(0.85, 1.1);
+        const droop = 0.35 + 0.15 * (1 - t);
+        // Spray lies along (dx,dz), tilting down; its stem is the card's long axis.
+        const tilt = [dx * Math.cos(droop), -Math.sin(droop), dz * Math.cos(droop)];
+        const c = [dx * sz * 0.5 * Math.cos(droop), y - Math.sin(droop) * sz * 0.5, dz * sz * 0.5 * Math.cos(droop)];
+        const side = [-dz, 0, dx];
+        let n = V3.norm(V3.cross(side, tilt));
+        if (n[1] < 0) n = V3.mul(n, -1);
+        const shade = V3.norm(V3.add(V3.mul(n, 0.4), V3.norm([dx, 0.7, dz])));
+        const k2 = (0.55 + 0.5 * t + rng.range(0, 0.18));
+        // Card: t axis along side, b axis along the spray stem (bottom of the texture at the trunk).
+        b.card(c, V3.mul(side, sz * 0.5), V3.mul(tilt, sz * 0.5), shade, R, [0.75 * k2, 0.95 * k2, 0.7 * k2], 0.3 + 0.7 * (1 - t) * 0.6, rng.chance(0.5));
+      }
+    }
+    // Leader tuft.
+    for (let k = 0; k < 2; k++) {
+      const az = k * Math.PI * 0.5;
+      const side = [Math.cos(az), 0, Math.sin(az)];
+      b.card([trunk.pts[8][0], H - 0.5, trunk.pts[8][2]], V3.mul(side, 0.6), [0, 1.1, 0], [0, 1, 0], R, [0.6, 0.78, 0.55], 0.5, false);
+    }
+    return b.build();
+  }
+
+  function cypressGeometry(seed) {
+    const rng = new VH.RNG(seed);
+    const b = new VegBuilder();
+    b.tube([[0, -0.1, 0], [0, 1.2, 0]], [0.16, 0.12], 6, VH.col(0xffffff, 0.6), BARK.pine, 1.0, 0);
+    const colFn = (radial, ry, r) => {
+      const k = (0.55 + 0.35 * radial + 0.1 * ry) * r.range(0.85, 1.1);
+      return [0.62 * k, 0.86 * k, 0.6 * k];
+    };
+    // A slim ellipsoid of dense small-leaf cards.
+    leafCardsAround(b, rng, [0, 4.4, 0], 1.25, 4.1, 46, [1.2, 1.9], 'bush', colFn, null, null);
+    return b.build();
+  }
+
+  function bushGeometry(seed, o) {
+    const rng = new VH.RNG(seed);
+    const b = new VegBuilder();
+    const colFn = (radial, ry, r) => {
+      const k = (0.62 + 0.4 * radial + 0.2 * ry) * r.range(0.88, 1.1);
+      const c = o.tint;
+      return [c[0] * k, c[1] * k, c[2] * k];
+    };
+    leafCardsAround(b, rng, [0, o.y, 0], o.rx, o.ry, o.cards, o.size, 'bush', colFn, null, null);
+    if (o.bloom) {
+      const bc = (radial, ry, r) => {
+        const c = o.bloom;
+        const k = r.range(0.85, 1.1);
+        return [c[0] * k, c[1] * k, c[2] * k];
+      };
+      leafCardsAround(b, rng, [0, o.y, 0], o.rx * 1.05, o.ry * 1.05, 10, [0.45, 0.65], 'bloom2', bc, null, null);
+    }
+    return b.build();
+  }
+
+  const OAK_TINT = [0.9, 1.0, 0.82];
+  function treeGeometry(seed, variant) {
+    switch (variant) {
+      case 'oakB':
+        return broadleafGeometry(seed, { trunkH: 3.0, lean: -0.35, crownY: 4.6, rx: 3.2, ry: 2.5, cards: 66, size: [1.5, 2.3], branches: [5, 7], branchLen: [1.6, 3.0], tint: [0.95, 1.0, 0.78], tipBias: 0.5 });
+      case 'flower':
+        return broadleafGeometry(seed, { trunkH: 2.8, lean: 0.3, crownY: 4.5, rx: 3.0, ry: 2.3, cards: 46, size: [1.4, 2.1], branches: [4, 6], branchLen: [1.4, 2.6], tint: [0.88, 1.0, 0.8], bloom: { cards: 44, size: [1.3, 1.9], rect: 'bloom', color: VH.col(0xff7aa8) } });
+      case 'flowerB':
+        return broadleafGeometry(seed, { trunkH: 3.2, lean: -0.2, crownY: 4.7, rx: 3.1, ry: 2.4, cards: 50, size: [1.4, 2.2], branches: [4, 6], branchLen: [1.5, 2.8], tint: [0.8, 1.0, 0.85], bloom: { cards: 40, size: [1.3, 1.9], rect: 'bloom', color: VH.col(0xa07ae8) } });
+      default:
+        return broadleafGeometry(seed, { trunkH: 3.4, lean: 0.3, crownY: 4.7, rx: 3.1, ry: 2.5, cards: 64, size: [1.6, 2.4], branches: [4, 6], branchLen: [1.5, 2.8], tint: OAK_TINT, tipBias: 0.45 });
+    }
+  }
+
+  function shrubGeometry(seed) {
+    return bushGeometry(seed, { y: 1.0, rx: 0.95, ry: 0.55, cards: 16, size: [0.8, 1.2], tint: [0.9, 1.0, 0.82], bloom: seed % 2 ? VH.col(0xff9ab8) : null });
   }
 
   function streetlightGeometry() {
@@ -15874,21 +17399,6 @@ void main() {
     return b.build();
   }
 
-  function shrubGeometry(seed) {
-    const rng = new VH.RNG(seed);
-    const b = new VH.GeometryBuilder();
-    const m = new THREE.Matrix4();
-    const blob = new THREE.IcosahedronGeometry(1, 1);
-    for (let i = 0; i < 3; i++) {
-      const s = rng.range(0.45, 0.65);
-      m.compose(new THREE.Vector3(rng.range(-0.35, 0.35), 0.95 + rng.range(0, 0.25), rng.range(-0.35, 0.35)),
-        new THREE.Quaternion(), new THREE.Vector3(s, s * 0.8, s));
-      b.merge(blob, m, VH.col(rng.pick([0x3c6b2e, 0x4a7a36, 0x2f5a27])));
-    }
-    blob.dispose();
-    return b.build();
-  }
-
   function beaconGeometry() {
     const g = new THREE.IcosahedronGeometry(0.45, 1);
     return g;
@@ -15904,6 +17414,23 @@ void main() {
       b.box(x0, 0.75, -0.04, x0 + 0.6, 1.05, 0.04, i % 2 ? white : red);
     }
     return b.build();
+  }
+
+  // The world asks for 'palm', 'tree' and so on; the species is picked here from the
+  // position, so avenues and parks mix queen, fan and date palms, oaks and flowering
+  // trees without every caller (or chunk batch count) having to know.
+  const VARIANTS = {
+    palm: [['palm', 0.5], ['palmFan', 0.75], ['palmDate', 1]],
+    palmTall: [['palmTall', 0.65], ['palmCoconut', 1]],
+    tree: [['tree', 0.58], ['treeFlower', 0.78], ['treeFlowerB', 1]],
+    treeB: [['treeB', 0.8], ['treeFlowerB', 1]],
+  };
+  function pickVariant(type, x, z) {
+    const list = VARIANTS[type];
+    if (!list) return type;
+    const h = Math.abs(Math.sin(Math.round(x * 4) * 12.9898 + Math.round(z * 4) * 78.233) * 43758.5453) % 1;
+    for (const [name, upTo] of list) if (h < upTo) return name;
+    return type;
   }
 
   // ------------------------------------------------------------- catalogue
@@ -15932,20 +17459,56 @@ void main() {
         lamps: signalLampOffsets(11.5), collider: { r: 0.25, h: 6 }, maxDistance: 380,
       },
       palm: {
-        parts: [{ geo: palmGeometry(8.2, 0.9, 11), mat: M.foliage, depth: M.foliageDepth, shadow: true }],
-        collider: { r: 0.28, h: 6 }, maxDistance: 700,
+        parts: [{ geo: palmGeometry('queen'), mat: M.vegetation || M.foliage, depth: M.vegetationDepth || M.foliageDepth, shadow: true }],
+        collider: { r: 0.28, h: 6 }, maxDistance: 700, tint: 'palm',
+      },
+      palmFan: {
+        parts: [{ geo: fanPalmGeometry(), mat: M.vegetation || M.foliage, depth: M.vegetationDepth || M.foliageDepth, shadow: true }],
+        collider: { r: 0.32, h: 5 }, maxDistance: 600, tint: 'palm',
+      },
+      palmDate: {
+        parts: [{ geo: palmGeometry('date'), mat: M.vegetation || M.foliage, depth: M.vegetationDepth || M.foliageDepth, shadow: true }],
+        collider: { r: 0.36, h: 5 }, maxDistance: 650, tint: 'palm',
       },
       palmTall: {
-        parts: [{ geo: palmGeometry(12.5, 1.6, 23), mat: M.foliage, depth: M.foliageDepth, shadow: true }],
-        collider: { r: 0.3, h: 8 }, maxDistance: 800,
+        parts: [{ geo: palmGeometry('royal'), mat: M.vegetation || M.foliage, depth: M.vegetationDepth || M.foliageDepth, shadow: true }],
+        collider: { r: 0.3, h: 8 }, maxDistance: 800, tint: 'palm',
+      },
+      palmCoconut: {
+        parts: [{ geo: palmGeometry('coconut'), mat: M.vegetation || M.foliage, depth: M.vegetationDepth || M.foliageDepth, shadow: true }],
+        collider: { r: 0.28, h: 8 }, maxDistance: 800, tint: 'palm',
       },
       tree: {
-        parts: [{ geo: treeGeometry(5), mat: M.foliage, depth: M.foliageDepth, shadow: true }],
-        collider: { r: 0.3, h: 3 }, maxDistance: 650, canopy: true,
+        parts: [{ geo: treeGeometry(5, "oak"), mat: M.vegetation || M.foliage, depth: M.vegetationDepth || M.foliageDepth, shadow: true }],
+        collider: { r: 0.3, h: 3 }, maxDistance: 650, canopy: true, tint: 'tree',
       },
       treeB: {
-        parts: [{ geo: treeGeometry(77), mat: M.foliage, depth: M.foliageDepth, shadow: true }],
-        collider: { r: 0.3, h: 3 }, maxDistance: 650, canopy: true,
+        parts: [{ geo: treeGeometry(77, "oakB"), mat: M.vegetation || M.foliage, depth: M.vegetationDepth || M.foliageDepth, shadow: true }],
+        collider: { r: 0.3, h: 3 }, maxDistance: 650, canopy: true, tint: 'tree',
+      },
+      treeFlower: {
+        parts: [{ geo: treeGeometry(131, "flower"), mat: M.vegetation || M.foliage, depth: M.vegetationDepth || M.foliageDepth, shadow: true }],
+        collider: { r: 0.3, h: 3 }, maxDistance: 650, canopy: true, tint: 'tree',
+      },
+      treeFlowerB: {
+        parts: [{ geo: treeGeometry(171, "flowerB"), mat: M.vegetation || M.foliage, depth: M.vegetationDepth || M.foliageDepth, shadow: true }],
+        collider: { r: 0.3, h: 3 }, maxDistance: 650, canopy: true, tint: 'tree',
+      },
+      pine: {
+        parts: [{ geo: pineGeometry(9), mat: M.vegetation || M.foliage, depth: M.vegetationDepth || M.foliageDepth, shadow: true }],
+        collider: { r: 0.3, h: 4 }, maxDistance: 700, tint: 'tree',
+      },
+      cypress: {
+        parts: [{ geo: cypressGeometry(3), mat: M.vegetation || M.foliage, depth: M.vegetationDepth || M.foliageDepth, shadow: true }],
+        collider: { r: 0.4, h: 4 }, maxDistance: 600, tint: 'tree',
+      },
+      bush: {
+        parts: [{ geo: bushGeometry(21, { y: 0.8, rx: 1.2, ry: 0.75, cards: 22, size: [0.9, 1.4], tint: [0.9, 1.0, 0.82], bloom: null }), mat: M.vegetation || M.foliage, depth: M.vegetationDepth || M.foliageDepth, shadow: true }],
+        collider: { r: 0.7, h: 1.2 }, maxDistance: 320, tint: 'tree',
+      },
+      bushFlower: {
+        parts: [{ geo: bushGeometry(34, { y: 0.8, rx: 1.15, ry: 0.7, cards: 18, size: [0.9, 1.3], tint: [0.88, 1.0, 0.8], bloom: VH.col(0xff6f9a) }), mat: M.vegetation || M.foliage, depth: M.vegetationDepth || M.foliageDepth, shadow: true }],
+        collider: { r: 0.7, h: 1.2 }, maxDistance: 320, tint: 'tree',
       },
       bench: {
         parts: [{ geo: benchGeometry(), mat: M.propMatte, shadow: true }],
@@ -15970,7 +17533,7 @@ void main() {
       planter: {
         parts: [
           { geo: planterGeometry(), mat: M.propMatte, shadow: true },
-          { geo: shrubGeometry(3), mat: M.foliage, depth: M.foliageDepth, shadow: true },
+          { geo: shrubGeometry(3), mat: M.vegetation || M.foliage, depth: M.vegetationDepth || M.foliageDepth, shadow: true },
         ],
         collider: { hx: 1.0, hz: 1.0, h: 0.7 }, maxDistance: 260,
       },
@@ -16007,6 +17570,8 @@ void main() {
      * traffic signals ('ns' or 'ew').
      */
     add(chunk, type, x, y, z, yaw, scale, group) {
+      const orig = type;
+      type = pickVariant(type, x, z);
       const def = this.defs[type];
       if (!def) {
         console.warn('[props] unknown prop type', type);
@@ -16027,7 +17592,8 @@ void main() {
         if (c.r) col = this.physics.addOrientedBox(x, z, c.r * s, c.r * s, yaw || 0, y - 0.2, y + c.h * s, 'prop', flags);
         else col = this.physics.addOrientedBox(x, z, c.hx * s, c.hz * s, yaw || 0, y - 0.2, y + c.h * s, 'prop', flags);
         // Remember which instance this is, so a car can knock it over (vehicles.js).
-        col.propType = type;
+        col.propType = orig; // what the world asked for (roadsigns.js reasons about it)
+        col.propVariant = type; // the model actually drawn
         col.propKey = chunk + '|' + type;
         col.propIndex = list.length - 1;
         col.propItem = list[list.length - 1];
@@ -16042,13 +17608,13 @@ void main() {
       const meshes = this.batches.get(col.propKey);
       if (!meshes) return;
       const it = col.propItem;
-      const def = this.defs[col.propType];
+      const def = this.defs[col.propVariant || col.propType];
       const hidden = PropSystem._zero || (PropSystem._zero = new THREE.Matrix4().makeScale(0, 0, 0));
       for (const mesh of meshes) {
         mesh.setMatrixAt(col.propIndex, hidden);
         mesh.instanceMatrix.needsUpdate = true;
       }
-      if (VH.game && VH.game.fx) VH.game.fx.propDebris(def.parts, it, vehicle, col.propType);
+      if (VH.game && VH.game.fx) VH.game.fx.propDebris(def.parts, it, vehicle, col.propVariant || col.propType);
     }
 
     /** Turn everything placed so far into instanced meshes, added to each chunk's group. */
@@ -16084,6 +17650,20 @@ void main() {
               if (def.canopy) this.canopies.push({ mesh, i, x: it.x, y: it.y, z: it.z, s: it.s, mat: m.clone(), hidden: false });
             });
             mesh.instanceMatrix.needsUpdate = true;
+            if (def.tint) {
+              // Per-instance colour variation (brightness and a little hue) so a row of
+              // identical trees does not look stamped out.
+              const tc = new THREE.Color();
+              list.forEach((it, i) => {
+                const h1 = Math.abs(Math.sin(it.x * 7.13 + it.z * 3.71) * 9631.7) % 1;
+                const h2 = Math.abs(Math.sin(it.x * 2.17 + it.z * 11.3) * 5321.9) % 1;
+                const k = 0.86 + h1 * 0.26;
+                const j = (h2 - 0.5) * (def.tint === 'tree' ? 0.22 : 0.1);
+                tc.setRGB(k * (1 + j), k, k * (1 - j * 1.3));
+                mesh.setColorAt(i, tc);
+              });
+              if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+            }
             mesh.castShadow = !!part.shadow;
             mesh.receiveShadow = true;
             if (part.depth) mesh.customDepthMaterial = part.depth;
@@ -23591,6 +25171,24 @@ void main() {
       return false;
     }
 
+    /**
+     * Species for an outskirts tree. Same placement as ever; only the model changes
+     * (by position, no random draws): conifers and scrub in the far north and west,
+     * a few bushes closer in.
+     */
+    _outskirtsSpecies(type, x, z) {
+      const h = Math.abs(Math.sin(x * 0.731 + z * 1.377) * 24634.6) % 1;
+      const far = z < -420 || x < -420;
+      if (far) {
+        if (h < 0.3) return 'pine';
+        if (h < 0.42) return 'cypress';
+        if (h < 0.58) return 'bush';
+        if (h < 0.64) return 'bushFlower';
+      } else if (h < 0.1) return 'bush';
+      else if (h < 0.14) return 'bushFlower';
+      return type;
+    }
+
     _buildOutskirtsTrees(layout) {
       const cfg = layout.config;
       const zones = Object.values(cfg.zones || {});
@@ -23615,7 +25213,7 @@ void main() {
         const scale = rng.range(0.8, 1.35);
         placed++;
         if (inZone(x, z, 6) || this.onRoad(x, z, 3)) continue;
-        this.addProp(type, x, 0, z, yaw, scale);
+        this.addProp(this._outskirtsSpecies(type, x, z), x, 0, z, yaw, scale);
       }
       // The new land: north to the airport, west to the fort.
       const all = cfg.bounds;
@@ -23627,7 +25225,7 @@ void main() {
         if (x > b.minX - 6 && x < b.maxX + 6 && z > b.minZ - 6 && z < b.maxZ + 6) continue;
         if (x > 380 || inZone(x, z, 14) || this.onRoad(x, z, 5)) continue;
         const type = rng2.chance(0.75) ? (rng2.chance(0.5) ? 'tree' : 'treeB') : 'palm';
-        this.addProp(type, x, 0, z, rng2.range(0, 6.28), rng2.range(0.8, 1.4));
+        this.addProp(this._outskirtsSpecies(type, x, z), x, 0, z, rng2.range(0, 6.28), rng2.range(0.8, 1.4));
         more++;
       }
     }
