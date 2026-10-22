@@ -1083,7 +1083,15 @@
         for (const id of Object.keys(data.inventory)) this.inventory[id] = data.inventory[id];
       }
       this.current = data && data.current && this.inventory[data.current] ? data.current : 'fists';
+      if (data === null) this.starterKit(); // a brand new game (main.js newGame passes null)
       this._attachModel();
+    }
+
+    /** A new game starts with the guns and grenades already in the weapon wheel (fists stay selected). */
+    starterKit() {
+      for (const id of ['pistol', 'revolver', 'smg', 'shotgun', 'rifle', 'sniper', 'bat', 'knife']) this.giveWeapon(id, undefined, true);
+      this.giveWeapon('grenade', 10, true);
+      this.giveWeapon('molotov', 6, true);
     }
   }
 
