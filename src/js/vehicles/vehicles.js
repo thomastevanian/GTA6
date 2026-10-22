@@ -40,6 +40,9 @@
   const TANK_SMASH = { speed: 0, keep: 0.97, dmg: 0 };
   const PARKED_TYPES = [
     ['halcyon', 38], ['pipit', 20], ['mesa', 12], ['porter', 9], ['ironclad', 8], ['vireo', 5], ['cab', 5],
+    // Roster v2 (carmodels.js).
+    ['volta', 5], ['voltaic', 5], ['monolith', 2], ['forge', 8], ['drover', 4], ['trailhand', 4], ['gallop', 4],
+    ['stinger', 2], ['sprint', 6], ['estate', 5], ['corvid', 1],
   ];
 
   function weightedPick(list, r) {
