@@ -82,6 +82,9 @@
     uniform float uNight;
     uniform float uEnvPass;
     uniform vec3 uMoonDir;
+    uniform float uOvercast;
+    uniform float uStorm;
+    uniform float uFlash;
     varying vec3 vDir;
 
     float hash12(vec2 p) {
@@ -190,16 +193,20 @@
         float nSun = fbm(uv + uSunDir.xz * 0.07 / max(h + 0.14, 0.2));
         float body = clamp((nSun - n) * 4.0 + 0.5, 0.0, 1.0);
         float rim = clamp((n - nSun) * 5.0, 0.0, 1.0) * smoothstep(0.1, 0.5, cover) * (1.0 - smoothstep(0.55, 0.95, cover));
-        float fade = smoothstep(-0.02, 0.22, h);
+        float fade = mix(smoothstep(-0.02, 0.22, h), smoothstep(-0.06, 0.1, h), uOvercast);
+        cover = mix(cover, 1.0, uOvercast * 0.85);
         float lit = clamp(mu * 0.5 + 0.5, 0.0, 1.0);
         vec3 shade = uHorizon * 0.55 + uZenith * 0.2;
         vec3 bright = uSunColor * 0.9 + uHorizon * 0.35;
-        vec3 cloudCol = mix(shade, bright, lit * 0.8 + 0.2) * mix(1.0, 0.72, smoothstep(0.55, 0.95, n));
+        vec3 cloudCol = mix(shade, bright, lit * 0.8 + 0.2) * mix(1.0, 0.72 - uStorm * 0.3, smoothstep(0.55, 0.95, n));
+        cloudCol *= 1.0 - uStorm * 0.5;
+        cloudCol += vec3(0.5, 0.58, 1.0) * uFlash * (0.5 + 0.8 * n);
         cloudCol *= 1.0 - 0.28 * body * (1.0 - uNight);
-        cloudCol += uSunColor * rim * (0.35 + 0.9 * pow(max(mu, 0.0), 3.0)) * (1.0 - uEnvPass * 0.7) * (1.0 - uNight);
+        cloudCol += uSunColor * rim * (0.35 + 0.9 * pow(max(mu, 0.0), 3.0)) * (1.0 - uEnvPass * 0.7) * (1.0 - uNight) * (1.0 - uOvercast);
         cloudCol = mix(cloudCol, uZenith * 0.25 + vec3(0.02), uNight * 0.85);
-        col = mix(col, cloudCol, cover * fade * 0.92);
+        col = mix(col, cloudCol, cover * fade * mix(0.92, 1.0, uOvercast));
       }
+      col += vec3(0.4, 0.46, 0.8) * uFlash * 0.4;
 
       // The sun itself (left out of the reflection map to avoid double lighting).
       float disc = smoothstep(0.99935, 0.99972, mu);
@@ -238,6 +245,13 @@
       this.shared = shared;
       this.hours = 16.3;
       this.cloudCover = 0.38;
+      // Weather hooks (weather.js): everything is neutral until it drives them.
+      this.wx = { cloud: 0, overcast: 0, storm: 0, dark: 0, desat: 0, tint: 0, fogMul: 1, sunMul: 1, hemiMul: 1, envMul: 1, expMul: 1, shaftMul: 1, flash: 0 };
+      this.wxTint = new THREE.Color(0.55, 0.42, 0.28);
+      this.baseFogDensity = 0.002;
+      this._flashOn = false;
+      this._base = { hemi: 0, env: 1, fog: new THREE.Color(), fogLin: new THREE.Color(), fogDisp: new THREE.Color() };
+      this._flashCol = new THREE.Color(0.62, 0.7, 1.0);
       this.clockRunning = false; // Phase 12 turns this on
       this._envDirty = true;
       this._envTimer = 0;
@@ -263,6 +277,9 @@
         uTime: this.shared.uTime,
         uNight: { value: 0 },
         uMoonDir: { value: new THREE.Vector3(0, -1, 0) },
+        uOvercast: { value: 0 },
+        uStorm: { value: 0 },
+        uFlash: { value: 0 },
       };
       const geo = new THREE.SphereGeometry(1, 48, 24);
       this.sky = new THREE.Mesh(geo, makeSkyMaterial(this.skyUniforms, false));
@@ -341,9 +358,46 @@
       // Exponential fog reaching ~95% at the draw distance.
       const dd = this.settings.get('graphics.drawDistance');
       this.baseFogDensity = 1.75 / dd;
-      this._fogAlt = -1; // force the altitude blend to be applied again
-      this.scene.fog.density = this.baseFogDensity;
+      this._applyFog();
+    }
+
+    /** Fog density = the quality setting's base × the weather's multiplier. */
+    _applyFog() {
+      // Flying high clears the haze (ambient.js): keep its factor in the product.
+      const amb = VH.game && VH.game.ambient;
+      const air = amb && amb._fogK > 0.2 ? amb._fogK : 1;
+      this.scene.fog.density = (this.baseFogDensity * this.wx.fogMul * (this._altK || 1)) / air;
       if (this.vhRenderer.post) this.vhRenderer.post.fogDensity = this.scene.fog.density;
+    }
+
+    /** Cloud cover as the sky sees it: the base cover pushed towards 1 by the weather. */
+    get effectiveCloud() {
+      return lerp(this.cloudCover, 1, this.wx.cloud);
+    }
+
+    /** Weather hook: merge new multipliers/targets and recompute the lighting. */
+    setWeather(p) {
+      Object.assign(this.wx, p);
+      const u = this.skyUniforms;
+      u.uCloud.value = this.effectiveCloud;
+      u.uOvercast.value = this.wx.overcast;
+      u.uStorm.value = this.wx.storm;
+      this._envDirty = true;
+      this._applyKeys(this.sunDir.y);
+    }
+
+    /** Lightning: brighten sky, fog and ambient light by `f` (0..1) without redoing the whole lighting. */
+    _applyFlash() {
+      const f = this.wx.flash;
+      if (f <= 0.002 && !this._flashOn) return;
+      this._flashOn = f > 0.002;
+      const b = this._base;
+      this.skyUniforms.uFlash.value = f;
+      this.hemi.intensity = b.hemi + f * 2.4;
+      this.scene.environmentIntensity = b.env + f * 1.8;
+      this.scene.fog.color.copy(b.fog).lerp(this._flashCol, f * 0.75);
+      this.skyUniforms.uFogLinear.value.copy(b.fogLin).lerp(this._flashCol, f * 0.75);
+      this.skyUniforms.uFogDisplay.value.copy(b.fogDisp).lerp(this._flashCol, f * 0.75);
     }
 
     /** Set the time of day (hours, 0–24) and recompute all lighting. */
@@ -364,7 +418,7 @@
 
     setCloudCover(c) {
       this.cloudCover = clamp(c, 0, 1);
-      this.skyUniforms.uCloud.value = this.cloudCover;
+      this.skyUniforms.uCloud.value = this.effectiveCloud;
       this._envDirty = true;
       this._applyKeys(this.sunDir.y);
     }
@@ -383,6 +437,8 @@
       };
       const zenith = mixHex(a.zenith, b.zenith, this.shared.uSkyZenith.value);
       const horizon = mixHex(a.horizon, b.horizon, this.shared.uSkyHorizon.value);
+      this._gradeSky(zenith, 1);
+      this._gradeSky(horizon, 0);
       const lightColor = mixHex(a.light, b.light, new THREE.Color());
       const intensity = lerp(a.intensity, b.intensity, k);
       const envIntensity = lerp(a.env, b.env, k);
@@ -398,23 +454,28 @@
       // The sun's colour as seen in the sky and on the water fades out through twilight.
       this.shared.uSunColor.value.copy(lightColor).multiplyScalar(smoothstep(-0.12, 0.0, s));
       this.sun.color.copy(lightColor);
-      this.sun.intensity = moon ? intensity * smoothstep(-0.035, -0.12, s) : intensity * smoothstep(-0.02, 0.03, s);
+      this.sun.intensity = (moon ? intensity * smoothstep(-0.035, -0.12, s) : intensity * smoothstep(-0.02, 0.03, s)) * this.wx.sunMul;
 
       this.hemi.color.copy(zenith).lerp(horizon, 0.3).lerp(NIGHT_SKY, night * 0.85);
       // Warm bounce from sunlit pavement and walls: without it shaded streets fall to flat navy.
       this.hemi.groundColor.setRGB(0.34, 0.29, 0.22).multiplyScalar(envIntensity).lerp(NIGHT_GROUND, night * 0.8);
       // People and cars are lit by this at night (lamp pools are only on the ground).
-      this.hemi.intensity = 0.38 + envIntensity * 0.3 + night * 0.32 * nb;
+      this.hemi.intensity = (0.38 + envIntensity * 0.3 + night * 0.32 * nb) * this.wx.hemiMul;
       // Sky light fills shadows: keep shaded streets readable, not black.
-      this.scene.environmentIntensity = envIntensity * 1.3 + night * 0.2 * nb;
-      this.vhRenderer.renderer.toneMappingExposure = exposure;
-      this.exposure = exposure;
+      this.scene.environmentIntensity = (envIntensity * 1.3 + night * 0.2 * nb) * this.wx.envMul;
+      // Dull skies call for a longer exposure by day; the night keys are lifted enough already.
+      const exposureW = exposure * lerp(this.wx.expMul, 1, night);
+      this.vhRenderer.renderer.toneMappingExposure = exposureW;
+      this.exposure = exposureW;
+      this._base.hemi = this.hemi.intensity;
+      this._base.env = this.scene.environmentIntensity;
       // Lift the very darkest tones a touch (post-processing): moonlit, not crushed.
       if (this.vhRenderer.post) this.vhRenderer.post.nightLift = night * nb;
       if (VH.Humanoid && VH.Humanoid.setNightFill) VH.Humanoid.setNightFill(0.075 * night * nb);
 
       this.skyUniforms.uNight.value = night;
-      this.shared.uWindowGlow.value = smoothstep(0.1, -0.08, s);
+      // Murky weather switches the lamps and windows on even at noon.
+      this.shared.uWindowGlow.value = Math.max(smoothstep(0.1, -0.08, s), smoothstep(0.45, 0.8, this.wx.dark) * 0.75);
       this.nightFactor = night;
 
       const post = this.vhRenderer.postEnabled;
@@ -424,7 +485,7 @@
         pf.sunDir.copy(this.sunDir);
         pf.sunColor.copy(lightColor);
         // Shafts, haze and flare belong to the sun only: they fade out through twilight and stay off under the moon.
-        pf.sunAmount = moon ? 0 : smoothstep(-0.02, 0.14, s) * (1 - this.cloudCover * 0.55);
+        pf.sunAmount = moon ? 0 : smoothstep(-0.02, 0.14, s) * (1 - this.effectiveCloud * 0.55) * this.wx.shaftMul;
       }
       if (post) {
         // Post-processing tone-maps everything together at the end, so fog and
@@ -432,16 +493,48 @@
         this.skyUniforms.uFogDisplay.value.copy(horizon);
         this.skyUniforms.uFogLinear.value.copy(horizon);
         this.scene.fog.color.copy(horizon);
+        this._storeFogBase();
         return;
       }
       // Fog = the horizon colour as it will appear on screen after tone mapping.
       const hLin = [horizon.r, horizon.g, horizon.b];
-      const mapped = acesFilmic(hLin, exposure);
+      const mapped = acesFilmic(hLin, exposureW);
       this.skyUniforms.uFogLinear.value.copy(horizon);
       // scene.fog.color is converted to the output colour space by three.js on upload.
       this.scene.fog.color.setRGB(mapped[0], mapped[1], mapped[2]);
       // The raw (display) uniform above must not be colour-managed a second time.
       this.skyUniforms.uFogDisplay.value.setRGB(linearToSrgb(mapped[0]), linearToSrgb(mapped[1]), linearToSrgb(mapped[2]), THREE.LinearSRGBColorSpace);
+      this._storeFogBase();
+    }
+
+    _storeFogBase() {
+      this._base.fog.copy(this.scene.fog.color);
+      this._base.fogLin.copy(this.skyUniforms.uFogLinear.value);
+      this._base.fogDisp.copy(this.skyUniforms.uFogDisplay.value);
+      this._applyFog();
+    }
+
+    /** Weather grading of a sky colour (in place): towards grey, darker, and tinted for dust. */
+    _gradeSky(c, zen) {
+      const w = this.wx;
+      if (w.dark <= 0 && w.desat <= 0 && w.tint <= 0) return;
+      const l = 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+      const k = 1 - w.dark * (zen ? 0.62 : 0.5);
+      let r = (c.r + (l - c.r) * w.desat) * k;
+      let g = (c.g + (l - c.g) * w.desat) * k;
+      let bl = (c.b + (l - c.b) * w.desat) * k;
+      // Wet skies are cool grey, not beige.
+      r *= 1 - 0.07 * w.desat;
+      bl *= 1 + 0.09 * w.desat;
+      if (w.tint > 0) {
+        const t = this.wxTint;
+        const tl = Math.max(0.0001, 0.2126 * t.r + 0.7152 * t.g + 0.0722 * t.b);
+        const sc = Math.max(l * k, 0.02) / tl;
+        r += (t.r * sc - r) * w.tint;
+        g += (t.g * sc - g) * w.tint;
+        bl += (t.b * sc - bl) * w.tint;
+      }
+      c.setRGB(r, g, bl);
     }
 
     _regenerateEnvMap() {
@@ -471,10 +564,11 @@
       if (Math.abs(alt - this._fogAlt) > 2 && this.baseFogDensity) {
         this._fogAlt = alt;
         const k = 1 - 0.6 * smoothstep(25, 380, alt);
-        this.scene.fog.density = this.baseFogDensity * k;
-        if (this.vhRenderer.post) this.vhRenderer.post.fogDensity = this.scene.fog.density;
+        this._altK = k;
+        this._applyFog();
       }
       this.sky.position.copy(focus);
+      this._applyFlash();
       if (this.sun.castShadow) this._placeShadow(focus);
       else {
         this.sun.position.copy(focus).addScaledVector(this.lightDir, 400);

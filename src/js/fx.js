@@ -411,6 +411,7 @@
   `;
   const POOL_FRAG = /* glsl */ `
     uniform float uIntensity;
+    uniform float uWet;
     uniform vec3 uColor;
     varying vec2 vLocal;
     varying vec4 vPool;
@@ -421,7 +422,7 @@
       if (r > 1.0) discard;
       float f = (1.0 - r);
       f = f * f * (0.35 + 0.65 * (1.0 - sqrt(r)));
-      vec3 c = uColor * vTint * f * uIntensity * vPool.w;
+      vec3 c = uColor * vTint * f * uIntensity * vPool.w * (1.0 + uWet * 0.6); // wet ground throws more light back
       gl_FragColor = vec4(c, 1.0);
     }
   `;
@@ -438,7 +439,7 @@
       geo.setAttribute('aPool', this.aPool);
       geo.setAttribute('aTint', this.aTint);
       this.material = new THREE.ShaderMaterial({
-        uniforms: { uIntensity: { value: 0 }, uColor: { value: new THREE.Color(color) } },
+        uniforms: { uIntensity: { value: 0 }, uWet: VH.Materials && VH.Materials.shared ? VH.Materials.shared.uWet : { value: 0 }, uColor: { value: new THREE.Color(color) } },
         vertexShader: POOL_VERT,
         fragmentShader: POOL_FRAG,
         transparent: true,

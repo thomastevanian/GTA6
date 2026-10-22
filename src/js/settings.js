@@ -146,6 +146,7 @@
         slowMotion: true,
         timeOfDay: 'cycle',
         alwaysDay: false,
+        weather: 'auto',
         voicedDialogue: true,
         policeVoice: true,
         blood: 'lots',
