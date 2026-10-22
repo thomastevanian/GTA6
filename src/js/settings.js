@@ -20,18 +20,22 @@
     low: {
       renderScale: 0.75, maxPixelRatio: 1, shadows: 'off', drawDistance: 520,
       antialias: false, propDensity: 0.6, effects: 'low',
+      ambientOcclusion: 'off', lightShafts: 'off', motionBlur: 'off', lensEffects: 'off',
     },
     medium: {
       renderScale: 0.9, maxPixelRatio: 1, shadows: 'low', drawDistance: 720,
       antialias: false, propDensity: 0.85, effects: 'medium',
+      ambientOcclusion: 'off', lightShafts: 'on', motionBlur: 'off', lensEffects: 'off',
     },
     high: {
       renderScale: 1.0, maxPixelRatio: 1.25, shadows: 'high', drawDistance: 950,
       antialias: true, propDensity: 1.0, effects: 'high',
+      ambientOcclusion: 'low', lightShafts: 'on', motionBlur: 'light', lensEffects: 'on',
     },
     ultra: {
       renderScale: 1.0, maxPixelRatio: 2, shadows: 'ultra', drawDistance: 1400,
       antialias: true, propDensity: 1.0, effects: 'high',
+      ambientOcclusion: 'high', lightShafts: 'on', motionBlur: 'full', lensEffects: 'on',
     },
   };
 
