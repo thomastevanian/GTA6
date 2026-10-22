@@ -19,7 +19,7 @@ if (!html) {
 }
 html = path.resolve(html);
 const only = args.only && args.only !== true ? String(args.only).split(',') : ['weapons', 'vehicles', 'police', 'sky', 'places'];
-// 'missions' is opt-in (slow): --only missions
+// 'missions' and 'long' are opt-in (slow): --only missions / --only long
 
 const pwDir = [process.env.PLAYWRIGHT_DIR, '/opt/node-tools/node_modules/playwright'].filter(Boolean).find((d) => fs.existsSync(d));
 const { chromium } = pwDir ? await import(pathToFileURL(path.join(pwDir, 'index.mjs')).href) : await import('playwright');
@@ -148,6 +148,20 @@ if (only.includes('places')) {
       if (!Number.isFinite(g.player.pos.y)) throw new Error('NaN y');
       return { y: +g.player.pos.y.toFixed(1), fps: g.fps };
     }), [name, x, z]);
+  }
+}
+
+if (only.includes('long')) {
+  // Ten simulated minutes in town with the weather director running: look for exceptions and for things that only ever grow.
+  for (let i = 0; i < 10; i++) {
+    await run('long', (i) => window.__soak('minute ' + (i + 1), () => {
+      const g = VH.game;
+      if (i === 0) { g.player.teleport(0, -250, 0); g.settings.set('gameplay.weather', 'auto'); }
+      g.advance(60);
+      g.renderOnce();
+      const info = g.renderer.renderer.info;
+      return { scene: g.scene.children.length, geos: info.memory.geometries, tex: info.memory.textures, agents: g.crowd.agents.length, cars: g.vehicles.list.length, heap: performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) : 0 };
+    }), i);
   }
 }
 
