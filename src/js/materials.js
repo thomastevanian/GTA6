@@ -375,6 +375,180 @@
     return { material: mat, depth };
   }
 
+  // ------------------------------------------------------ ground surfaces
+  // Roads, pavements, lawns and runway concrete get a matching normal map
+  // (so the sun rakes across aggregate, joints and tufts) and a world-space
+  // mottling term that breaks up the visible tiling of huge areas such as the
+  // airport apron. Chained onto any onBeforeCompile already on the material.
+  const GROUND_VERTEX_PARS = /* glsl */ `
+    varying vec3 vhGP;
+  `;
+  const GROUND_VERTEX_MAIN = /* glsl */ `
+    vhGP = (modelMatrix * vec4(transformed, 1.0)).xyz;
+  `;
+  const GROUND_FRAGMENT_PARS = /* glsl */ `
+    uniform sampler2D uMacro;
+    uniform vec3 uMacroAmt; // x: strength, y: warm/green shift, z: unused
+    varying vec3 vhGP;
+  `;
+  const GROUND_FRAGMENT_MAIN = /* glsl */ `
+    {
+      float vhM = texture2D(uMacro, vhGP.xz * 0.0105).r * 0.6 + texture2D(uMacro, vhGP.xz * 0.043 + 0.31).r * 0.4;
+      float vhD = (vhM - 0.5) * 2.0 * uMacroAmt.x;
+      diffuseColor.rgb *= vec3(1.0 + vhD * (1.0 + uMacroAmt.y), 1.0 + vhD, 1.0 + vhD * (1.0 - uMacroAmt.y));
+    }
+  `;
+
+  function addGroundMacro(mat, macroTex, amount, shift, key) {
+    const prev = mat.onBeforeCompile;
+    const prevKey = mat.customProgramCacheKey;
+    mat.onBeforeCompile = function (shader, renderer) {
+      if (prev) prev.call(this, shader, renderer);
+      shader.uniforms.uMacro = { value: macroTex };
+      shader.uniforms.uMacroAmt = { value: new THREE.Vector3(amount, shift, 0) };
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', '#include <common>\n' + GROUND_VERTEX_PARS)
+        .replace('#include <project_vertex>', '#include <project_vertex>\n' + GROUND_VERTEX_MAIN);
+      shader.fragmentShader = shader.fragmentShader
+        .replace('#include <common>', '#include <common>\n' + GROUND_FRAGMENT_PARS)
+        .replace('#include <map_fragment>', '#include <map_fragment>\n' + GROUND_FRAGMENT_MAIN);
+    };
+    mat.customProgramCacheKey = function () {
+      return (prevKey ? prevKey.call(this) : '') + key;
+    };
+  }
+
+  function applyGroundDetail(list, t) {
+    const set = (names, normal, scale, macro, amount, shift) => {
+      for (const n of names) {
+        const mat = list[n];
+        if (!mat) continue;
+        if (normal) {
+          mat.normalMap = normal;
+          mat.normalScale = new THREE.Vector2(scale, scale);
+        }
+        if (macro) addGroundMacro(mat, macro, amount, shift, '|vh-ground-' + amount + '-' + shift);
+        mat.needsUpdate = true;
+      }
+    };
+    set(['road', 'asphaltTop'], t.asphaltN, 0.9, t.macro, 0.22, 0.0);
+    set(['sidewalk'], t.sidewalkN, 0.8, t.macro, 0.12, 0.05);
+    set(['plaza', 'plazaTop'], t.plazaN, 0.8, t.macro, 0.1, 0.05);
+    set(['concrete'], t.concreteN, 0.8, t.macro, 0.2, 0.04);
+    set(['grass', 'grassTop'], t.grassN, 0.7, t.macro, 0.3, -0.35);
+  }
+
+  // ---------------------------------------------------------- vegetation
+  // Trees and palms: one atlas-textured, alpha-tested, double-sided material.
+  //   * Leaf cards, fronds and bark share the atlas. Vertices whose V >= 100
+  //     are bark: V = 100 * (barkIndex + 1) + localV, and the shader tiles that
+  //     bark cell inside its own rectangle (textureGrad keeps mips seamless).
+  //   * aFlex (0 trunk .. 1 leaf tip) drives gentle wind flutter on top of the
+  //     whole-tree sway; the shadow pass uses the same code so shadows move.
+  //   * Leaves glow a little when seen against the sun (cheap translucency).
+  function barkTable(atlasInfo) {
+    const rows = atlasInfo.barks.map((name) => {
+      const r = atlasInfo.rect(name, 0);
+      return `vec4(${r.u0.toFixed(6)}, ${r.v0.toFixed(6)}, ${(r.u1 - r.u0).toFixed(6)}, ${(r.v1 - r.v0).toFixed(6)})`;
+    });
+    return `const vec4 VH_BARK[${rows.length}] = vec4[${rows.length}](${rows.join(', ')});`;
+  }
+
+  const VEG_VERTEX_PARS = /* glsl */ `
+    attribute float aFlex;
+    uniform float uTime;
+    uniform float uWind;
+    varying vec3 vhWP;
+  `;
+  const VEG_SWAY = /* glsl */ `
+    #ifdef USE_INSTANCING
+      vec3 vhOrigin = vec3(instanceMatrix[3][0], instanceMatrix[3][1], instanceMatrix[3][2]);
+      float vhPhase = dot(vhOrigin.xz, vec2(0.13, 0.17));
+      float vhH = max(transformed.y, 0.0);
+      float vhBend = vhH * vhH * 0.0014 * uWind;
+      transformed.x += sin(uTime * 1.3 + vhPhase) * vhBend + sin(uTime * 3.7 + vhPhase * 2.0 + transformed.z) * vhBend * 0.2;
+      transformed.z += cos(uTime * 1.1 + vhPhase) * vhBend * 0.7;
+      float vhF = aFlex * uWind;
+      float vhQ = transformed.x * 1.7 + transformed.z * 2.3 + transformed.y * 1.3 + vhPhase * 3.0;
+      transformed += vec3(sin(uTime * 2.9 + vhQ), sin(uTime * 2.3 + vhQ * 1.3) * 0.5, cos(uTime * 2.6 + vhQ * 0.8)) * vhF * 0.11;
+    #endif
+  `;
+  const VEG_VERTEX_WORLD = /* glsl */ `
+    {
+      vec4 vhW = vec4(transformed, 1.0);
+      #ifdef USE_INSTANCING
+        vhW = instanceMatrix * vhW;
+      #endif
+      vhWP = (modelMatrix * vhW).xyz;
+    }
+  `;
+
+  function vegSampler(barks) {
+    return /* glsl */ `
+      ${barks}
+      #ifdef USE_MAP
+        vec4 sampledDiffuseColor;
+        {
+          vec2 vhDx = dFdx(vMapUv);
+          vec2 vhDy = dFdy(vMapUv);
+          if (vMapUv.y > 50.0) {
+            float vhKk = floor(vMapUv.y / 100.0);
+            vec4 vhCr = VH_BARK[int(clamp(vhKk - 1.0, 0.0, float(VH_BARK.length() - 1)))];
+            vec2 vhLoc = vec2(vMapUv.x, vMapUv.y - 100.0 * vhKk);
+            vec2 vhAuv = vhCr.xy + (0.012 + 0.976 * fract(vhLoc)) * vhCr.zw;
+            sampledDiffuseColor = textureGrad(map, vhAuv, vhDx * vhCr.zw, vhDy * vhCr.zw);
+          } else {
+            sampledDiffuseColor = textureGrad(map, vMapUv, vhDx, vhDy);
+          }
+        }
+        diffuseColor *= sampledDiffuseColor;
+      #endif
+    `;
+  }
+
+  function createVegetationMaterial(shared, atlas) {
+    const barks = barkTable(VH.Textures.ATLAS);
+    const alphaTest = 0.4;
+    const mat = new THREE.MeshStandardMaterial({
+      map: atlas, vertexColors: true, alphaTest, side: THREE.DoubleSide, roughness: 0.8, metalness: 0,
+    });
+    mat.onBeforeCompile = (shader) => {
+      shader.uniforms.uTime = shared.uTime;
+      shader.uniforms.uWind = shared.uWind;
+      shader.uniforms.uSunDir = shared.uSunDir;
+      shader.uniforms.uSunColor = shared.uSunColor;
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', '#include <common>\n' + VEG_VERTEX_PARS)
+        .replace('#include <begin_vertex>', '#include <begin_vertex>\n' + VEG_SWAY)
+        .replace('#include <project_vertex>', '#include <project_vertex>\n' + VEG_VERTEX_WORLD);
+      shader.fragmentShader = shader.fragmentShader
+        .replace('#include <common>', '#include <common>\nvarying vec3 vhWP;\nuniform vec3 uSunDir;\nuniform vec3 uSunColor;')
+        .replace('#include <map_fragment>', vegSampler(barks))
+        .replace(
+          '#include <emissivemap_fragment>',
+          `#include <emissivemap_fragment>
+          {
+            vec3 vhV = normalize(vhWP - cameraPosition);
+            float vhT = pow(max(dot(vhV, uSunDir), 0.0), 3.0) * smoothstep(0.02, 0.3, uSunDir.y);
+            float vhLeaf = vMapUv.y > 50.0 ? 0.0 : 1.0;
+            totalEmissiveRadiance += diffuseColor.rgb * uSunColor * vhT * 0.3 * vhLeaf;
+          }`
+        );
+    };
+    mat.customProgramCacheKey = () => 'vh-vegetation-v1';
+    const depth = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, map: atlas, alphaTest, side: THREE.DoubleSide });
+    depth.onBeforeCompile = (shader) => {
+      shader.uniforms.uTime = shared.uTime;
+      shader.uniforms.uWind = shared.uWind;
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', '#include <common>\n' + VEG_VERTEX_PARS)
+        .replace('#include <begin_vertex>', '#include <begin_vertex>\n' + VEG_SWAY);
+      shader.fragmentShader = shader.fragmentShader.replace('#include <map_fragment>', vegSampler(barks));
+    };
+    depth.customProgramCacheKey = () => 'vh-vegetation-depth-v1';
+    return { material: mat, depth };
+  }
+
   // --------------------------------------------------------------- water
   const WATER_VERTEX = /* glsl */ `
     #include <common>
@@ -545,6 +719,12 @@
         })(),
         emissiveScreen: new THREE.MeshBasicMaterial({ vertexColors: true, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2 }),
       };
+      applyGroundDetail(this.list, t);
+      if (t.vegAtlas) {
+        const veg = createVegetationMaterial(shared, t.vegAtlas);
+        this.list.vegetation = veg.material;
+        this.list.vegetationDepth = veg.depth;
+      }
       // Rain-ready surfaces (see addWet above).
       const wetKinds = {
         road: 0, asphaltTop: 0, markings: 0, decal: 0, sidewalk: 1, plaza: 1, plazaTop: 1, concrete: 1,
