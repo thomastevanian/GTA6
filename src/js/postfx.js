@@ -528,7 +528,7 @@
       this.level = level;
       this.msaa = g.antialias && level === 'high' ? 4 : 0;
       const ao = this._opt('ambientOcclusion', 'low');
-      this.aoQuality = level === 'low' ? 'off' : level === 'medium' && ao === 'high' ? 'low' : ao;
+      this.aoQuality = level === 'low' ? 'off' : level === 'medium' && (ao === 'high' || ao === 'max') ? 'low' : ao;
       this.ao = this.enabled && this.aoQuality !== 'off';
       this.shafts = this.enabled && this._opt('lightShafts', 'on') !== 'off';
       this.motionBlur = this.enabled && level === 'high' ? { off: 0, light: 0.55, full: 1.0 }[this._opt('motionBlur', 'light')] || 0 : 0;
@@ -545,7 +545,7 @@
     }
 
     _buildMaterials() {
-      const samples = this.aoQuality === 'high' ? 20 : 12;
+      const samples = this.aoQuality === 'max' ? 24 : this.aoQuality === 'high' ? 20 : 12;
       if (this.ao && this._aoSamples !== samples) {
         this._aoSamples = samples;
         if (this.aoMat) this.aoMat.dispose();
@@ -602,10 +602,11 @@
       const ldr = Object.assign({}, common, { type: THREE.UnsignedByteType, depthBuffer: false });
       const half = (div) => new THREE.WebGLRenderTarget(Math.max(1, Math.floor(w / div)), Math.max(1, Math.floor(h / div)), ldr);
       if (this.ao) {
-        this.aoRT = half(2);
-        this.aoRT2 = half(2);
+        const div = this.aoQuality === 'max' ? 1 : 2;
+        this.aoRT = half(div);
+        this.aoRT2 = half(div);
       }
-      if (this.shafts) this.shaftRT = half(this.level === 'high' ? 2 : 4);
+      if (this.shafts) this.shaftRT = half(this.aoQuality === 'max' ? 1 : this.level === 'high' ? 2 : 4);
       if (this.msaa === 0) this.ldrRT = new THREE.WebGLRenderTarget(w, h, Object.assign({}, ldr, { minFilter: THREE.LinearFilter }));
     }
 

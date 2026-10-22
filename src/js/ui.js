@@ -21,15 +21,15 @@
       label: 'Graphics',
       items: [
         { path: 'graphics.quality', label: 'Quality preset', type: 'select', preset: true,
-          options: [['low', 'Low'], ['medium', 'Medium'], ['high', 'High'], ['ultra', 'Ultra'], ['custom', 'Custom']],
-          help: 'Low suits older laptops; Ultra wants a dedicated graphics card.' },
-        { path: 'graphics.renderScale', label: 'Resolution scale', type: 'range', min: 0.5, max: 1, step: 0.05, format: pct,
-          help: 'Renders fewer pixels and scales up. The biggest single performance lever.' },
+          options: [['low', 'Low'], ['medium', 'Medium'], ['high', 'High'], ['ultra', 'Ultra'], ['max', 'Max'], ['custom', 'Custom']],
+          help: 'Low suits older laptops; Ultra wants a dedicated graphics card; Max uses everything the engine has (1.5x supersampling, 8k shadows) and wants a powerful one.' },
+        { path: 'graphics.renderScale', label: 'Resolution scale', type: 'range', min: 0.5, max: 2, step: 0.05, format: pct,
+          help: 'Above 100% renders extra pixels and scales them down (supersampling: very smooth, very heavy). Below renders fewer pixels and scales up. The biggest single performance lever.' },
         { path: 'graphics.maxPixelRatio', label: 'High-DPI limit', type: 'select',
-          options: [[1, '1× (fastest)'], [1.25, '1.25×'], [1.5, '1.5×'], [2, '2× (sharpest)']] },
+          options: [[1, '1× (fastest)'], [1.25, '1.25×'], [1.5, '1.5×'], [2, '2× (sharpest)'], [3, '3× (max)']] },
         { path: 'graphics.shadows', label: 'Shadows', type: 'select',
-          options: [['off', 'Off'], ['low', 'Low'], ['high', 'High'], ['ultra', 'Ultra']] },
-        { path: 'graphics.drawDistance', label: 'Draw distance', type: 'range', min: 400, max: 1600, step: 50, format: (v) => v + ' m' },
+          options: [['off', 'Off'], ['low', 'Low'], ['high', 'High'], ['ultra', 'Ultra'], ['max', 'Max (8k)']] },
+        { path: 'graphics.drawDistance', label: 'Draw distance', type: 'range', min: 400, max: 2400, step: 50, format: (v) => v + ' m' },
         { path: 'graphics.propDensity', label: 'Detail distance', type: 'range', min: 0.5, max: 1.5, step: 0.05, format: pct,
           help: 'How far away benches, lamps and trees are still drawn.' },
         { path: 'graphics.effects', label: 'Post-processing', type: 'select',
@@ -39,7 +39,7 @@
           help: 'Smooths jagged edges. With post-processing Off it applies after reloading the page.' },
         { path: 'graphics.filmGrain', label: 'Film grain', type: 'select', options: [['off', 'Off'], ['light', 'Light'], ['strong', 'Strong']],
           help: 'The fine flicker over the picture, like old film. Only with post-processing on High.' },
-        { path: 'graphics.ambientOcclusion', label: 'Ambient occlusion', type: 'select', options: [['off', 'Off'], ['low', 'Low'], ['high', 'High']],
+        { path: 'graphics.ambientOcclusion', label: 'Ambient occlusion', type: 'select', options: [['off', 'Off'], ['low', 'Low'], ['high', 'High'], ['max', 'Max (full resolution)']],
           help: 'Soft contact shadows in corners, under cars and around props. Needs post-processing on Medium or High.' },
         { path: 'graphics.lightShafts', label: 'Sun shafts and haze', type: 'select', options: [['off', 'Off'], ['on', 'On']],
           help: 'Beams of light between the towers and a warm haze toward the sun. Needs post-processing.' },
@@ -309,6 +309,11 @@
         tabs.append(tab);
         body.append(pane);
         if (group.note) pane.append(el('p', 'pane-note', group.note));
+        if (key === 'graphics' && /swiftshader|llvmpipe|microsoft basic|software/i.test(String(VH.features.gpu || ''))) {
+          const warn = el('p', 'pane-note', 'Hardware acceleration looks switched off: the browser is drawing with the CPU (' + VH.features.gpu + '). Turn on "Use graphics acceleration when available" in the browser\'s System settings, and see docs/MAX_QUALITY.md.');
+          warn.style.color = 'var(--vh-warn)';
+          pane.append(warn);
+        }
         if (group.custom) this._buildControlsPane(pane);
         else for (const item of group.items) pane.append(this._settingRow(item));
         first = false;

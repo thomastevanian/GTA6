@@ -9818,6 +9818,14 @@ void main() {
       antialias: true, propDensity: 1.0, effects: 'high',
       ambientOcclusion: 'high', lightShafts: 'on', motionBlur: 'full', lensEffects: 'on',
     },
+    // Everything the engine has, for a desktop GPU with power to spare: the picture is
+    // rendered at 1.5x and scaled down (supersampling), 8k shadows, full-resolution
+    // ambient occlusion and sun shafts, the longest view distance and densest detail.
+    max: {
+      renderScale: 1.5, maxPixelRatio: 2, shadows: 'max', drawDistance: 2000,
+      antialias: true, propDensity: 1.5, effects: 'high',
+      ambientOcclusion: 'max', lightShafts: 'on', motionBlur: 'full', lensEffects: 'on',
+    },
   };
 
   /** Shadow tiers: shadow map resolution and the half-width of the area it covers. */
@@ -9826,6 +9834,7 @@ void main() {
     low: { enabled: true, mapSize: 1024, extent: 55 },
     high: { enabled: true, mapSize: 2048, extent: 85 },
     ultra: { enabled: true, mapSize: 4096, extent: 120 },
+    max: { enabled: true, mapSize: 8192, extent: 150 },
   };
 
   /**
@@ -11012,7 +11021,7 @@ void main() {
       this.level = level;
       this.msaa = g.antialias && level === 'high' ? 4 : 0;
       const ao = this._opt('ambientOcclusion', 'low');
-      this.aoQuality = level === 'low' ? 'off' : level === 'medium' && ao === 'high' ? 'low' : ao;
+      this.aoQuality = level === 'low' ? 'off' : level === 'medium' && (ao === 'high' || ao === 'max') ? 'low' : ao;
       this.ao = this.enabled && this.aoQuality !== 'off';
       this.shafts = this.enabled && this._opt('lightShafts', 'on') !== 'off';
       this.motionBlur = this.enabled && level === 'high' ? { off: 0, light: 0.55, full: 1.0 }[this._opt('motionBlur', 'light')] || 0 : 0;
@@ -11029,7 +11038,7 @@ void main() {
     }
 
     _buildMaterials() {
-      const samples = this.aoQuality === 'high' ? 20 : 12;
+      const samples = this.aoQuality === 'max' ? 24 : this.aoQuality === 'high' ? 20 : 12;
       if (this.ao && this._aoSamples !== samples) {
         this._aoSamples = samples;
         if (this.aoMat) this.aoMat.dispose();
@@ -11086,10 +11095,11 @@ void main() {
       const ldr = Object.assign({}, common, { type: THREE.UnsignedByteType, depthBuffer: false });
       const half = (div) => new THREE.WebGLRenderTarget(Math.max(1, Math.floor(w / div)), Math.max(1, Math.floor(h / div)), ldr);
       if (this.ao) {
-        this.aoRT = half(2);
-        this.aoRT2 = half(2);
+        const div = this.aoQuality === 'max' ? 1 : 2;
+        this.aoRT = half(div);
+        this.aoRT2 = half(div);
       }
-      if (this.shafts) this.shaftRT = half(this.level === 'high' ? 2 : 4);
+      if (this.shafts) this.shaftRT = half(this.aoQuality === 'max' ? 1 : this.level === 'high' ? 2 : 4);
       if (this.msaa === 0) this.ldrRT = new THREE.WebGLRenderTarget(w, h, Object.assign({}, ldr, { minFilter: THREE.LinearFilter }));
     }
 
@@ -12184,25 +12194,38 @@ void main() {
     uniform vec3 uShallow;
     varying vec3 vWorld;
 
-    // Sum of directional waves; returns the height gradient (d/dx, d/dz).
-    vec2 wave(vec2 p, vec2 dir, float len, float amp, float speed, float t) {
+    float h21(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+    float vnoise(vec2 p) {
+      vec2 i = floor(p);
+      vec2 f = fract(p);
+      f = f * f * (3.0 - 2.0 * f);
+      return mix(mix(h21(i), h21(i + vec2(1.0, 0.0)), f.x), mix(h21(i + vec2(0.0, 1.0)), h21(i + vec2(1.0, 1.0)), f.x), f.y);
+    }
+
+    // Sum of directional waves: returns the height in .z and the gradient (d/dx, d/dz) in .xy.
+    vec3 wave(vec2 p, vec2 dir, float len, float amp, float speed, float t) {
       float k = 6.2831853 / len;
       float ph = dot(dir, p) * k + t * speed * k;
-      return dir * (amp * k * cos(ph));
+      return vec3(dir * (amp * k * cos(ph)), amp * sin(ph));
     }
 
     void main() {
       float t = uTime;
       vec2 p = vWorld.xz;
       float dist = length(cameraPosition - vWorld);
-      vec2 g = vec2(0.0);
-      g += wave(p, normalize(vec2(1.0, 0.25)), 23.0, 0.20, 1.6, t);
-      g += wave(p, normalize(vec2(0.7, -0.7)), 11.0, 0.08, 1.2, t);
-      g += wave(p, normalize(vec2(-0.3, 1.0)), 5.3, 0.035, 0.9, t);
+      vec3 w = vec3(0.0);
+      w += wave(p, normalize(vec2(1.0, 0.25)), 23.0, 0.20, 1.6, t);
+      w += wave(p, normalize(vec2(0.7, -0.7)), 11.0, 0.08, 1.2, t);
+      w += wave(p, normalize(vec2(-0.3, 1.0)), 5.3, 0.035, 0.9, t);
       float near = exp(-dist / 90.0);
-      g += wave(p, normalize(vec2(0.9, 0.5)), 1.9, 0.012, 0.7, t) * near;
-      g += wave(p, normalize(vec2(-0.6, 0.8)), 1.1, 0.006, 0.6, t) * near;
-      g *= mix(0.25, 1.0, exp(-dist / 450.0));
+      w += wave(p, normalize(vec2(0.9, 0.5)), 1.9, 0.012, 0.7, t) * near;
+      w += wave(p, normalize(vec2(-0.6, 0.8)), 1.1, 0.006, 0.6, t) * near;
+      vec2 g = w.xy * mix(0.25, 1.0, exp(-dist / 450.0));
+      // Wind ripples: fine drifting noise on top of the swell (close range only).
+      float rip = exp(-dist / 140.0);
+      vec2 q = p * 1.6 + vec2(t * 0.35, t * 0.12);
+      vec2 r2 = p * 2.9 + vec2(-t * 0.22, t * 0.3);
+      g += vec2(vnoise(q) - vnoise(q + vec2(7.3, 1.7)), vnoise(r2) - vnoise(r2 + vec2(2.1, 8.4))) * 0.07 * rip;
 
       vec3 N = normalize(vec3(-g.x, 1.0, -g.y));
       vec3 V = normalize(cameraPosition - vWorld);
@@ -12212,10 +12235,30 @@ void main() {
       float fres = 0.02 + 0.98 * pow(1.0 - ndv, 5.0);
       vec3 sky = mix(uSkyHorizon, uSkyZenith, pow(clamp(R.y, 0.0, 1.0), 0.55));
       float sd = max(dot(R, uSunDir), 0.0);
-      vec3 spec = uSunColor * (pow(sd, 900.0) * 9.0 + pow(sd, 90.0) * 0.35) * smoothstep(-0.05, 0.1, uSunDir.y);
-      float light = 0.25 + 0.75 * clamp(uSunDir.y + 0.1, 0.0, 1.0);
-      vec3 body = mix(uDeep, uShallow, clamp(0.35 + g.x * 1.5, 0.0, 1.0)) * light;
+      float sunUp = smoothstep(-0.05, 0.1, uSunDir.y);
+      // Sun glitter: a tight lobe, broken up by tiny facets so it sparkles instead of smearing.
+      float facet = 0.55 + 0.9 * vnoise(p * 6.0 + t * vec2(0.9, 0.6));
+      vec3 spec = uSunColor * (pow(sd, 900.0) * 9.0 * facet + pow(sd, 90.0) * 0.35) * sunUp;
+
+      // Shore: the seawall runs at x = 424; foam breaks against it and the water shallows.
+      float shore = max(vWorld.x - 424.0, 0.0);
+      float shallow = exp(-shore / 38.0);
+      float lightK = 0.25 + 0.75 * clamp(uSunDir.y + 0.1, 0.0, 1.0);
+      vec3 body = mix(uDeep, uShallow, clamp(0.35 + g.x * 1.5 + shallow * 0.45, 0.0, 1.0)) * lightK;
+      // Light scattering through thin crests that face the sun.
+      float crestLit = smoothstep(0.05, 0.3, w.z) * pow(max(dot(normalize(vec3(uSunDir.x, 0.0, uSunDir.z)), -V * vec3(1.0, 0.0, 1.0)), 0.0), 2.0);
+      body += uShallow * uSunColor * crestLit * 0.9 * sunUp;
+
       vec3 col = mix(body, sky, fres) + spec;
+
+      // Foam: along wave crests, and in surf lines at the seawall and around pier piles.
+      float fn = vnoise(p * 0.8 + t * 0.04) * 0.6 + vnoise(p * 3.3 - t * 0.09) * 0.4;
+      float crestFoam = smoothstep(0.3, 0.42, w.z * 0.9 + (fn - 0.5) * 0.12) * exp(-dist / 200.0);
+      float surf = smoothstep(9.0, 0.0, shore + sin(shore * 0.9 - t * 1.1) * 1.6 + (fn - 0.5) * 4.0) * step(0.0, vWorld.x - 423.0);
+      float foam = clamp(crestFoam * 0.8 + surf * (0.55 + 0.45 * fn), 0.0, 1.0) * smoothstep(0.35, 0.6, fn + surf * 0.3);
+      vec3 foamCol = mix(vec3(0.82, 0.88, 0.92), uSunColor * 0.8 + vec3(0.2), 0.35) * lightK;
+      col = mix(col, foamCol, foam * 0.7);
+
       gl_FragColor = vec4(col, 1.0);
       #include <tonemapping_fragment>
       #include <colorspace_fragment>
@@ -12452,11 +12495,18 @@ void main() {
         vec2 uv = dir.xz / (h + 0.14) * 1.25 + vec2(uTime * 0.0035, uTime * 0.0012);
         float n = fbm(uv);
         float cover = smoothstep(1.02 - uCloud * 0.9, 1.3 - uCloud * 0.75, n + 0.25);
+        // Fake self-shadowing: sample the cloud field a step toward the sun. Thicker on the
+        // sun side means the lit rim is thin (bright) and the body shades darker.
+        float nSun = fbm(uv + uSunDir.xz * 0.07 / max(h + 0.14, 0.2));
+        float body = clamp((nSun - n) * 4.0 + 0.5, 0.0, 1.0);
+        float rim = clamp((n - nSun) * 5.0, 0.0, 1.0) * smoothstep(0.1, 0.5, cover) * (1.0 - smoothstep(0.55, 0.95, cover));
         float fade = smoothstep(-0.02, 0.22, h);
         float lit = clamp(mu * 0.5 + 0.5, 0.0, 1.0);
         vec3 shade = uHorizon * 0.55 + uZenith * 0.2;
         vec3 bright = uSunColor * 0.9 + uHorizon * 0.35;
         vec3 cloudCol = mix(shade, bright, lit * 0.8 + 0.2) * mix(1.0, 0.72, smoothstep(0.55, 0.95, n));
+        cloudCol *= 1.0 - 0.28 * body * (1.0 - uNight);
+        cloudCol += uSunColor * rim * (0.35 + 0.9 * pow(max(mu, 0.0), 3.0)) * (1.0 - uEnvPass * 0.7) * (1.0 - uNight);
         cloudCol = mix(cloudCol, uZenith * 0.25 + vec3(0.02), uNight * 0.85);
         col = mix(col, cloudCol, cover * fade * 0.92);
       }
@@ -12570,8 +12620,10 @@ void main() {
     applySettings() {
       this.nightBrightness = VH.math.clamp(+this.settings.get('graphics.nightBrightness') || 1, 0.5, 2) * NIGHT_LIFT;
       const base = this.settings.shadowTier();
-      const tier = this._extentOverride && base.enabled ? Object.assign({}, base, { extent: this._extentOverride }) : base;
+      const tier = Object.assign({}, base, this._extentOverride && base.enabled ? { extent: this._extentOverride } : null);
       const sun = this.sun;
+      const maxTex = this.vhRenderer.renderer.capabilities.maxTextureSize || 4096;
+      if (tier.mapSize > maxTex) tier.mapSize = maxTex;
       sun.castShadow = tier.enabled;
       if (tier.enabled) {
         if (sun.shadow.mapSize.x !== tier.mapSize) {
@@ -12654,11 +12706,12 @@ void main() {
       this.sun.intensity = moon ? intensity * smoothstep(-0.035, -0.12, s) : intensity * smoothstep(-0.02, 0.03, s);
 
       this.hemi.color.copy(zenith).lerp(horizon, 0.3).lerp(NIGHT_SKY, night * 0.85);
-      this.hemi.groundColor.setRGB(0.18, 0.16, 0.13).multiplyScalar(envIntensity).lerp(NIGHT_GROUND, night * 0.8);
+      // Warm bounce from sunlit pavement and walls: without it shaded streets fall to flat navy.
+      this.hemi.groundColor.setRGB(0.34, 0.29, 0.22).multiplyScalar(envIntensity).lerp(NIGHT_GROUND, night * 0.8);
       // People and cars are lit by this at night (lamp pools are only on the ground).
-      this.hemi.intensity = 0.3 + envIntensity * 0.25 + night * 0.32 * nb;
+      this.hemi.intensity = 0.38 + envIntensity * 0.3 + night * 0.32 * nb;
       // Sky light fills shadows: keep shaded streets readable, not black.
-      this.scene.environmentIntensity = envIntensity * 1.15 + night * 0.2 * nb;
+      this.scene.environmentIntensity = envIntensity * 1.3 + night * 0.2 * nb;
       this.vhRenderer.renderer.toneMappingExposure = exposure;
       this.exposure = exposure;
       // Lift the very darkest tones a touch (post-processing): moonlit, not crushed.
@@ -19264,7 +19317,7 @@ void main() {
       const add = (type, x, z, yaw, color) => {
         if (!VH.Vehicle.typeSpec(type)) return;
         this.spots.push(V.addFixedSpot({
-          type, x, z, yaw, color, r: type === 'talon' ? 12 : type === 'warden' ? 11 : 6,
+          type, x, z, yaw, color, r: type === 'bison' ? 13 : type === 'talon' ? 12 : type === 'warden' ? 11 : type === 'kestrel' ? 8 : 6,
           onSpawn: (v) => {
             v.military = true;
           },
@@ -19272,10 +19325,16 @@ void main() {
       };
       add('bastion', -1196, 200, -Math.PI / 2);
       add('bastion', -1196, 225, -Math.PI / 2);
+      add('bastion', -1160, 200, -Math.PI / 2);
+      add('bastion', -1160, 225, -Math.PI / 2);
+      add('bastion', -1196, 322, -Math.PI / 2);
       add('scout', -1196, 260, -Math.PI / 2, 0x4b5320);
       add('scout', -1196, 278, -Math.PI / 2, 0x5d6b3c);
       add('scout', -1196, 296, -Math.PI / 2, 0x4b5320);
       add('talon', STRIP.x, STRIP.z1 - 30, Math.PI);
+      add('kestrel', STRIP.x - 12, STRIP.z1 - 75, Math.PI);
+      add('kestrel', STRIP.x + 12, STRIP.z1 - 75, Math.PI);
+      add('bison', STRIP.x, STRIP.z1 - 120, Math.PI);
       add('warden', HELIPADS[0].x, HELIPADS[0].z, -Math.PI / 2);
       this._posts = Fort._posts();
       this._buildHud();
@@ -23212,7 +23271,7 @@ void main() {
 
     get targetCount() {
       const q = this.game.settings.get('graphics.quality');
-      const base = q === 'low' ? 18 : q === 'medium' ? 28 : q === 'ultra' ? 60 : 42;
+      const base = q === 'low' ? 18 : q === 'medium' ? 28 : q === 'max' ? 80 : q === 'ultra' ? 60 : 42;
       const night = this.game.environment.nightFactor || 0;
       return Math.round(base * (1 - night * 0.4));
     }
@@ -54817,6 +54876,189 @@ void main() {
 })();
 //# sourceURL=js/data/story-club.js
 </script>
+  <script data-src="js/data/story-gangs.js">
+/*
+ * data/story-gangs.js — "Street Money": a side chain of gang jobs for the
+ * Saltmarsh Salts and the Lantern Kings. Steal the cash, run the packages
+ * through rival territory, hit a Halberd depot and get out with the heat on.
+ *
+ * Loaded after story-club.js. It only uses the job format in missions.js and
+ * the cast, places and factions from story.js; nothing here changes the engine.
+ * Unlocks after m05_the_toolbox (when Jay has met Rhea).
+ */
+(function () {
+  'use strict';
+
+  const S = window.VH.Data.story;
+  const jobs = [];
+
+  // ===================================================================
+  // g01 CASH RUN: rob the Pelican Home Equity counting room
+  // ===================================================================
+  jobs.push({
+    id: 'g01_cash_run',
+    title: 'Cash Run',
+    giver: 'rhea',
+    start: 'kostas_salvage',
+    time: 21,
+    estMinutes: 8,
+    summary: 'Rhea wants Pelican\'s Friday cash. Take it quietly, or take it loud, and get it back to the yard.',
+    reward: { money: 3500, weapons: ['smg'] },
+    steps: [
+      { scene: { at: 'kostas_salvage', cast: ['rhea', 'kostya'] }, say: [
+        ['rhea', '(not looking up from her pencil) Pelican Home Equity. They foreclosed on four of my dockers\' houses this year and they count the money on Fridays.'],
+        ['kostya', '(from behind a stack of tyres) Nine guards on the rota. Three on tonight.'],
+        ['jay', 'Three guards and a vault.'],
+        ['rhea', 'A counting room. Not a vault. Banks keep the vault for other people\'s money. This is their own.'],
+        ['rhea', 'Walk in. Take the bags. Be back by midnight. If you leave a mess, leave it on them.'],
+        ['kostya', '(to Jay, kindly) Don\'t be a hero. Heroes get tyres dropped on them.'],
+      ] },
+      { spawnCar: 'getaway', type: 'ironclad', at: 'pelican_bank', color: 0x1c1c1f },
+      { getIn: 'getaway', checkpoint: true, objective: 'Take the Salts\' getaway car' },
+      { goto: 'pelican_bank', vehicle: true, objective: 'Drive to Pelican Home Equity', say: [
+        ['jay', '(to himself, hands at ten and two) Park. Walk in. Walk out. Simple.'],
+        ['caption', '(He has never once in his life done anything simple.)'],
+      ] },
+      { spawn: [{ id: 'bank_guards', at: 'pelican_bank', count: 3, faction: 'halberd', weapon: 'pistol', behavior: 'guard', group: 'guards' }] },
+      { music: 'tension' },
+      { kill: 'guards', objective: 'Deal with the guards', say: [
+        ['jay', '(as the first shot cracks off the glass) Quiet. Right.'],
+      ] },
+      { heat: 2 },
+      { collect: ['pelican_bank'], item: 'cash bags', objective: 'Grab the cash bags from the counting room', say: [
+        ['jay', '(stuffing a bag) Heavy. Good. Heavy is good.'],
+      ] },
+      { music: 'action' },
+      { getIn: 'getaway', objective: 'Back in the car. Go.' },
+      { deliver: 'getaway', to: 'kostas_salvage', timeLimit: 150, maxDamage: 0.7, objective: 'Get the cash back to Kostas Salvage before midnight', say: [
+        ['jay', '(checking the mirror, then the mirror again) They\'re on me. Of course they are.'],
+      ] },
+      { loseHeat: true, objective: 'Lose the cops before you reach the gate' },
+      { scene: { at: 'kostas_salvage', cast: ['rhea', 'kostya'] }, say: [
+        ['kostya', '(counting with a dock worker\'s speed) It\'s all here. It is... a lot of here.'],
+        ['rhea', '(finally looking up) Four houses. Plus legal fees. Plus the interest I\'m charging Pelican for being rude to my dockers.'],
+        ['rhea', '(sliding a bundle across) Your end. It\'s clean. Don\'t spend it all in one bar.'],
+        ['jay', 'Which bar?'],
+        ['rhea', 'There\'s only one. Don\'t be coy.'],
+      ] },
+      { setFlag: 'gangs_cash_run_done' },
+    ],
+  });
+
+  // ===================================================================
+  // g02 THE PACKAGE RUN: carry the Kings' packages through Salts ground
+  // ===================================================================
+  jobs.push({
+    id: 'g02_package_run',
+    title: 'The Package Run',
+    giver: 'teo',
+    start: 'lantern_alley',
+    time: 22,
+    estMinutes: 10,
+    summary: 'The Kings have three sealed packages to move across town, and somebody is not going to like it.',
+    reward: { money: 3000, weapons: ['shotgun'] },
+    steps: [
+      { scene: { at: 'lantern_alley', cast: ['teo', 'wick'] }, say: [
+        ['teo', 'Three sealed boxes. I don\'t ask what\'s in them, you don\'t ask what\'s in them.'],
+        ['wick', '(helpfully) Lanterns. It\'s lanterns. For the festival.'],
+        ['teo', '(a long look) Wick.'],
+        ['wick', 'Mostly lanterns.'],
+        ['teo', 'Pick them up along Tannery Row, then take them to the Parkade by ten. The Salts know there\'s a run tonight. Somebody talked.'],
+        ['jay', 'Who?'],
+        ['teo', 'Don\'t make it a thing. Just don\'t stop.'],
+      ] },
+      { spawnCar: 'run_car', type: 'lowrider', at: 'lantern_alley', color: 0xb3202a },
+      { getIn: 'run_car', checkpoint: true, objective: 'Take the Kings\' lowrider' },
+      { goto: 'tannery_row', vehicle: true, objective: 'Drive to Tannery Row for the packages' },
+      { collect: ['tannery_row'], item: 'packages', objective: 'Pick up the sealed packages' },
+      { getIn: 'run_car', objective: 'Back in the car' },
+      { music: 'tension' },
+      { timer: 200 },
+      { deliver: 'run_car', to: 'grand_parkade', maxDamage: 0.6, objective: 'Get the packages to the Grand Parkade by ten', say: [
+        ['wick', '(on the phone, whispering) Two black cars behind you. Salts colours. I\'m scared and also kind of proud of you.'],
+        ['jay', 'Wick. Hang up.'],
+        ['wick', 'Hanging up. (beat) Good luck. Don\'t scratch it.'],
+      ] },
+      { music: 'action' },
+      { survive: 45, objective: 'The Salts are here. Hold the Parkade ramp.', waves: [
+        { delay: 2, at: 'grand_parkade', count: 3, faction: 'salts', weapon: 'pistol' },
+        { delay: 18, at: 'grand_parkade', count: 4, faction: 'salts', weapon: 'smg' },
+        { delay: 32, at: 'grand_parkade', count: 3, faction: 'salts', weapon: 'shotgun' },
+      ] },
+      { scene: { at: 'grand_parkade', cast: ['teo', 'wick'] }, say: [
+        ['teo', '(counting the packages and finding them all there) Three. Good.'],
+        ['wick', 'Were there really Salts?'],
+        ['jay', 'There were really Salts.'],
+        ['teo', '(quietly, at last) Rhea didn\'t order this. Somebody on her side is freelancing. I\'ll find them. I don\'t want a war I didn\'t pick.'],
+        ['teo', '(handing over a roll) Your cut. Don\'t make it a thing.'],
+      ] },
+      { setFlag: 'gangs_package_run_done' },
+    ],
+  });
+
+  // ===================================================================
+  // g03 THE DEPOT HIT: break into a Halberd cash depot and get out clean
+  // ===================================================================
+  jobs.push({
+    id: 'g03_depot_hit',
+    title: 'The Depot Hit',
+    giver: 'rhea',
+    start: 'kostas_salvage',
+    time: 23,
+    estMinutes: 12,
+    summary: 'Halberd keeps the wages for half the docks in one depot. Rhea wants it moved.',
+    reward: { money: 5500, armor: 100 },
+    steps: [
+      { scene: { at: 'kostas_salvage', cast: ['rhea', 'kostya', 'deb'] }, say: [
+        ['rhea', 'Halberd Docks Depot. Payroll for the whole harbour sits there between Thursday and Friday.'],
+        ['deb', '(sitting on a forklift) I drove past it. Four guards at the gate, more inside. They\'ve got dogs. I like the dogs. I don\'t like the guards.'],
+        ['kostya', 'We create a distraction. The gate opens. You walk in.'],
+        ['jay', 'What distraction?'],
+        ['kostya', '(a heavy sigh) A forklift. Through the fence. Deb is very excited.'],
+        ['deb', '(beaming) I\'m so excited.'],
+        ['rhea', 'In and out. If the police come, you will not be here when they arrive.'],
+      ] },
+      { spawnCar: 'depot_car', type: 'mesa', at: 'kostas_salvage', color: 0x1d2b4a },
+      { getIn: 'depot_car', checkpoint: true, objective: 'Take the Salts\' SUV' },
+      { goto: 'halberd_depot', vehicle: true, objective: 'Drive to the Halberd Docks Depot' },
+      { spawn: [{ id: 'depot_guards', at: 'halberd_depot', count: 4, faction: 'halberd', weapon: 'smg', behavior: 'guard', group: 'guards' }] },
+      { music: 'tension' },
+      { kill: 'guards', objective: 'Take out the gate guards' },
+      { heat: 3 },
+      { survive: 40, objective: 'Halberd reinforcements. Hold the depot gate.', waves: [
+        { delay: 3, at: 'halberd_depot', count: 3, faction: 'halberd', weapon: 'smg' },
+        { delay: 20, at: 'halberd_depot', count: 4, faction: 'halberd', weapon: 'shotgun' },
+      ] },
+      { collect: ['halberd_depot'], item: 'payroll bags', objective: 'Grab the payroll bags from the cage' },
+      { music: 'action' },
+      { getIn: 'depot_car', objective: 'Into the SUV. Go go go.' },
+      { deliver: 'depot_car', to: 'kostas_salvage', timeLimit: 200, maxDamage: 0.7, objective: 'Get the payroll back to Kostas Salvage', say: [
+        ['deb', '(on the radio, thrilled) Is that a helicopter? That is a helicopter. I love this job.'],
+        ['jay', 'Deb. Get off the radio.'],
+      ] },
+      { loseHeat: true, objective: 'Lose the heat before you reach the yard' },
+      { scene: { at: 'kostas_salvage', cast: ['rhea', 'kostya', 'deb'] }, say: [
+        ['rhea', '(slowly, with the first real smile Jay has seen) The harbour gets paid on time this week. The harbour will wonder why.'],
+        ['kostya', 'The harbour will never know.'],
+        ['rhea', 'The harbour will always know. That\'s the point.'],
+        ['deb', '(waving a stack of bills) Can I keep the forklift?'],
+        ['rhea', 'You never gave it back.'],
+        ['deb', '(happily) No.'],
+      ] },
+      { setFlag: 'gangs_depot_hit_done' },
+    ],
+  });
+
+  S.side.push({
+    id: 'side_street_money',
+    title: 'Street Money',
+    giver: 'rhea',
+    unlockAfter: 'm05_the_toolbox',
+    missions: jobs,
+  });
+})();
+//# sourceURL=js/data/story-gangs.js
+</script>
   <script data-src="js/missions.js">
 /*
  * missions.js — the story engine. Runs the missions in VH.Data.story
@@ -65160,15 +65402,15 @@ void main() {
       label: 'Graphics',
       items: [
         { path: 'graphics.quality', label: 'Quality preset', type: 'select', preset: true,
-          options: [['low', 'Low'], ['medium', 'Medium'], ['high', 'High'], ['ultra', 'Ultra'], ['custom', 'Custom']],
-          help: 'Low suits older laptops; Ultra wants a dedicated graphics card.' },
-        { path: 'graphics.renderScale', label: 'Resolution scale', type: 'range', min: 0.5, max: 1, step: 0.05, format: pct,
-          help: 'Renders fewer pixels and scales up. The biggest single performance lever.' },
+          options: [['low', 'Low'], ['medium', 'Medium'], ['high', 'High'], ['ultra', 'Ultra'], ['max', 'Max'], ['custom', 'Custom']],
+          help: 'Low suits older laptops; Ultra wants a dedicated graphics card; Max uses everything the engine has (1.5x supersampling, 8k shadows) and wants a powerful one.' },
+        { path: 'graphics.renderScale', label: 'Resolution scale', type: 'range', min: 0.5, max: 2, step: 0.05, format: pct,
+          help: 'Above 100% renders extra pixels and scales them down (supersampling: very smooth, very heavy). Below renders fewer pixels and scales up. The biggest single performance lever.' },
         { path: 'graphics.maxPixelRatio', label: 'High-DPI limit', type: 'select',
-          options: [[1, '1× (fastest)'], [1.25, '1.25×'], [1.5, '1.5×'], [2, '2× (sharpest)']] },
+          options: [[1, '1× (fastest)'], [1.25, '1.25×'], [1.5, '1.5×'], [2, '2× (sharpest)'], [3, '3× (max)']] },
         { path: 'graphics.shadows', label: 'Shadows', type: 'select',
-          options: [['off', 'Off'], ['low', 'Low'], ['high', 'High'], ['ultra', 'Ultra']] },
-        { path: 'graphics.drawDistance', label: 'Draw distance', type: 'range', min: 400, max: 1600, step: 50, format: (v) => v + ' m' },
+          options: [['off', 'Off'], ['low', 'Low'], ['high', 'High'], ['ultra', 'Ultra'], ['max', 'Max (8k)']] },
+        { path: 'graphics.drawDistance', label: 'Draw distance', type: 'range', min: 400, max: 2400, step: 50, format: (v) => v + ' m' },
         { path: 'graphics.propDensity', label: 'Detail distance', type: 'range', min: 0.5, max: 1.5, step: 0.05, format: pct,
           help: 'How far away benches, lamps and trees are still drawn.' },
         { path: 'graphics.effects', label: 'Post-processing', type: 'select',
@@ -65178,7 +65420,7 @@ void main() {
           help: 'Smooths jagged edges. With post-processing Off it applies after reloading the page.' },
         { path: 'graphics.filmGrain', label: 'Film grain', type: 'select', options: [['off', 'Off'], ['light', 'Light'], ['strong', 'Strong']],
           help: 'The fine flicker over the picture, like old film. Only with post-processing on High.' },
-        { path: 'graphics.ambientOcclusion', label: 'Ambient occlusion', type: 'select', options: [['off', 'Off'], ['low', 'Low'], ['high', 'High']],
+        { path: 'graphics.ambientOcclusion', label: 'Ambient occlusion', type: 'select', options: [['off', 'Off'], ['low', 'Low'], ['high', 'High'], ['max', 'Max (full resolution)']],
           help: 'Soft contact shadows in corners, under cars and around props. Needs post-processing on Medium or High.' },
         { path: 'graphics.lightShafts', label: 'Sun shafts and haze', type: 'select', options: [['off', 'Off'], ['on', 'On']],
           help: 'Beams of light between the towers and a warm haze toward the sun. Needs post-processing.' },
@@ -65448,6 +65690,11 @@ void main() {
         tabs.append(tab);
         body.append(pane);
         if (group.note) pane.append(el('p', 'pane-note', group.note));
+        if (key === 'graphics' && /swiftshader|llvmpipe|microsoft basic|software/i.test(String(VH.features.gpu || ''))) {
+          const warn = el('p', 'pane-note', 'Hardware acceleration looks switched off: the browser is drawing with the CPU (' + VH.features.gpu + '). Turn on "Use graphics acceleration when available" in the browser\'s System settings, and see docs/MAX_QUALITY.md.');
+          warn.style.color = 'var(--vh-warn)';
+          pane.append(warn);
+        }
         if (group.custom) this._buildControlsPane(pane);
         else for (const item of group.items) pane.append(this._settingRow(item));
         first = false;
@@ -66016,7 +66263,7 @@ void main() {
           this.print('tp <x> <z> | tp <plaza|park|tower|pier|boardwalk|market|downtown|palm|harbor|yard|roof>');
           this.print('noclip · god · heal · hurt <n> · money <n> · armor <n>');
           this.print('car <type> · heat <0-5> · give <weapon|all> · job <id> · pass <id> · flag <name>');
-          this.print('time <0-24> · clouds <0-1> · fov <deg> · quality <low|medium|high|ultra>');
+          this.print('time <0-24> · clouds <0-1> · fov <deg> · quality <low|medium|high|ultra|max>');
           this.print('colliders · pos · respawn · clear · complete (pass the current job) · spawn <faction> (an enemy)');
           break;
         case 'tp': {
@@ -66139,7 +66386,7 @@ void main() {
           if (VH.SETTINGS_PRESETS[args[0]]) {
             VH.settings.applyPreset(args[0]);
             this.print('Quality preset: ' + args[0]);
-          } else this.print('usage: quality <low|medium|high|ultra>', 'bad');
+          } else this.print('usage: quality <low|medium|high|ultra|max>', 'bad');
           break;
         case 'colliders':
           this._toggleColliders();

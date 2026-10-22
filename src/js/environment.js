@@ -142,11 +142,18 @@
         vec2 uv = dir.xz / (h + 0.14) * 1.25 + vec2(uTime * 0.0035, uTime * 0.0012);
         float n = fbm(uv);
         float cover = smoothstep(1.02 - uCloud * 0.9, 1.3 - uCloud * 0.75, n + 0.25);
+        // Fake self-shadowing: sample the cloud field a step toward the sun. Thicker on the
+        // sun side means the lit rim is thin (bright) and the body shades darker.
+        float nSun = fbm(uv + uSunDir.xz * 0.07 / max(h + 0.14, 0.2));
+        float body = clamp((nSun - n) * 4.0 + 0.5, 0.0, 1.0);
+        float rim = clamp((n - nSun) * 5.0, 0.0, 1.0) * smoothstep(0.1, 0.5, cover) * (1.0 - smoothstep(0.55, 0.95, cover));
         float fade = smoothstep(-0.02, 0.22, h);
         float lit = clamp(mu * 0.5 + 0.5, 0.0, 1.0);
         vec3 shade = uHorizon * 0.55 + uZenith * 0.2;
         vec3 bright = uSunColor * 0.9 + uHorizon * 0.35;
         vec3 cloudCol = mix(shade, bright, lit * 0.8 + 0.2) * mix(1.0, 0.72, smoothstep(0.55, 0.95, n));
+        cloudCol *= 1.0 - 0.28 * body * (1.0 - uNight);
+        cloudCol += uSunColor * rim * (0.35 + 0.9 * pow(max(mu, 0.0), 3.0)) * (1.0 - uEnvPass * 0.7) * (1.0 - uNight);
         cloudCol = mix(cloudCol, uZenith * 0.25 + vec3(0.02), uNight * 0.85);
         col = mix(col, cloudCol, cover * fade * 0.92);
       }
@@ -260,8 +267,10 @@
     applySettings() {
       this.nightBrightness = VH.math.clamp(+this.settings.get('graphics.nightBrightness') || 1, 0.5, 2) * NIGHT_LIFT;
       const base = this.settings.shadowTier();
-      const tier = this._extentOverride && base.enabled ? Object.assign({}, base, { extent: this._extentOverride }) : base;
+      const tier = Object.assign({}, base, this._extentOverride && base.enabled ? { extent: this._extentOverride } : null);
       const sun = this.sun;
+      const maxTex = this.vhRenderer.renderer.capabilities.maxTextureSize || 4096;
+      if (tier.mapSize > maxTex) tier.mapSize = maxTex;
       sun.castShadow = tier.enabled;
       if (tier.enabled) {
         if (sun.shadow.mapSize.x !== tier.mapSize) {
@@ -344,11 +353,12 @@
       this.sun.intensity = moon ? intensity * smoothstep(-0.035, -0.12, s) : intensity * smoothstep(-0.02, 0.03, s);
 
       this.hemi.color.copy(zenith).lerp(horizon, 0.3).lerp(NIGHT_SKY, night * 0.85);
-      this.hemi.groundColor.setRGB(0.18, 0.16, 0.13).multiplyScalar(envIntensity).lerp(NIGHT_GROUND, night * 0.8);
+      // Warm bounce from sunlit pavement and walls: without it shaded streets fall to flat navy.
+      this.hemi.groundColor.setRGB(0.34, 0.29, 0.22).multiplyScalar(envIntensity).lerp(NIGHT_GROUND, night * 0.8);
       // People and cars are lit by this at night (lamp pools are only on the ground).
-      this.hemi.intensity = 0.3 + envIntensity * 0.25 + night * 0.32 * nb;
+      this.hemi.intensity = 0.38 + envIntensity * 0.3 + night * 0.32 * nb;
       // Sky light fills shadows: keep shaded streets readable, not black.
-      this.scene.environmentIntensity = envIntensity * 1.15 + night * 0.2 * nb;
+      this.scene.environmentIntensity = envIntensity * 1.3 + night * 0.2 * nb;
       this.vhRenderer.renderer.toneMappingExposure = exposure;
       this.exposure = exposure;
       // Lift the very darkest tones a touch (post-processing): moonlit, not crushed.

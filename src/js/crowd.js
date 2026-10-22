@@ -350,7 +350,7 @@
 
     get targetCount() {
       const q = this.game.settings.get('graphics.quality');
-      const base = q === 'low' ? 18 : q === 'medium' ? 28 : q === 'ultra' ? 60 : 42;
+      const base = q === 'low' ? 18 : q === 'medium' ? 28 : q === 'max' ? 80 : q === 'ultra' ? 60 : 42;
       const night = this.game.environment.nightFactor || 0;
       return Math.round(base * (1 - night * 0.4));
     }
