@@ -384,7 +384,7 @@
       const add = (type, x, z, yaw, color) => {
         if (!VH.Vehicle.typeSpec(type)) return;
         this.spots.push(V.addFixedSpot({
-          type, x, z, yaw, color, r: type === 'talon' ? 12 : type === 'warden' ? 11 : 6,
+          type, x, z, yaw, color, r: type === 'bison' ? 13 : type === 'talon' ? 12 : type === 'warden' ? 11 : type === 'kestrel' ? 8 : 6,
           onSpawn: (v) => {
             v.military = true;
           },
@@ -392,10 +392,16 @@
       };
       add('bastion', -1196, 200, -Math.PI / 2);
       add('bastion', -1196, 225, -Math.PI / 2);
+      add('bastion', -1160, 200, -Math.PI / 2);
+      add('bastion', -1160, 225, -Math.PI / 2);
+      add('bastion', -1196, 322, -Math.PI / 2);
       add('scout', -1196, 260, -Math.PI / 2, 0x4b5320);
       add('scout', -1196, 278, -Math.PI / 2, 0x5d6b3c);
       add('scout', -1196, 296, -Math.PI / 2, 0x4b5320);
       add('talon', STRIP.x, STRIP.z1 - 30, Math.PI);
+      add('kestrel', STRIP.x - 12, STRIP.z1 - 75, Math.PI);
+      add('kestrel', STRIP.x + 12, STRIP.z1 - 75, Math.PI);
+      add('bison', STRIP.x, STRIP.z1 - 120, Math.PI);
       add('warden', HELIPADS[0].x, HELIPADS[0].z, -Math.PI / 2);
       this._posts = Fort._posts();
       this._buildHud();
