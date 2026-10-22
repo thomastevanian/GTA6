@@ -196,7 +196,8 @@
     }
 
     _onMouseMove(e) {
-      if (!this.locked) return;
+      // The weapon wheel (combat.js) asks for movement even without pointer lock, so it can be steered right after loading.
+      if (!this.locked && !this.wantDeltas) return;
       if (this._ignoreMouseUntil && performance.now() < this._ignoreMouseUntil) return;
       // Some drivers report a huge spurious jump right after locking; clamp it.
       const dx = clamp(e.movementX || 0, -300, 300);
