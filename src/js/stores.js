@@ -58,6 +58,7 @@
     arms: { name: 'Breakwater Arms', sign: ['BREAKWATER ARMS', 'GUNS · AMMO'], bg: ['#3a3f45', '#1c1f23'], fg: '#ff5a3c', band: 0x2e3237, trim: 0xff5a3c, shirt: 0x4b5320, kind: 'guns' },
     pawn: { name: 'Lucky Strike Pawn', sign: ['LUCKY STRIKE', 'PAWN · CASH 4 GOLD'], bg: ['#d4a017', '#9a6f0a'], fg: '#1a1a1a', band: 0xc4920f, trim: 0x1a1a1a, shirt: 0x6b4a2e, kind: 'pawn' },
     lustre: { name: 'Lustre Jewellers', sign: ['LUSTRE', 'FINE JEWELLERY'], bg: ['#f4f0e6', '#cfc6b0'], fg: '#1d2b4a', band: 0xe9e3d3, trim: 0x1d2b4a, shirt: 0x1d2b4a, kind: 'jewel' },
+    sprayshack: { name: 'Spray Shack', sign: ['SPRAY SHACK', 'RESPRAY · REPAIRS'], bg: ['#2ad4c4', '#127a8c'], fg: '#ffffff', band: 0x1aa6a6, trim: 0xff4f8b, shirt: 0x1aa6a6, kind: 'spray' },
     coastline: { name: 'Coastline Savings', sign: ['COASTLINE SAVINGS', 'BANK · ATM'], bg: ['#1d4fb8', '#0f2f73'], fg: '#ffffff', band: 0x1d4fb8, trim: 0xf2c94c, shirt: 0x1c2a44, kind: 'bank' },
   };
   // How each kind of shop is held up: cash (base + up to extra), seconds of
@@ -72,6 +73,9 @@
     jewel: { base: 1800, extra: 1400, secs: 9, heat: 3, fight: 0, guards: 1 },
     bank: { base: 3500, extra: 3000, secs: 12, heat: 4, fight: 0, guards: 2 },
   };
+  const SPRAY_MAX = 3;
+  const SPRAY_PRICE = 250;
+  const SPRAY_COLORS = [0xd8262e, 0x1d4fb8, 0xf2c500, 0x1faa6b, 0xf1f2ef, 0x1c1c1f, 0xff4f8b, 0x13b5b1, 0x8a3fd1, 0xc4561d, 0x9aa1a8];
   const kindOf = (s) => BRANDS[s.brand].kind || (s.gas ? 'gas' : 'mart');
   // Dealt over the non-mart shops (every other one), in this order.
   const SPECIALS = ['arms', 'lustre', 'pawn', 'bottlebay', 'arms', 'pawn', 'bottlebay', 'lustre', 'bottlebay', 'arms'];
@@ -553,6 +557,54 @@
     void i0;
   }
 
+  /**
+   * The Spray Shack: a drive-in garage with the roll-up door up, spray-booth
+   * lights inside and a sign over the door. Returns the roof height.
+   */
+  function buildSpray(world, ctx, s) {
+    const f = s.f;
+    const D = drawer(ctx, f);
+    const brand = BRANDS[s.brand];
+    const band = VH.col(brand.band);
+    const trim = VH.col(brand.trim);
+    const wall = VH.col(0xd9dcdf);
+    const a0 = s.a;
+    const a1 = s.a + s.SW;
+    const v0 = s.vb0;
+    const v1 = s.vb1;
+    const y0 = KERB;
+    const H = 5.2;
+    const FLAGS = VH.COLLIDE.ALL;
+    // Floor, walls, roof.
+    D.box('concrete', a0, 0, v0, a1, y0, v1, VH.col(0x8f8f8f));
+    D.box('b', a0, y0, v0, a0 + T, H, v1, wall);
+    D.box('b', a1 - T, y0, v0, a1, H, v1, wall);
+    D.box('b', a0, y0, v1 - T, a1, H, v1, wall);
+    D.box('b', a0, H - 1.0, v0, a1, H, v0 + T, band); // the header over the opening
+    D.box('b', a0 - 0.1, H, v0 - 0.1, a1 + 0.1, H + 0.35, v1 + 0.1, VH.col(0x6b727a), { bottom: true });
+    D.box('prop', a0 + 0.4, H - 1.6, v0 + 0.3, a1 - 0.4, H - 1.0, v0 + 0.9, VH.col(0x9aa0a6)); // the rolled-up door
+    D.box('prop', a0 - 0.12, H - 1.12, v0 - 0.14, a1 + 0.12, H - 1.0, v0, trim);
+    D.collide(a0, 0, v0, a0 + T, H, v1, 'building', FLAGS);
+    D.collide(a1 - T, 0, v0, a1, H, v1, 'building', FLAGS);
+    D.collide(a0, 0, v1 - T, a1, H, v1, 'building', FLAGS);
+    D.collide(a0, H - 1.6, v0, a1, H + 0.35, v1, 'building', FLAGS);
+    // Inside: striped booth walls and bright strip lights.
+    for (let v = v0 + 2; v < v1 - 1; v += 2.5) {
+      D.box('interior', a0 + T, y0, v, a0 + T + 0.05, H - 1.6, v + 0.25, trim);
+      D.box('interior', a1 - T - 0.05, y0, v, a1 - T, H - 1.6, v + 0.25, trim);
+    }
+    const lamp = VH.col(0xffffff, 1.6);
+    for (let v = v0 + 1.5; v < v1 - 1; v += 3) D.hquad('screen', a0 + 1.5, v, a1 - 1.5, v + 0.35, H - 1.62, -1, lamp);
+    // Hazard stripes across the threshold, and the sign.
+    for (let u = a0 + 0.4, n = 0; u < a1 - 0.4; u += 1.0, n++) D.hquad('concrete', u, v0 - 0.6, u + 1.0, v0 + 0.4, y0 + 0.01, 1, VH.col(n % 2 ? 0x1a1a1a : 0xf2c500));
+    const yawOut = Math.atan2(-f.vx, -f.vz);
+    const [sx, sz] = P(f, (a0 + a1) / 2, v0 - 0.15);
+    (world.signs || (world.signs = [])).push({ x: sx, y: H - 0.5, z: sz, yaw: yawOut, w: Math.min(s.SW - 1.5, 8), h: 0.85, lines: brand.sign, style: 'brand', colors: { bg: brand.bg, fg: brand.fg }, frame: brand.band });
+    const [cx, cz] = P(f, (a0 + a1) / 2, (v0 + v1) / 2);
+    (world.floodlights || (world.floodlights = [])).push({ x: cx, z: cz, r: s.SW * 0.5, y: KERB + 0.03 });
+    return H + 1;
+  }
+
   /** Petrol station extras: the canopy, two pump islands and a price pylon. */
   function buildForecourt(world, ctx, s, D) {
     const f = s.f;
@@ -681,6 +733,25 @@
         chosen.push({ lot: l, side, brand: null });
         count[d] = (count[d] || 0) + 1;
       }
+      // Spray Shacks on a few more car parks, spread well apart.
+      const sprays = [];
+      for (const l of lots) {
+        if (sprays.length >= SPRAY_MAX) break;
+        if (!QUOTA[l.district.id] || chosen.some((c) => c.lot === l)) continue;
+        let side = null;
+        for (const sd of ['s', 'n', 'e', 'w']) {
+          if (!l.front[sd]) continue;
+          const fr = frameFor(l, sd);
+          if (fr.W >= 13 && fr.D >= 16) {
+            side = sd;
+            break;
+          }
+        }
+        if (!side || !chosen.every((c) => Math.hypot(c.lot.cx - l.cx, c.lot.cz - l.cz) > 30)) continue;
+        if (!sprays.every((c) => Math.hypot(c.lot.cx - l.cx, c.lot.cz - l.cz) > 320)) continue;
+        sprays.push({ lot: l, side, brand: 'sprayshack' });
+      }
+      for (const c of sprays) chosen.push(c);
       // A fixed order (west to east, north to south) so ids are stable.
       chosen.sort((p, q) => p.lot.cx - q.lot.cx || p.lot.cz - q.lot.cz);
       // Deal the corner-shop chains out in turn so neighbours differ.
@@ -705,13 +776,14 @@
       const lot = c.lot;
       const f = frameFor(lot, c.side);
       const gas = !!BRANDS[c.brand].gas;
-      const SW = gas ? 14 : clamp(Math.floor(f.W - 3), 11, 18);
-      const SD = gas ? 10 : clamp(Math.floor(f.D - 8.5), 9, 13);
+      const spray = BRANDS[c.brand].kind === 'spray';
+      const SW = spray ? clamp(Math.floor(f.W - 2), 11, 13) : gas ? 14 : clamp(Math.floor(f.W - 3), 11, 18);
+      const SD = spray ? clamp(Math.floor(f.D - 1.5), 14, 16) : gas ? 10 : clamp(Math.floor(f.D - 8.5), 9, 13);
       const a = (f.W - SW) / 2;
       const vb1 = f.D - 0.6;
       const vb0 = vb1 - SD;
-      const d1 = a + SW - 1.8;
-      const d0 = d1 - 2.0;
+      const d1 = spray ? a + SW - 0.8 : a + SW - 1.8;
+      const d0 = spray ? a + 0.8 : d1 - 2.0;
       const at = (u, v) => {
         const [x, z] = P(f, u, v);
         return { x, z };
@@ -739,6 +811,7 @@
 
     /** World build: the shop on a planned lot. Returns the roof height. */
     static buildLot(world, ctx, lot) {
+      if (kindOf(lot.store) === 'spray') return buildSpray(world, ctx, lot.store);
       return buildShop(world, ctx, lot.store);
     }
 
@@ -806,6 +879,7 @@
     /** The shop whose room contains (x, z), if any. */
     storeAt(x, z) {
       for (const s of this.list) {
+        if (kindOf(s) === 'spray') continue;
         if (Math.abs(x - s.centre.x) > 14 || Math.abs(z - s.centre.z) > 14) continue;
         const [u, v] = local(s.f, x, z);
         if (u > s.a + T && u < s.a + s.SW - T && v > s.vb0 + T * 0.5 && v < s.vb1 - T) return s;
@@ -845,6 +919,7 @@
       const px = p.pos.x;
       const pz = p.pos.z;
       for (const s of this.list) {
+        if (kindOf(s) === 'spray') continue;
         const d = Math.hypot(px - s.centre.x, pz - s.centre.z);
         let a = this.clerks.get(s.id);
         if (a && a.removed) {
@@ -869,6 +944,7 @@
         }
       }
       if (this.hack) this._hackStep(dt);
+      this._sprayCheck(dt);
       this._atmT = (this._atmT || 0) - dt;
       if (this._atmT <= 0) {
         this._atmT = 1;
@@ -1035,6 +1111,61 @@
       return 1.5;
     }
 
+    // ----------------------------------------------------- Spray Shack
+    /** Drive into a Spray Shack unseen: the car is fixed, resprayed, and the heat's off. */
+    _sprayCheck(dt) {
+      const g = this.game;
+      const p = g.player;
+      const v = p.inVehicle ? p.vehicle : null;
+      this._sprayCool = Math.max(0, (this._sprayCool || 0) - dt);
+      if (!v || v.flying || v.kind === 'plane' || v.kind === 'heli' || v.kind === 'tank') {
+        this._inSpray = null;
+        return;
+      }
+      let here = null;
+      for (const s of this.list) {
+        if (kindOf(s) !== 'spray' || Math.abs(v.pos.x - s.centre.x) > 14 || Math.abs(v.pos.z - s.centre.z) > 14) continue;
+        const [u, w] = local(s.f, v.pos.x, v.pos.z);
+        if (u > s.a + 0.5 && u < s.a + s.SW - 0.5 && w > s.vb0 + 1 && w < s.vb1 - 0.5) here = s;
+      }
+      if (here !== this._inSpray) {
+        this._inSpray = here;
+        this._sprayTold = false;
+      }
+      if (!here || v.speed > 1.5 || this._sprayCool > 0) return;
+      const pol = g.police;
+      if (pol && pol.level > 0 && pol.seen) {
+        if (!this._sprayTold) {
+          this._sprayTold = true;
+          g.hud.showToast('The cops saw you drive in. Lose them first.');
+        }
+        return;
+      }
+      if (p.money < SPRAY_PRICE) {
+        if (!this._sprayTold) {
+          this._sprayTold = true;
+          g.hud.showToast('A respray is ' + VH.util.formatMoney(SPRAY_PRICE) + '. Come back with the cash.');
+        }
+        return;
+      }
+      if (this._sprayTold === 'done') return;
+      this._sprayTold = 'done';
+      this._sprayCool = 6;
+      p.money -= SPRAY_PRICE;
+      VH.events.emit('money:changed', { delta: -SPRAY_PRICE, reason: 'respray' });
+      g.hud.setFade(1, 350);
+      setTimeout(() => {
+        v.repair();
+        const old = v.model.color;
+        const choices = SPRAY_COLORS.filter((c) => c !== old);
+        if (v.model.repaint) v.model.repaint(choices[Math.floor(Math.random() * choices.length)]);
+        if (pol) pol.setLevel(0, 'respray');
+        g.hud.setFade(0, 700);
+        g.hud.notify({ title: 'Spray Shack', text: 'New paint, no dents, no heat. ' + VH.util.formatMoney(SPRAY_PRICE) + '.', icon: '🎨', tone: 'good' });
+      }, 450);
+      this.sprays = (this.sprays || 0) + 1;
+    }
+
     // ------------------------------------------------------------ ATMs
     _startHack(item) {
       const g = this.game;
@@ -1170,7 +1301,7 @@
       for (const s of this.list) {
         if (!this.isOpen(s)) continue;
         const k = kindOf(s);
-        const tag = k === 'guns' ? ' · ammo & armour' : k === 'bank' ? ' · bank' : k === 'jewel' ? ' · jeweller' : k === 'pawn' ? ' · pawn shop' : '';
+        const tag = k === 'spray' ? ' · lose the cops' : k === 'guns' ? ' · ammo & armour' : k === 'bank' ? ' · bank' : k === 'jewel' ? ' · jeweller' : k === 'pawn' ? ' · pawn shop' : '';
         out.push({ x: s.door.x, z: s.door.z, type: 'store', label: BRANDS[s.brand].name + tag, noRim: true });
       }
     }

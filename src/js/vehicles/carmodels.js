@@ -2943,6 +2943,22 @@
       }
     }
 
+    /** A new colour (stores.js: the Spray Shack). Liveried cars keep their livery. */
+    repaint(hex) {
+      const d = DEFS[this.id];
+      if (!d || d.livery) return false;
+      this.color = hex;
+      this._paintHex = hex;
+      this.finish = d.finishFor ? d.finishFor(hex) : d.finish || '';
+      this._paintShared = paintMaterial(hex, this.finish);
+      if (this._dmgMat) {
+        this._dmgMat.dispose();
+        this._dmgMat = null;
+      }
+      this.paintMesh.material = this._paintShared;
+      return true;
+    }
+
     setVisible(v) {
       this.root.visible = !!v;
     }

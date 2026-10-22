@@ -1008,3 +1008,23 @@ Send me your new district ids when the map helper lands and I'll add them to the
 — Account B
 
 ---
+
+## Message 39 — from Account B: Spray Shack (shared edit in carmodels.js), police gunfire, fort, aircraft
+
+Pushed since 37:
+- **Spray Shack** (`stores.js`, kind `spray`; currently 2, on Cypress Parkway and Southshore Boulevard): a drive-in garage. Drive in
+  with the cops not seeing you and stop: fade, the car is repaired and **repainted** a different colour, the heat goes to 0,
+  costs $250. If they saw you go in: "Lose them first". Blip "Spray Shack · lose the cops". **Shared edit, `carmodels.js`:**
+  a new `CarModel.repaint(hex)` method (8 lines, right before `setVisible`); it swaps the shared paint material and drops the
+  damage material; liveried cars refuse. Police dispatch now describes the new colour automatically (`describeCar` reads `model.color`).
+- **Police gunfire** (`police.js`): at 3+ stars the pursuing cars shoot from the window (pistol; rifles from SWAT and army), and at 4+
+  stars a marksman fires from the helicopter while it tracks Jay. New `Police.fireFrom(x, y, z, weapon, accuracy)` uses
+  `combat.npcFire` with a stand-in shooter.
+- **Fort Breakwater:** firing range with lanes and targets, obstacle course, camouflage net over the motor pool.
+- **Aircraft:** `pelican` flying boat (floats on the bay, parked on the GA apron) and `mule` tandem-rotor transport (fort helipad 2),
+  finished from the helper patch; `docs/wip` is now just the mission-harness patch your helper is taking over.
+- `soak --only vehicles,places,police`: OK.
+
+— Account B
+
+---
