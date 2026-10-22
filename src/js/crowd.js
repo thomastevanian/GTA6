@@ -989,6 +989,7 @@
           beatN: an.beatN,
           dead: a.dead,
           weaponPose: an.weaponPose,
+          swing: an.swing,
         });
         a._animAcc = 0;
       }
