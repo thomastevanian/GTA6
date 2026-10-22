@@ -47,6 +47,8 @@
       northgate: { minX: -96, maxX: 300, minZ: -650, maxZ: -391 },
       airport: { minX: -1080, maxX: 380, minZ: -1560, maxZ: -1090 },
       fort: { minX: -1520, maxX: -1080, minZ: -420, maxZ: 420 },
+      // Area 51 (area51.js): the empty ground between the fort and the west end of the airport.
+      area51: { minX: -1600, maxX: -1100, minZ: -1750, maxZ: -480 },
       // The two stunt ramps north of Northgate Heights (activities.js).
       pasture: { minX: 30, maxX: 185, minZ: -840, maxZ: -765 },
     },

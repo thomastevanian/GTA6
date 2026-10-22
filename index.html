@@ -13727,6 +13727,18 @@ void main() {
     },
   ];
 
+  // Every firearm comes with 100 rounds in reserve plus a full magazine, and a
+  // spare-ammo pickup is worth another 100. Reserve caps are raised so that
+  // always fits (the sniper and shotgun used to top out at 50 and 64).
+  const PRELOAD_AMMO = 100;
+  VH.Data.PRELOAD_AMMO = PRELOAD_AMMO;
+  for (const w of LIST) {
+    if (w.kind !== 'hitscan' && w.kind !== 'pellets') continue;
+    w.startAmmo = PRELOAD_AMMO + (w.magSize || 0);
+    w.pickupAmmo = PRELOAD_AMMO;
+    w.maxAmmo = Math.max(w.maxAmmo || 0, PRELOAD_AMMO * 3);
+  }
+
   VH.Data.weapons = LIST.map((w) => Object.freeze(Object.assign({}, BASE, w)));
 
   const byId = {};
@@ -13810,6 +13822,8 @@ void main() {
       northgate: { minX: -96, maxX: 300, minZ: -650, maxZ: -391 },
       airport: { minX: -1080, maxX: 380, minZ: -1560, maxZ: -1090 },
       fort: { minX: -1520, maxX: -1080, minZ: -420, maxZ: 420 },
+      // Area 51 (area51.js): the empty ground between the fort and the west end of the airport.
+      area51: { minX: -1600, maxX: -1100, minZ: -1750, maxZ: -480 },
       // The two stunt ramps north of Northgate Heights (activities.js).
       pasture: { minX: 30, maxX: 185, minZ: -840, maxZ: -765 },
     },
@@ -19158,6 +19172,57 @@ void main() {
 })();
 //# sourceURL=js/fort.js
 </script>
+    <script data-src="js/area51.js">
+/*
+ * area51.js — Area 51, the secret desert research base (OWNER: Account B).
+ *
+ * Placeholder wired into the game so the slot exists. It does nothing yet;
+ * replace it with the real base. The contract (same as fort.js / airfield.js):
+ *
+ *   VH.Area51.build(world, layout)       static, world build time: geometry,
+ *                                        colliders, signs, parked aircraft.
+ *                                        Return the data the system needs
+ *                                        (it is stored as world.area51 and
+ *                                        passed to the constructor through
+ *                                        game.world.area51).
+ *   VH.Area51.registerPlaces(world, p)   static, optional: named places for
+ *                                        the GPS / map / location banner.
+ *   new VH.Area51(game)                  runtime system, built after the
+ *                                        club (see WORLD_SYSTEMS in main.js).
+ *        .update(dt)                     every fixed step while playing
+ *        .reset() .stop()                new game / leaving the world
+ *        .blips(out, onJob)              optional radar / map markers
+ *        .stats() .serialize() .load()   optional (+ a saveKey string)
+ *
+ * Reserved ground: layout.zones.area51 (citygen.js), x -1600..-1100,
+ * z -1750..-480 — no outskirts trees are planted inside it.
+ */
+(function () {
+  'use strict';
+
+  const VH = window.VH;
+
+  class Area51 {
+    static build() {
+      return null; // nothing built yet
+    }
+
+    constructor(game) {
+      this.game = game;
+      this.ok = !!game.world.area51;
+    }
+
+    update() {}
+
+    reset() {}
+
+    stop() {}
+  }
+
+  VH.Area51 = Area51;
+})();
+//# sourceURL=js/area51.js
+</script>
     <script data-src="js/stores.js">
 /*
  * stores.js — corner shops and petrol stations Jay can walk into, buy a
@@ -20976,6 +21041,9 @@ void main() {
       await slicer.tick();
       progress(0.858, 'Fencing off Fort Breakwater');
       if (VH.Fort) this.fort = VH.Fort.build(this, layout);
+      await slicer.tick();
+      progress(0.8585, 'Hiding Area 51');
+      if (VH.Area51) this.area51 = VH.Area51.build(this, layout);
       await slicer.tick();
       // The roads out of town: roadside strips (suburbs.js) and direction signs (roadsigns.js).
       progress(0.859, 'Opening the motels on the airport road');
@@ -38363,7 +38431,7 @@ void main() {
         // Enemies drop what they carried.
         if (a.faction !== 'civilian' && a.weapon && a.weapon !== 'fists' && Math.random() < 0.8 && !a.noDrop) {
           const w = def(a.weapon);
-          if (w && w.kind !== 'melee') this.addPickup('ammo', a.weapon, Math.max(4, Math.round((w.magSize || 10) * 0.8)), a.pos.x, a.pos.y + 0.6, a.pos.z, 0, true);
+          if (w && w.kind !== 'melee') this.addPickup('ammo', a.weapon, w.pickupAmmo || Math.max(4, Math.round((w.magSize || 10) * 0.8)), a.pos.x, a.pos.y + 0.6, a.pos.z, 0, true);
         }
         if (a.faction !== 'civilian' && e.source === 'player' && Math.random() < 0.35) this.addPickup('cash', null, 20 + Math.floor(Math.random() * 60), a.pos.x + 0.5, a.pos.y + 0.6, a.pos.z, 0, true);
       });
@@ -38374,8 +38442,11 @@ void main() {
       const w = def(id);
       if (!w && id !== 'fists') return false;
       const inv = this.inventory[id];
-      if (inv) inv.ammo = Math.min((w && w.maxAmmo) || 9999, inv.ammo + (ammo || 0));
-      else {
+      if (inv) {
+        // Handed the same gun again (a mission reward): top the reserve up by its starting ammo.
+        const extra = ammo === undefined ? (w && w.pickupAmmo) || 0 : ammo;
+        inv.ammo = Math.min((w && w.maxAmmo) || 9999, inv.ammo + extra);
+      } else {
         const start = ammo === undefined ? (w && w.startAmmo) || 0 : ammo;
         const mag = w && w.magSize ? Math.min(w.magSize, start) : 0;
         this.inventory[id] = { ammo: Math.max(0, start - mag), mag };
@@ -65656,8 +65727,8 @@ void main() {
   const VH = window.VH;
   const FIXED_DT = 1 / 60;
   // World systems constructed after the club, in this order (each optional):
-  // stores.js, airfield.js, fort.js, ambient.js.
-  const WORLD_SYSTEMS = ['Stores', 'Airfield', 'Fort', 'Ambient'];
+  // stores.js, airfield.js, fort.js, area51.js, ambient.js.
+  const WORLD_SYSTEMS = ['Stores', 'Airfield', 'Fort', 'Area51', 'Ambient'];
   const SEEN_KEY = 'vicehaven.seen.map-v1.1'; // set once the player has opened the new map
   const CDN_THREE = 'https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js';
 

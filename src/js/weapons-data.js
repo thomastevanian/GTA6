@@ -222,6 +222,18 @@
     },
   ];
 
+  // Every firearm comes with 100 rounds in reserve plus a full magazine, and a
+  // spare-ammo pickup is worth another 100. Reserve caps are raised so that
+  // always fits (the sniper and shotgun used to top out at 50 and 64).
+  const PRELOAD_AMMO = 100;
+  VH.Data.PRELOAD_AMMO = PRELOAD_AMMO;
+  for (const w of LIST) {
+    if (w.kind !== 'hitscan' && w.kind !== 'pellets') continue;
+    w.startAmmo = PRELOAD_AMMO + (w.magSize || 0);
+    w.pickupAmmo = PRELOAD_AMMO;
+    w.maxAmmo = Math.max(w.maxAmmo || 0, PRELOAD_AMMO * 3);
+  }
+
   VH.Data.weapons = LIST.map((w) => Object.freeze(Object.assign({}, BASE, w)));
 
   const byId = {};

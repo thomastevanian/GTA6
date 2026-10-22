@@ -380,7 +380,7 @@
         // Enemies drop what they carried.
         if (a.faction !== 'civilian' && a.weapon && a.weapon !== 'fists' && Math.random() < 0.8 && !a.noDrop) {
           const w = def(a.weapon);
-          if (w && w.kind !== 'melee') this.addPickup('ammo', a.weapon, Math.max(4, Math.round((w.magSize || 10) * 0.8)), a.pos.x, a.pos.y + 0.6, a.pos.z, 0, true);
+          if (w && w.kind !== 'melee') this.addPickup('ammo', a.weapon, w.pickupAmmo || Math.max(4, Math.round((w.magSize || 10) * 0.8)), a.pos.x, a.pos.y + 0.6, a.pos.z, 0, true);
         }
         if (a.faction !== 'civilian' && e.source === 'player' && Math.random() < 0.35) this.addPickup('cash', null, 20 + Math.floor(Math.random() * 60), a.pos.x + 0.5, a.pos.y + 0.6, a.pos.z, 0, true);
       });
@@ -391,8 +391,11 @@
       const w = def(id);
       if (!w && id !== 'fists') return false;
       const inv = this.inventory[id];
-      if (inv) inv.ammo = Math.min((w && w.maxAmmo) || 9999, inv.ammo + (ammo || 0));
-      else {
+      if (inv) {
+        // Handed the same gun again (a mission reward): top the reserve up by its starting ammo.
+        const extra = ammo === undefined ? (w && w.pickupAmmo) || 0 : ammo;
+        inv.ammo = Math.min((w && w.maxAmmo) || 9999, inv.ammo + extra);
+      } else {
         const start = ammo === undefined ? (w && w.startAmmo) || 0 : ammo;
         const mag = w && w.magSize ? Math.min(w.magSize, start) : 0;
         this.inventory[id] = { ammo: Math.max(0, start - mag), mag };
