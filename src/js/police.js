@@ -251,6 +251,122 @@
     }
   }
 
+  // ---------------------------------------------------------------- K-9
+  /**
+   * A police dog. It is a crowd agent (so bullets hit it and it can die)
+   * drawn as a dog instead of a person: low and fast, it runs Jay down on
+   * foot and bites. Killing one isn't murder of a person, but the handler
+   * isn't happy (it counts as hitting a cop).
+   */
+  class K9 {
+    constructor(police, x, z) {
+      this.police = police;
+      const g = police.game;
+      this.root = K9.model();
+      g.scene.add(this.root);
+      const a = g.crowd.spawn(x, z, { look: Object.assign(VH.Crowd.randomLook(), { height: 0.45 }), faction: 'k9', role: 'k9', persistent: true, health: 60, name: 'Police dog' });
+      a.noDraw = true;
+      a.noDrop = true;
+      this.a = a;
+      this._biteT = 0;
+      this._phase = 0;
+      this.deadT = 0;
+      const dog = this;
+      a.brain = {
+        update(ag, dt) { dog._brain(ag, dt); },
+        expired() { return false; },
+        setAlert() {},
+      };
+    }
+
+    static model() {
+      const g = new THREE.Group();
+      const fur = new THREE.MeshStandardMaterial({ color: 0x5b4127, roughness: 0.85 });
+      const dark = new THREE.MeshStandardMaterial({ color: 0x1d1712, roughness: 0.8 });
+      const vest = new THREE.MeshStandardMaterial({ color: 0x1c2a44, roughness: 0.7 });
+      const box = (w, h, d, m, x, y, z) => {
+        const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m);
+        mesh.position.set(x, y, z);
+        mesh.castShadow = true;
+        g.add(mesh);
+        return mesh;
+      };
+      box(0.34, 0.32, 0.95, fur, 0, 0.62, 0); // body
+      box(0.36, 0.2, 0.5, vest, 0, 0.7, 0.05); // the POLICE vest
+      box(0.26, 0.26, 0.3, fur, 0, 0.86, 0.58); // head
+      box(0.16, 0.13, 0.22, dark, 0, 0.8, 0.8); // snout
+      box(0.07, 0.14, 0.05, dark, 0.09, 1.04, 0.55); // ears
+      box(0.07, 0.14, 0.05, dark, -0.09, 1.04, 0.55);
+      const tail = box(0.06, 0.06, 0.38, dark, 0, 0.72, -0.62);
+      tail.rotation.x = -0.6;
+      const legs = [];
+      for (const [x, z] of [[0.11, 0.32], [-0.11, 0.32], [0.11, -0.32], [-0.11, -0.32]]) {
+        const pivot = new THREE.Group();
+        pivot.position.set(x, 0.5, z);
+        const leg = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.5, 0.08), dark);
+        leg.position.y = -0.25;
+        leg.castShadow = true;
+        pivot.add(leg);
+        g.add(pivot);
+        legs.push(pivot);
+      }
+      g.userData.legs = legs;
+      g.userData.tail = tail;
+      return g;
+    }
+
+    _brain(a, dt) {
+      const pol = this.police;
+      const g = pol.game;
+      const p = g.player;
+      if (a.dead) return;
+      const t = p.inVehicle ? p.vehicle.pos : p.pos;
+      const dx = t.x - a.pos.x;
+      const dz = t.z - a.pos.z;
+      const d = Math.hypot(dx, dz);
+      a.heading = VH.math.dampAngle(a.heading, Math.atan2(dx, dz), 10, dt);
+      if (pol.level === 0 || p.isDead) {
+        a.moveSpeed = 0;
+        return;
+      }
+      a.moveSpeed = d > 1.1 ? (p.inVehicle ? 7.5 : 8.6) : 0;
+      this._biteT -= dt;
+      if (d < 1.3 && !p.inVehicle && this._biteT <= 0) {
+        this._biteT = 0.9;
+        p.damage(11, 'melee');
+        if (g.audio.meleeHit) g.audio.meleeHit(false);
+        if (g.cameraRig) g.cameraRig.addShake(0.15);
+        VH.events.emit('player:shot', { from: a, x: a.pos.x, z: a.pos.z, damage: 11 });
+      }
+    }
+
+    /** Pose the dog on its agent every frame. */
+    update(dt) {
+      const a = this.a;
+      const r = this.root;
+      r.position.set(a.pos.x, a.pos.y, a.pos.z);
+      if (a.dead) {
+        this.deadT += dt;
+        r.rotation.set(0, a.heading, Math.min(Math.PI / 2, this.deadT * 5));
+        return;
+      }
+      r.rotation.set(0, a.heading, 0);
+      const speed = a.moveSpeed || 0;
+      this._phase += dt * (4 + speed * 1.6);
+      const swing = Math.min(1, speed / 6) * 0.7;
+      const legs = r.userData.legs;
+      for (let i = 0; i < 4; i++) legs[i].rotation.x = Math.sin(this._phase + (i === 0 || i === 3 ? 0 : Math.PI)) * swing;
+      r.userData.tail.rotation.y = Math.sin(this._phase * 1.5) * 0.4;
+      r.visible = !a.removed;
+    }
+
+    dispose() {
+      const g = this.police.game;
+      g.scene.remove(this.root);
+      if (!this.a.removed) g.crowd.remove(this.a);
+    }
+  }
+
   // ------------------------------------------------------------- police
   class Police {
     constructor(game) {
@@ -273,6 +389,7 @@
       this._blockT = 20;
       this._reports = [];
       this.strips = []; // spike strips laid at roadblocks
+      this.dogs = []; // K-9 units on the loose
       this._backupT = 0;
       this._sayT = 0;
       this._lastLine = '';
@@ -300,6 +417,10 @@
       });
       VH.events.on('agent:died', (e) => {
         if (e.source !== 'player') return;
+        if (e.agent.faction === 'k9') {
+          this.crime('hitCop', e.agent.pos.x, e.agent.pos.z);
+          return;
+        }
         if (e.agent.faction === 'police') {
           this.crime('killCop', e.agent.pos.x, e.agent.pos.z);
           this._backup(e.agent.pos.x, e.agent.pos.z);
@@ -429,6 +550,16 @@
     /** Officers step out of a stopped unit. */
     deployOfficers(car, n) {
       const crowd = this.game.crowd;
+      // At three stars and up a patrol car may carry a dog; it goes after Jay on foot.
+      const p = this.game.player;
+      if (this.level >= 3 && !p.inVehicle && !car.swat && !car.army && this.dogs.length < 2 && Math.random() < 0.45) {
+        const w = car.localToWorld(car.hx + 1.2, -0.8, {});
+        this.dogs.push(new K9(this, w.x, w.z));
+        if (!this._saidDog) {
+          this._saidDog = true;
+          this._dispatch('k9');
+        }
+      }
       for (let i = 0; i < n; i++) {
         const side = i % 2 ? -1 : 1;
         const w = car.localToWorld(side * (car.hx + 0.8), 0.3, {});
@@ -466,6 +597,7 @@
       this._cleanup();
       if (this.level === 0) {
         this.bust = 0;
+        if (this.dogs.length) this._updateDogs(dt);
         this._updateHeli(dt, false);
         return;
       }
@@ -539,6 +671,7 @@
         }
       }
       this._updateHeli(dt, this.level >= 4);
+      this._updateDogs(dt);
       this._updateStrips(dt);
       this._updateBust(dt);
     }
@@ -614,6 +747,19 @@
       m.castShadow = true;
       this.game.scene.add(m);
       this.strips.push({ x, z, axis, half: width / 2, mesh: m, t: 0 });
+    }
+
+    _updateDogs(dt) {
+      const p = this.game.player;
+      this.dogs = this.dogs.filter((d) => {
+        d.update(dt);
+        const far = Math.hypot(d.a.pos.x - p.pos.x, d.a.pos.z - p.pos.z) > 200;
+        if (d.a.removed || far || (d.a.dead && d.deadT > 25) || (this.level === 0 && !d.a.dead)) {
+          d.dispose();
+          return false;
+        }
+        return true;
+      });
     }
 
     _updateStrips(dt) {
@@ -742,6 +888,11 @@
       this._reports.length = 0;
       this._saidSwat = false;
       this._saidArmy = false;
+      this._saidDog = false;
+      if (hard) {
+        for (const d of this.dogs) d.dispose();
+        this.dogs.length = 0;
+      }
       for (const s of this.strips) {
         this.game.scene.remove(s.mesh);
         s.mesh.geometry.dispose();
@@ -841,6 +992,9 @@
           break;
         case 'backup':
           line = pick([`Officer down! Officer down! Send everything we have to ${street}!`, `Shots at officers, requesting immediate backup on ${street}.`, `All available units, officers under fire on ${street}. Backup, now.`]);
+          break;
+        case 'k9':
+          line = pick([`K-9 unit deployed. Suspect on foot, release the dog.`, `Dog's out. You can't outrun him.`]);
           break;
         case 'swat':
           line = pick([`SWAT is rolling. All units, hold your positions until they arrive.`, `Tactical units deployed. Suspect is considered extremely dangerous.`]);
@@ -1046,5 +1200,6 @@
   Police.COP_LOOK = COP_LOOK;
   Police.PursuitDriver = PursuitDriver;
   Police.OfficerBrain = OfficerBrain;
+  Police.K9 = K9;
   VH.Police = Police;
 })();

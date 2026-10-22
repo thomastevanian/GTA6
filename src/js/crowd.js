@@ -146,7 +146,7 @@
       let i = 0;
       const pal = this.pal;
       for (const a of agents) {
-        if (!a.visible || i >= this.max) continue;
+        if (!a.visible || a.noDraw || i >= this.max) continue; // noDraw: something else draws it (police.js K-9 dogs)
         const rig = a.rig;
         for (const m of this.meshes) {
           const j = m.name === 'head' ? rig.headGroup : rig.joints[m.name];
