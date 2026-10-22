@@ -525,6 +525,9 @@
       this._flashT = 0;
       this._flashPeak = 0;
 
+      this.blasts = []; // { x, y, z, s, t } explosions still billowing
+      this.rings = []; // expanding shockwave rings: { mesh, t, r }
+      this._ringGeo = new THREE.RingGeometry(0.86, 1, 56).rotateX(-Math.PI / 2);
       this.debris = [];
       this.fires = []; // { x, y, z, t, dur, scale } burning spots (molotovs, wrecks)
       this.geysers = []; // broken hydrants
@@ -811,36 +814,102 @@
 
     explosion(x, y, z, scale) {
       const s = scale || 1;
-      // Fireball.
-      for (let i = 0; i < 70 * s; i++) {
+      // Fireball core: fast, hot, HDR (blooms), then it cools to red.
+      for (let i = 0; i < 90 * s; i++) {
         const a = Math.random() * Math.PI * 2;
-        const e = Math.random() * 0.9 - 0.1;
-        const sp = 3 + Math.random() * 9 * s;
+        const e = Math.random() * 1.1 - 0.1;
+        const sp = 3 + Math.random() * 11 * s;
         this.glow.emit({
           x, y: y + 0.5, z,
           vx: Math.cos(a) * Math.cos(e) * sp, vy: Math.sin(e) * sp + 3, vz: Math.sin(a) * Math.cos(e) * sp,
-          life: 0.5 + Math.random() * 0.7, size: 2.5 * s, size1: 0.6,
-          r: 9, g: 4.2, b: 1.2, r1: 4, g1: 0.6, b1: 0.1, a: 0.85, drag: 2.6, grav: -2,
+          life: 0.5 + Math.random() * 0.8, size: 3.2 * s, size1: 0.8,
+          r: 10, g: 4.6, b: 1.2, r1: 4, g1: 0.5, b1: 0.08, a: 0.85, drag: 2.6, grav: -2,
         });
       }
-      // Flash.
-      this.glow.emit({ x, y: y + 1, z, life: 0.18, size: 16 * s, size1: 4, r: 12, g: 9, b: 6, a: 1 });
-      // Debris sparks.
-      this.sparks(x, y + 0.8, z, 0, 0, 40, 14);
-      // Smoke column and shock dust.
-      for (let i = 0; i < 40 * s; i++) {
+      // The flash that lights the street, plus a white-hot heart.
+      this.glow.emit({ x, y: y + 1, z, life: 0.22, size: 22 * s, size1: 6, r: 14, g: 10, b: 6, a: 1 });
+      this.glow.emit({ x, y: y + 1.2, z, life: 0.5, size: 9 * s, size1: 14 * s, r: 7, g: 3.6, b: 1.2, r1: 2.5, g1: 0.5, b1: 0.1, a: 0.9, drag: 1 });
+      // Flying debris: hot chunks that arc out and fall.
+      for (let i = 0; i < 50 * s; i++) {
         const a = Math.random() * Math.PI * 2;
-        const sp = 1 + Math.random() * 5;
-        this.soft.emit({
-          x: x + Math.cos(a) * 0.5, y: y + 0.5 + Math.random() * 1.5, z: z + Math.sin(a) * 0.5,
-          vx: Math.cos(a) * sp, vy: 2 + Math.random() * 4, vz: Math.sin(a) * sp,
-          life: 3 + Math.random() * 3, size: 1.5 * s, size1: 7 * s,
-          r: 0.1, g: 0.09, b: 0.09, a: 0.55, drag: 1.3, grav: -0.35,
+        const sp = 6 + Math.random() * 16 * s;
+        this.glow.emit({
+          x, y: y + 0.8, z, vx: Math.cos(a) * sp, vy: 6 + Math.random() * 14 * s, vz: Math.sin(a) * sp,
+          life: 0.9 + Math.random() * 1.4, size: 0.45 + Math.random() * 0.35, size1: 0.12, r: 6, g: 2.4, b: 0.5, r1: 1.2, g1: 0.2, b1: 0.05, a: 1, drag: 0.35, grav: 14,
         });
       }
-      this.dust(x, 0.1, z, 16);
-      this._pulse(x, y + 2, z, 60 * s, 0xff9040, 0.9, 60);
-      this.fires.push({ x, y: y + 0.4, z, t: 0, dur: 6, scale: 1.3 });
+      this.sparks(x, y + 0.8, z, 0, 0, 50, 16);
+      // Hot smoke ball: orange where the fire lights it, charring to black.
+      for (let i = 0; i < 26 * s; i++) {
+        const a = Math.random() * Math.PI * 2;
+        const sp = 1 + Math.random() * 6 * s;
+        this.soft.emit({
+          x: x + Math.cos(a) * 0.8, y: y + 0.6 + Math.random() * 1.5, z: z + Math.sin(a) * 0.8,
+          vx: Math.cos(a) * sp, vy: 2 + Math.random() * 5, vz: Math.sin(a) * sp,
+          life: 1.0 + Math.random() * 1.2, size: 3 * s, size1: 9 * s,
+          r: 1.9, g: 0.85, b: 0.25, r1: 0.12, g1: 0.1, b1: 0.09, a: 0.75, drag: 1.5, grav: -1.5,
+        });
+      }
+      this.dust(x, 0.1, z, 22);
+      this._pulse(x, y + 2, z, 90 * s, 0xff9040, 1.1, 80);
+      this.fires.push({ x, y: y + 0.4, z, t: 0, dur: 7, scale: 1.4 });
+      // The rest (rising smoke column, secondary fire puffs) is emitted over the next couple of seconds.
+      this.blasts.push({ x, y, z, s, t: 0 });
+      // Shockwave: a ring of compressed air racing out along the ground.
+      const mat = new THREE.MeshBasicMaterial({ color: new THREE.Color(1.6, 1.25, 0.9), transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
+      const mesh = new THREE.Mesh(this._ringGeo, mat);
+      mesh.position.set(x, y + 0.2, z);
+      mesh.renderOrder = 9;
+      mesh.frustumCulled = false;
+      this.scene.add(mesh);
+      this.rings.push({ mesh, mat, t: 0, r: 16 * s });
+    }
+
+    _updateBlasts(dt) {
+      for (const b of this.blasts) {
+        b.t += dt;
+        const s = b.s;
+        // Secondary fire puffs rolling up in the first half second.
+        if (b.t < 0.55) {
+          for (let i = 0; i < Math.ceil(dt * 90); i++) {
+            const a = Math.random() * Math.PI * 2;
+            const r = Math.random() * 2.2 * s;
+            this.glow.emit({
+              x: b.x + Math.cos(a) * r, y: b.y + 0.8 + b.t * 6, z: b.z + Math.sin(a) * r,
+              vx: Math.cos(a) * 2, vy: 4 + Math.random() * 5, vz: Math.sin(a) * 2,
+              life: 0.45 + Math.random() * 0.4, size: 3.5 * s, size1: 1.2, r: 7, g: 3, b: 0.8, r1: 2, g1: 0.3, b1: 0.05, a: 0.7, drag: 1.8,
+            });
+          }
+        }
+        // The smoke column: dark, buoyant, long-lived, spreading into a cap as it climbs.
+        if (b.t < 2.4) {
+          for (let i = 0; i < Math.ceil(dt * 36 * s); i++) {
+            const a = Math.random() * Math.PI * 2;
+            const r = Math.random() * 2.5 * s;
+            const climb = b.t * (7 + 3 * s);
+            this.soft.emit({
+              x: b.x + Math.cos(a) * r, y: b.y + 1.5 + climb * 0.6 + Math.random() * 2, z: b.z + Math.sin(a) * r,
+              vx: Math.cos(a) * (0.6 + b.t * 0.8), vy: 4.5 + Math.random() * 4.5, vz: Math.sin(a) * (0.6 + b.t * 0.8),
+              life: 5 + Math.random() * 5, size: 3 * s, size1: (9 + b.t * 3) * s,
+              r: 0.13, g: 0.115, b: 0.105, r1: 0.2, g1: 0.19, b1: 0.18, a: 0.5, drag: 0.9, grav: -0.15,
+            });
+          }
+        }
+      }
+      this.blasts = this.blasts.filter((b) => b.t < 2.4);
+      for (const ring of this.rings) {
+        ring.t += dt;
+        const k = Math.min(1, ring.t / 0.6);
+        const e = 1 - (1 - k) * (1 - k);
+        ring.mesh.scale.setScalar(Math.max(0.5, e * ring.r));
+        ring.mat.opacity = 0.8 * (1 - k) * (1 - k);
+        if (k >= 1) {
+          this.scene.remove(ring.mesh);
+          ring.mat.dispose();
+          ring.done = true;
+        }
+      }
+      this.rings = this.rings.filter((r) => !r.done);
     }
 
     /** A patch of burning ground (molotov) or a burning wreck. */
@@ -977,6 +1046,7 @@
         this.water(gy.x, gy.y, gy.z, Math.max(0, 1 - gy.t / gy.dur));
       }
       this.geysers = this.geysers.filter((g) => g.t < g.dur);
+      this._updateBlasts(dt);
       this.soft.update(dt, true);
       this.glow.update(dt, false);
       this.bloodDecals.update(dt);
