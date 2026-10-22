@@ -595,6 +595,24 @@
       return false;
     }
 
+    /**
+     * Species for an outskirts tree. Same placement as ever; only the model changes
+     * (by position, no random draws): conifers and scrub in the far north and west,
+     * a few bushes closer in.
+     */
+    _outskirtsSpecies(type, x, z) {
+      const h = Math.abs(Math.sin(x * 0.731 + z * 1.377) * 24634.6) % 1;
+      const far = z < -420 || x < -420;
+      if (far) {
+        if (h < 0.3) return 'pine';
+        if (h < 0.42) return 'cypress';
+        if (h < 0.58) return 'bush';
+        if (h < 0.64) return 'bushFlower';
+      } else if (h < 0.1) return 'bush';
+      else if (h < 0.14) return 'bushFlower';
+      return type;
+    }
+
     _buildOutskirtsTrees(layout) {
       const cfg = layout.config;
       const zones = Object.values(cfg.zones || {});
@@ -619,7 +637,7 @@
         const scale = rng.range(0.8, 1.35);
         placed++;
         if (inZone(x, z, 6) || this.onRoad(x, z, 3)) continue;
-        this.addProp(type, x, 0, z, yaw, scale);
+        this.addProp(this._outskirtsSpecies(type, x, z), x, 0, z, yaw, scale);
       }
       // The new land: north to the airport, west to the fort.
       const all = cfg.bounds;
@@ -631,7 +649,7 @@
         if (x > b.minX - 6 && x < b.maxX + 6 && z > b.minZ - 6 && z < b.maxZ + 6) continue;
         if (x > 380 || inZone(x, z, 14) || this.onRoad(x, z, 5)) continue;
         const type = rng2.chance(0.75) ? (rng2.chance(0.5) ? 'tree' : 'treeB') : 'palm';
-        this.addProp(type, x, 0, z, rng2.range(0, 6.28), rng2.range(0.8, 1.4));
+        this.addProp(this._outskirtsSpecies(type, x, z), x, 0, z, rng2.range(0, 6.28), rng2.range(0.8, 1.4));
         more++;
       }
     }

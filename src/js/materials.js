@@ -383,7 +383,7 @@
             vec3 vhV = normalize(vhWP - cameraPosition);
             float vhT = pow(max(dot(vhV, uSunDir), 0.0), 3.0) * smoothstep(0.02, 0.3, uSunDir.y);
             float vhLeaf = vMapUv.y > 50.0 ? 0.0 : 1.0;
-            totalEmissiveRadiance += diffuseColor.rgb * uSunColor * vhT * 0.5 * vhLeaf;
+            totalEmissiveRadiance += diffuseColor.rgb * uSunColor * vhT * 0.3 * vhLeaf;
           }`
         );
     };

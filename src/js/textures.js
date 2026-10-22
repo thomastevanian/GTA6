@@ -869,9 +869,9 @@
     const mid = cell.h / 2;
     const x0 = 8;
     const x1 = W - 6;
-    const N = style === 'date' ? 82 : 128;
+    const N = style === 'date' ? 62 : 100;
     const maxL = cell.h * (style === 'date' ? 0.5 : 0.46);
-    const lw = style === 'date' ? 3.2 : 4.6;
+    const lw = style === 'date' ? 5.4 : 6.2;
     for (let i = 0; i < N; i++) {
       const f = i / N;
       const x = x0 + f * (x1 - x0);
@@ -989,13 +989,13 @@
       let gr;
       let bl;
       if (kind === 'oak') {
-        const t = Math.abs(Math.sin((u * 9 + w * 1.9) * Math.PI));
-        const fis = smooth(0.5, 0.92, t) * (0.45 + 0.9 * fld(warp, (u * 2) % 1, (v * 3) % 1));
-        const k = 0.78 + f * 0.5 + (g - 0.5) * 0.12;
-        const m = Math.min(1, fis);
-        r = 124 * k * (1 - m) + 38 * m;
-        gr = 106 * k * (1 - m) + 30 * m;
-        bl = 90 * k * (1 - m) + 24 * m;
+        const t = Math.abs(Math.sin((u * 17 + w * 2.6) * Math.PI));
+        const fis = smooth(0.55, 0.95, t) * (0.35 + 0.9 * fld(warp, (u * 2) % 1, (v * 3) % 1));
+        const k = 0.78 + f * 0.5 + (g - 0.5) * 0.14;
+        const m = Math.min(0.8, fis);
+        r = 118 * k * (1 - m) + 52 * m;
+        gr = 104 * k * (1 - m) + 44 * m;
+        bl = 90 * k * (1 - m) + 38 * m;
       } else if (kind === 'palm') {
         const t = 0.5 + 0.5 * Math.sin((v * 8 + (w - 0.5) * 0.5) * Math.PI * 2);
         const groove = smooth(0.62, 1, t);
@@ -1011,11 +1011,11 @@
         const ia = Math.floor((u * 5 + v * 5) % 10);
         const ib = Math.floor(((u * 5 - v * 5) % 10 + 10) % 10);
         const tone = 0.75 + hash(ia, ib) * 0.5;
-        const seam = smooth(0.34, 0.5, dd);
+        const seam = smooth(0.36, 0.5, dd) * 0.75;
         const k = tone * (0.8 + f * 0.45) * (1 + (g - 0.5) * 0.14);
-        r = 132 * k * (1 - seam * 0.62);
-        gr = 100 * k * (1 - seam * 0.66);
-        bl = 66 * k * (1 - seam * 0.7);
+        r = 150 * k * (1 - seam * 0.6);
+        gr = 120 * k * (1 - seam * 0.64);
+        bl = 84 * k * (1 - seam * 0.68);
       } else if (kind === 'royal') {
         const t = 0.5 + 0.5 * Math.sin((v * 3 + (w - 0.5) * 0.3) * Math.PI * 2);
         const ring = smooth(0.8, 1, t);
