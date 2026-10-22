@@ -245,32 +245,32 @@
   function addCrownShaft(b, top, h, r, col) {
     const pts = [];
     const rad = [];
-    for (let i = 0; i <= 3; i++) {
-      pts.push([top[0], top[1] - h + (i / 3) * h, top[2]]);
-      rad.push(r * (i === 0 ? 1 : i === 3 ? 0.8 : 1.12));
+    for (let i = 0; i <= 2; i++) {
+      pts.push([top[0], top[1] - h + (i / 2) * h, top[2]]);
+      rad.push(r * (i === 0 ? 1 : i === 2 ? 0.8 : 1.12));
     }
     b.tube(pts, rad, 8, col, -1);
   }
 
   const PALM_TYPES = {
     // Queen palm: medium, graceful, dense drooping fronds and orange fruit clusters.
-    queen: { h: 8.4, lean: 0.9, bend: 0.25, r0: 0.3, r1: 0.19, bark: BARK.palm, fronds: 16, L: [3.7, 4.6], e0: [0.35, 0.8], droop: [1.1, 1.8], rect: 'frondA', shaft: 1.1, fruit: 'orange', seed: 11 },
+    queen: { h: 8.4, lean: 0.9, bend: 0.25, r0: 0.3, r1: 0.19, bark: BARK.palm, fronds: 14, L: [3.7, 4.6], e0: [0.35, 0.8], droop: [1.1, 1.8], rect: 'frondA', shaft: 1.1, fruit: 'orange', seed: 11 },
     // Royal palm: tall, ramrod straight, smooth grey column and a green crownshaft.
-    royal: { h: 12.6, lean: 0.5, bend: 0.1, r0: 0.38, r1: 0.26, bark: BARK.royal, fronds: 12, L: [4.4, 5.4], e0: [0.5, 1.0], droop: [0.9, 1.6], rect: 'frondA', shaft: 1.7, fruit: 'purple', seed: 23, bulge: true },
+    royal: { h: 12.6, lean: 0.5, bend: 0.1, r0: 0.38, r1: 0.26, bark: BARK.royal, fronds: 11, L: [4.4, 5.4], e0: [0.5, 1.0], droop: [0.9, 1.6], rect: 'frondA', shaft: 1.7, fruit: 'purple', seed: 23, bulge: true },
     // Coconut palm: tall and leaning, long drooping fronds, coconuts.
-    coconut: { h: 11.5, lean: 1.9, bend: 0.55, r0: 0.3, r1: 0.17, bark: BARK.palm, fronds: 14, L: [4.0, 5.0], e0: [0.3, 0.75], droop: [1.3, 2.0], rect: 'frondA', shaft: 0, fruit: 'coconut', seed: 31 },
+    coconut: { h: 11.5, lean: 1.9, bend: 0.55, r0: 0.3, r1: 0.17, bark: BARK.palm, fronds: 13, L: [4.0, 5.0], e0: [0.3, 0.75], droop: [1.3, 2.0], rect: 'frondA', shaft: 0, fruit: 'coconut', seed: 31 },
     // Date palm: stocky shaggy trunk with diamond leaf-scars, stiff upright fronds, date bunches.
-    date: { h: 7.2, lean: 0.4, bend: 0.2, r0: 0.4, r1: 0.32, bark: BARK.date, fronds: 20, L: [3.6, 4.4], e0: [0.7, 1.25], droop: [0.9, 1.5], rect: 'frondB', shaft: 0, fruit: 'date', seed: 47, wmul: 0.3, fold: 0.5 },
+    date: { h: 7.2, lean: 0.4, bend: 0.2, r0: 0.4, r1: 0.32, bark: BARK.date, fronds: 18, L: [3.6, 4.4], e0: [0.7, 1.25], droop: [0.9, 1.5], rect: 'frondB', shaft: 0, fruit: 'date', seed: 47, wmul: 0.3, fold: 0.5 },
   };
 
   function palmGeometry(type) {
     const P = PALM_TYPES[type];
     const rng = new VH.RNG(P.seed);
     const b = new VegBuilder();
-    const trunk = trunkPath(rng, P.h, P.lean, P.bend, P.r0, P.r1, 11, 0.55);
+    const trunk = trunkPath(rng, P.h, P.lean, P.bend, P.r0, P.r1, 8, 0.55);
     if (P.bulge) for (let i = 0; i < trunk.rad.length; i++) trunk.rad[i] *= 1 + 0.12 * Math.sin((i / (trunk.rad.length - 1)) * 3.1);
     const tcol = (t) => [0.78 + 0.22 * t, 0.76 + 0.22 * t, 0.74 + 0.2 * t];
-    const sides = 8;
+    const sides = 7;
     b.tube(trunk.pts, trunk.rad, sides, tcol, P.bark, 1.0, 0);
     const top = trunk.pts[trunk.pts.length - 1];
     const topR = trunk.rad[trunk.rad.length - 1];
@@ -280,12 +280,12 @@
     b.blob([top[0], top[1] + 0.05, top[2]], topR * 1.25, 0.9, VH.col(0x5d7f3a));
     // Fruit.
     const fc = { orange: VH.col(0xe0782a), purple: VH.col(0x5a3a6a), coconut: VH.col(0x6a8a3a), date: VH.col(0xd9892e) }[P.fruit];
-    const nFruit = P.fruit === 'date' ? 4 : P.fruit === 'purple' ? 5 : 6;
+    const nFruit = P.fruit === 'date' ? 3 : P.fruit === 'purple' ? 4 : 5;
     for (let i = 0; i < nFruit; i++) {
       const a = (i / nFruit) * Math.PI * 2 + rng.range(0, 1);
       const rr = topR * 1.1 + rng.range(0.05, 0.3);
       if (P.fruit === 'date') {
-        for (let k = 0; k < 4; k++) b.blob([top[0] + Math.cos(a) * (rr + k * 0.05), top[1] - 0.35 - k * 0.18, top[2] + Math.sin(a) * (rr + k * 0.05)], 0.1, 1.4, fc);
+        for (let k = 0; k < 3; k++) b.blob([top[0] + Math.cos(a) * (rr + k * 0.05), top[1] - 0.35 - k * 0.18, top[2] + Math.sin(a) * (rr + k * 0.05)], 0.1, 1.4, fc);
       } else {
         b.blob([top[0] + Math.cos(a) * rr, top[1] - 0.25 - rng.range(0, 0.35), top[2] + Math.sin(a) * rr], P.fruit === 'coconut' ? 0.2 : 0.1, 1, fc);
       }
@@ -300,7 +300,7 @@
       const droop = rng.range(P.droop[0], P.droop[1]) * (ring === 2 ? 1.12 : 1);
       const k = rng.range(0.9, 1.1);
       const cols = [VH.colMul(cA[0], k), VH.colMul(cA[1], k * (0.95 + 0.1 * rng.next()))];
-      addFrond(b, rng, crown, az, L, e0, droop, P.rect, cols, { wmul: P.wmul, fold: P.fold });
+      addFrond(b, rng, crown, az, L, e0, droop, P.rect, cols, { wmul: P.wmul, fold: P.fold, segs: type === 'date' ? 4 : 5 });
     }
     // A couple of old, drooping brown-green fronds.
     if (type === 'queen' || type === 'coconut') {

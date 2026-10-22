@@ -213,7 +213,7 @@
   /** Like paint(), but fn(u, v, x, y, out) fills out[0..2] (no allocation per pixel). */
   function paintFast(size, fn) {
     const c = makeCanvas(size);
-    const ctx = c.getContext('2d');
+    const ctx = c.getContext('2d', { willReadFrequently: true });
     const img = ctx.createImageData(size, size);
     const d = img.data;
     const o = [0, 0, 0];
@@ -271,7 +271,7 @@
     const h = new Float32Array(size * size);
     for (let i = 0; i < h.length; i++) h[i] = (src[i * 4] * 0.3 + src[i * 4 + 1] * 0.59 + src[i * 4 + 2] * 0.11) / 255;
     const out = makeCanvas(size);
-    const octx = out.getContext('2d');
+    const octx = out.getContext('2d', { willReadFrequently: true });
     const img = octx.createImageData(size, size);
     const d = img.data;
     let i = 0;
@@ -1061,7 +1061,7 @@
     const rng = new VH.RNG('vicehaven-vegetation');
     const noise = new VH.ValueNoise(777);
     const c = makeCanvas(ATLAS_SIZE);
-    const g = c.getContext('2d');
+    const g = c.getContext('2d', { willReadFrequently: true });
     const C = ATLAS.cells;
     paintLeafCluster(g, C.oak, rng, {
       n: 56, len: [34, 54], aspect: [0.36, 0.52], vein: 'rgba(190,210,120,0.55)',
