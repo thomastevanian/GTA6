@@ -105,7 +105,7 @@
     k.solid(world, ctx.prop, h.x1 - 0.8, 0, h.z0, h.x1, h.h, h.z1, wall, null, 'building');
     k.solid(world, ctx.prop, h.x0, 0, h.z0, h.x1, h.h, h.z0 + 0.8, wall, null, 'building');
     k.solid(world, ctx.prop, h.x0, 0, h.z1 - 0.8, h.x1, h.h, h.z1, wall, null, 'building');
-    k.solid(world, ctx.prop, h.x0 - 1.2, h.h - 1.6, h.z0 - 0.4, h.x1 + 0.4, h.h, h.z1 + 0.4, 0x6b727a, null, 'building'); // roof
+    ctx.prop.box(h.x0 - 1.2, h.h - 1.6, h.z0 - 0.4, h.x1 + 0.4, h.h, h.z1 + 0.4, VH.col(0x6b727a)); // roof (no collider: things spawn and park inside)
     ctx.screen.box(h.x0 + 4, h.h - 1.8, h.z0 + 4, h.x1 - 4, h.h - 1.7, h.z0 + 5, VH.col(0xfff4dc, 2.0)); // strip lights
     ctx.screen.box(h.x0 + 4, h.h - 1.8, h.z1 - 5, h.x1 - 4, h.h - 1.7, h.z1 - 4, VH.col(0xfff4dc, 2.0));
     ctx.prop.box(h.x1 - 0.85, 4.5, h.z0 + 8, h.x1 - 0.8, 7, h.z1 - 8, VH.col(0x2b2f36)); // dark back panel
@@ -251,7 +251,7 @@
       const add = (type, x, z, yaw, color) => {
         if (!VH.Vehicle.typeSpec(type)) return;
         this.spots.push(game.vehicles.addFixedSpot({
-          type, x, z, yaw, color, r: type === 'bison' ? 13 : 8,
+          type, x, z, yaw, color, r: type === 'bison' ? 13 : type === 'ufo' ? 10 : 8,
           onSpawn: (v) => {
             v.military = true;
           },
@@ -260,6 +260,7 @@
       add('kestrel', RUNWAY.x + 24, RUNWAY.z0 + 90, 0, 0x9aa1a8);
       add('kestrel', RUNWAY.x + 24, RUNWAY.z0 + 120, 0, 0x9aa1a8);
       add('bison', RUNWAY.x + 28, RUNWAY.z0 + 180, 0, 0x4b5320);
+      add('ufo', -1431, -1455, -Math.PI / 2, 0xb6bdc6);
       this._posts = Area51._posts();
       this._buildHud();
       this._buildAnimated();
