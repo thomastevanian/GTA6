@@ -62,6 +62,7 @@ await page.evaluate(() => {
   g.noAutoStory = true; g.noAutoSave = true;
   g.newGame(); g.advance(3);
   g.environment.clockRunning = false;
+  g.freeze(true); // stop the live render loop: software WebGL is slow, we draw only the shots
 });
 for (const s of scenario) {
   const t0 = Date.now();
@@ -80,12 +81,13 @@ for (const s of scenario) {
       cam.position.set(...s.cam.pos); cam.lookAt(...s.cam.look);
       if (s.cam.fov) { cam.fov = s.cam.fov; cam.updateProjectionMatrix(); }
       cam.updateMatrixWorld(true);
+      g.renderer.render(g.scene, 1 / 60); // twice: the first primes temporal effects (motion blur)
       g.renderer.render(g.scene, 1 / 60);
-    } else g.renderOnce();
+    } else { g.renderOnce(); g.renderOnce(); }
     if (s.post) return (0, eval)(s.post);
   }, s);
   await page.waitForTimeout(250);
-  await page.screenshot({ path: path.join(outDir, `${s.name}.png`) });
+  await page.screenshot({ path: path.join(outDir, `${s.name}.png`), timeout: 120000 });
   console.log(s.name, ((Date.now() - t0) / 1000).toFixed(1) + 's', note === undefined ? '' : JSON.stringify(note));
 }
 await browser.close();

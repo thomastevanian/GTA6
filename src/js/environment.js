@@ -288,6 +288,7 @@
       // Exponential fog reaching ~95% at the draw distance.
       const dd = this.settings.get('graphics.drawDistance');
       this.scene.fog.density = 1.75 / dd;
+      if (this.vhRenderer.post) this.vhRenderer.post.fogDensity = this.scene.fog.density;
     }
 
     /** Set the time of day (hours, 0–24) and recompute all lighting. */
@@ -308,6 +309,7 @@
       this.cloudCover = clamp(c, 0, 1);
       this.skyUniforms.uCloud.value = this.cloudCover;
       this._envDirty = true;
+      this._applyKeys(this.sunDir.y);
     }
 
     _applyKeys(s) {
@@ -358,7 +360,14 @@
       this.nightFactor = night;
 
       const post = this.vhRenderer.postEnabled;
-      if (this.vhRenderer.post) this.vhRenderer.post.bloomStrength = 0.55 + night * 0.75;
+      if (this.vhRenderer.post) {
+        const pf = this.vhRenderer.post;
+        pf.bloomStrength = 0.55 + night * 0.75;
+        pf.sunDir.copy(this.sunDir);
+        pf.sunColor.copy(lightColor);
+        // Shafts, haze and flare belong to the sun only: they fade out through twilight and stay off under the moon.
+        pf.sunAmount = moon ? 0 : smoothstep(-0.02, 0.14, s) * (1 - this.cloudCover * 0.55);
+      }
       if (post) {
         // Post-processing tone-maps everything together at the end, so fog and
         // sky meet in linear HDR: the fog is simply the horizon colour.
