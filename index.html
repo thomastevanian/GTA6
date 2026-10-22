@@ -22526,6 +22526,28 @@ void main() {
     ctx.screen.box(h.x0 + 4, h.h - 1.8, h.z1 - 5, h.x1 - 4, h.h - 1.7, h.z1 - 4, VH.col(0xfff4dc, 2.0));
     ctx.prop.box(h.x1 - 0.85, 4.5, h.z0 + 8, h.x1 - 0.8, 7, h.z1 - 8, VH.col(0x2b2f36)); // dark back panel
     (world.signs || (world.signs = [])).push({ x: h.x0 - 1.3, y: h.h - 3.2, z: (h.z0 + h.z1) / 2, yaw: -Math.PI / 2, w: 12, h: 1.6, lines: ['HANGAR ' + (i + 1)], style: 'monolith' });
+    // Ribs down the outside of the side and back walls, and a darker roof edge.
+    const rib = VH.col(0x9aa0a6);
+    for (let x = h.x0 + 4; x < h.x1 - 1; x += 4) {
+      ctx.prop.box(x - 0.15, 0, h.z0 - 0.25, x + 0.15, h.h - 1.6, h.z0, rib);
+      ctx.prop.box(x - 0.15, 0, h.z1, x + 0.15, h.h - 1.6, h.z1 + 0.25, rib);
+    }
+    for (let z = h.z0 + 4; z < h.z1 - 1; z += 4) ctx.prop.box(h.x1, 0, z - 0.15, h.x1 + 0.25, h.h - 1.6, z + 0.15, rib);
+    // The big sliding doors, rolled back to either side of the opening.
+    for (const [z0, z1] of [[h.z0 + 0.8, h.z0 + 7], [h.z1 - 7, h.z1 - 0.8]]) {
+      ctx.prop.box(h.x0 + 0.2, 0, z0, h.x0 + 0.6, h.h - 1.7, z1, VH.col(0xa9aeb4));
+      for (let z = z0 + 1; z < z1; z += 1.2) ctx.prop.box(h.x0 + 0.15, 0.3, z - 0.05, h.x0 + 0.2, h.h - 2, z + 0.05, rib);
+      world.physics.addBox(h.x0 + 0.2, 0, z0, h.x0 + 0.6, h.h - 1.7, z1, 'building', F().ALL);
+    }
+    // Hazard stripes along the threshold and a painted pad in front.
+    for (let z = h.z0 + 0.5, n = 0; z < h.z1 - 0.5; z += 1.2, n++) K().mark(world, h.x0 - 1.2, z, h.x0 - 0.2, z + 1.2, n % 2 ? 0x1a1a1a : 0xf2c500, 0.03);
+    const pc = { x: h.x0 - 14, z: (h.z0 + h.z1) / 2 };
+    K().mark(world, pc.x - 9, pc.z - 9, pc.x + 9, pc.z - 8.4, 0xf2c500, 0.025);
+    K().mark(world, pc.x - 9, pc.z + 8.4, pc.x + 9, pc.z + 9, 0xf2c500, 0.025);
+    K().mark(world, pc.x - 9, pc.z - 8.4, pc.x - 8.4, pc.z + 8.4, 0xf2c500, 0.025);
+    K().mark(world, pc.x + 8.4, pc.z - 8.4, pc.x + 9, pc.z + 8.4, 0xf2c500, 0.025);
+    K().mark(world, pc.x - 0.3, pc.z - 6, pc.x + 0.3, pc.z + 6, 0xf4f4ef, 0.03); // taxi line to the runway
+    K().mark(world, RUNWAY.x + RUNWAY.w / 2, pc.z - 0.3, pc.x - 9, pc.z + 0.3, 0xf2c500, 0.03);
   }
 
   /** The recovered flying saucer, resting on three legs in the middle hangar. */
@@ -22569,6 +22591,29 @@ void main() {
     K().mark(world, x0, z0, x1, z1, color, y);
   }
 
+  /** A boulder (a few tumbled blocks) or a Joshua tree. */
+  function desertProp(world, x, z, rng) {
+    const ctx = world.ctxAt(x, z);
+    if (rng.chance(0.55)) {
+      const c = VH.col(rng.pick([0xa58a62, 0x8f7653, 0xb39b72]));
+      const r = rng.range(0.8, 2.4);
+      ctx.propMatte.box(x - r, 0, z - r * 0.8, x + r, r * 1.1, z + r * 0.8, c);
+      ctx.propMatte.box(x - r * 0.6 + 0.4, r * 1.1, z - r * 0.5, x + r * 0.5, r * 1.6, z + r * 0.4, c);
+      world.physics.addBox(x - r, 0, z - r * 0.8, x + r, r * 1.6, z + r * 0.8, 'rock', F().ALL);
+    } else {
+      const trunk = VH.col(0x6b5a44);
+      const leaf = VH.col(0x5d7a3a);
+      const h = rng.range(2.5, 4.5);
+      ctx.propMatte.box(x - 0.18, 0, z - 0.18, x + 0.18, h, z + 0.18, trunk);
+      for (const [dx, dz, hh] of [[0.9, 0.2, 0.7], [-0.8, -0.3, 0.5], [0.2, 0.9, 0.9]]) {
+        ctx.propMatte.box(Math.min(x, x + dx) - 0.12, h * hh, Math.min(z, z + dz) - 0.12, Math.max(x, x + dx) + 0.12, h * hh + 0.22, Math.max(z, z + dz) + 0.12, trunk);
+        ctx.propMatte.box(x + dx - 0.35, h * hh + 0.1, z + dz - 0.35, x + dx + 0.35, h * hh + 0.8, z + dz + 0.35, leaf);
+      }
+      ctx.propMatte.box(x - 0.4, h - 0.2, z - 0.4, x + 0.4, h + 0.6, z + 0.4, leaf);
+      world.physics.addBox(x - 0.2, 0, z - 0.2, x + 0.2, h, z + 0.2, 'tree', F().ALL);
+    }
+  }
+
   /** A radar mast; the dish itself is a runtime object (it turns). */
   function radarMast(world, x, z) {
     const ctx = world.ctxAt(x, z);
@@ -22588,7 +22633,15 @@ void main() {
       const data = { base: BASE, gate: GATE, runway: RUNWAY, hangars: HANGARS, labs: LABS, control: CONTROL, dishes: DISHES, bunker: BUNKER, fuel: FUEL, saucer: SAUCER, towers: TOWERS };
       layout.area51 = data;
       // Desert ground inside the fence, the runway, the access road.
+      // Desert across the whole reserved zone (it was grass outside the fence).
+      const Z = layout.zones && layout.zones.area51 ? layout.zones.area51 : { minX: BASE.x0 - 40, maxX: BASE.x1 + 10, minZ: BASE.z0 - 50, maxZ: BASE.z1 + 300 };
+      k.pave(world, Z.minX, Z.minZ, Z.maxX, Z.maxZ, 0xc9b27f, 0.006);
       k.pave(world, BASE.x0, BASE.z0, BASE.x1, BASE.z1, SAND, 0.008);
+      // A patrol road just inside the fence.
+      k.asphalt(world, BASE.x0 + 4, BASE.z0 + 4, BASE.x1 - 4, BASE.z0 + 12, 0x7f7f7f);
+      k.asphalt(world, BASE.x0 + 4, BASE.z1 - 12, BASE.x1 - 4, BASE.z1 - 4, 0x7f7f7f);
+      k.asphalt(world, BASE.x1 - 12, BASE.z0 + 12, BASE.x1 - 4, GATE.z0, 0x7f7f7f);
+      k.asphalt(world, BASE.x1 - 12, GATE.z1, BASE.x1 - 4, BASE.z1 - 12, 0x7f7f7f);
       k.asphalt(world, RUNWAY.x - RUNWAY.w / 2, RUNWAY.z0, RUNWAY.x + RUNWAY.w / 2, RUNWAY.z1, 0x7d7d7d);
       for (let z = RUNWAY.z0 + 30; z < RUNWAY.z1 - 30; z += 36) k.mark(world, RUNWAY.x - 0.4, z, RUNWAY.x + 0.4, z + 20, 0xf4f4ef);
       k.mark(world, RUNWAY.x - RUNWAY.w / 2 + 1, RUNWAY.z0, RUNWAY.x - RUNWAY.w / 2 + 1.7, RUNWAY.z1, 0xf4f4ef);
@@ -22649,6 +22702,18 @@ void main() {
       bctx.prop.box(BUNKER.x1 - 0.05, 0, (BUNKER.z0 + BUNKER.z1) / 2 - 3, BUNKER.x1 + 0.4, 5, (BUNKER.z0 + BUNKER.z1) / 2 + 3, VH.col(0x2b2f36)); // blast door
       world.physics.addBox(BUNKER.x0 - 7.5, 0, BUNKER.z0 - 4.5, BUNKER.x1 + 7.5, BUNKER.h, BUNKER.z1 + 4.5, 'building', F().ALL);
       signs.push({ x: BUNKER.x1 + 0.6, y: 6.2, z: (BUNKER.z0 + BUNKER.z1) / 2, yaw: Math.PI / 2, w: 8, h: 1.2, lines: ['SUBLEVEL 3 · NO ACCESS'], style: 'monolith' });
+      // Warning signs every so often along the outside of the fence.
+      for (let z = BASE.z0 + 60; z < BASE.z1 - 40; z += 110) if (Math.abs(z - CENTER.z) > 40) signs.push({ x: BASE.x1 + 0.4, y: 1.8, z, yaw: Math.PI / 2, w: 4.2, h: 1.6, lines: ['RESTRICTED AREA', 'NO TRESPASSING'], style: 'brand', posts: true });
+      for (let x = BASE.x0 + 60; x < BASE.x1 - 40; x += 110) signs.push({ x, y: 1.8, z: BASE.z1 + 0.4, yaw: 0, w: 4.2, h: 1.6, lines: ['RESTRICTED AREA', 'NO TRESPASSING'], style: 'brand', posts: true });
+      // Boulders and Joshua trees out in the desert, clear of the base and its road.
+      const rng = new VH.RNG('area51desert');
+      for (let i = 0; i < 70; i++) {
+        const x = rng.range(Z.minX + 6, Z.maxX - 6);
+        const z = rng.range(Z.minZ + 6, Z.maxZ - 6);
+        if (x > BASE.x0 - 8 && x < BASE.x1 + 30 && z > BASE.z0 - 8 && z < BASE.z1 + 8) continue;
+        if (Math.abs(z - CENTER.z) < 20 && x > BASE.x1) continue; // the access road
+        desertProp(world, x, z, rng);
+      }
       // Clutter and light.
       k.crates(world, -1385, -1180, 8, 51);
       k.crates(world, -1300, -1580, 6, 52);
@@ -23293,6 +23358,8 @@ void main() {
   const REFILL = 480; // seconds of play before a till is worth robbing again
   const AMMO_PRICE = 150; // Breakwater Arms: +100 rounds for every gun you own, +4 grenades
   const ARMOR_PRICE = 400;
+  const ATM_SECS = 6; // standing at it with the laptop out
+  const ATM_COOL = 600; // seconds of play before that ATM can be hacked again
   // The plan's shuffle. This one leaves alone the car parks the story already
   // uses (places.js steps past a shop lot anyway, but then a place would move).
   const SALT = 'shops-60';
@@ -23542,6 +23609,21 @@ void main() {
     const metal = VH.col(0x2b2f35);
     D.box('prop', s.d0, y0, v0 - 0.02, s.d0 + 0.08, y0 + DOOR_H, v0 + T + 0.02, metal);
     D.box('prop', s.d1 - 0.08, y0, v0 - 0.02, s.d1, y0 + DOOR_H, v0 + T + 0.02, metal);
+    // ATMs on the front wall (corner shops, petrol stations, two at the bank).
+    const atmKind = kindOf(s);
+    if (atmKind === 'mart' || atmKind === 'gas' || atmKind === 'bank') {
+      const spots = atmKind === 'bank' ? [s.d0 - 1.4, s.d0 - 2.7] : [s.d0 - 1.4];
+      spots.forEach((au, k) => {
+        if (au < a0 + 0.6 || au > a1 - 1.3) return;
+        D.box('prop', au, y0, v0 - 0.55, au + 0.75, y0 + 1.75, v0, VH.col(0x3a3f45));
+        D.box('prop', au - 0.02, y0 + 1.75, v0 - 0.57, au + 0.77, y0 + 1.95, v0, band);
+        D.vquad('screen', au + 0.12, v0 - 0.56, au + 0.63, v0 - 0.56, y0 + 1.15, y0 + 1.5, 0, -1, VH.col(0x6fe0c8, 1.3));
+        D.box('prop', au + 0.15, y0 + 0.85, v0 - 0.66, au + 0.6, y0 + 0.95, v0 - 0.55, VH.col(0x9aa0a6));
+        D.collide(au, 0, v0 - 0.55, au + 0.75, y0 + 1.95, v0, 'atm', VH.COLLIDE.ALL);
+        const [mx, mz] = P(f, au + 0.37, v0 - 1.1);
+        ctx.addInteractable({ id: s.id + '_atm' + k, kind: 'atm', store: s.id, x: mx, y: y0 + 1.0, z: mz, radius: 1.3, label: 'Hack the ATM' });
+      });
+    }
     // Roof: gravel, parapet, a couple of AC units.
     const r = rect(f, a0, v0 - 0.2, a1, v1);
     ctx.b.quad([r[0], yTop, r[3]], [r[2], yTop, r[3]], [r[2], yTop, r[1]], [r[0], yTop, r[1]], [0, 1, 0], VH.col(0x8f8c86), null, null, [0, 0, -1, seed]);
@@ -24010,6 +24092,7 @@ void main() {
       g.interaction.on('storeBuy', (item, player) => this._buy(item, player));
       g.interaction.on('storeAmmo', (item, player) => this._buyAmmo(item, player));
       g.interaction.on('storeArmor', (item, player) => this._buyArmor(item, player));
+      g.interaction.on('atm', (item) => this._startHack(item));
       VH.events.on('agent:died', (e) => {
         const s = this._storeOfClerk(e.agent);
         if (!s) return;
@@ -24102,6 +24185,12 @@ void main() {
           this._tipShown = true;
           g.hud.showToast('Aim a gun at the clerk to hold the shop up');
         }
+      }
+      if (this.hack) this._hackStep(dt);
+      this._atmT = (this._atmT || 0) - dt;
+      if (this._atmT <= 0) {
+        this._atmT = 1;
+        for (const it of g.interaction.items) if (it.kind === 'atm') it.enabled = g.playTime >= (this.until[it.id] || 0);
       }
       if (this.active) this._holdUp(dt, inside);
       else if (inside) this._maybeStart(inside);
@@ -24264,6 +24353,44 @@ void main() {
       return 1.5;
     }
 
+    // ------------------------------------------------------------ ATMs
+    _startHack(item) {
+      const g = this.game;
+      if (this.hack || this.active) return 1;
+      if (g.playTime < (this.until[item.id] || 0)) {
+        g.hud.showToast('This ATM is offline. Try another one.');
+        return 1;
+      }
+      this.hack = { item, t: 0, bank: (this.byId.get(item.store) || {}).brand === 'coastline' };
+      g.hud.showToast('Hacking: stay at the ATM');
+      return 0.5;
+    }
+
+    _hackStep(dt) {
+      const g = this.game;
+      const h = this.hack;
+      const p = g.player;
+      if (p.inVehicle || p.isDead || Math.hypot(p.pos.x - h.item.x, p.pos.z - h.item.z) > 1.9 || g.state !== 'playing') {
+        this.hack = null;
+        g.hud.showToast('Hack abandoned.');
+        return;
+      }
+      h.t += dt;
+      if (h.t < ATM_SECS) return;
+      const amount = Math.round((150 + Math.random() * 300) * (h.bank ? 2 : 1));
+      g.giveMoney(amount, 'atm');
+      if (g.audio && g.audio.cash) g.audio.cash();
+      g.hud.popScore('ATM HACKED', amount);
+      this.until[h.item.id] = g.playTime + ATM_COOL;
+      h.item.enabled = false;
+      this.atms = (this.atms || 0) + 1;
+      this.cash += amount;
+      // The camera above the screen got a good look at you.
+      const pol = g.police;
+      if (pol && !(g.missions && g.missions.suppressHeat)) pol._reports.push({ t: 4, heat: 1, x: h.item.x, z: h.item.z, kind: 'robbery' });
+      this.hack = null;
+    }
+
     /** Armed guards on the floor of a bank or a jeweller's (they open fire at once). */
     _spawnGuards(s, n) {
       const g = this.game;
@@ -24331,7 +24458,7 @@ void main() {
 
     _hudUpdate() {
       if (!this.hudEl) return;
-      const h = this.active;
+      const h = this.active || (this.hack && { meter: this.hack.t / ATM_SECS, paid: 0, hack: true });
       const on = !!h;
       if (on !== this._hudOn) {
         this._hudOn = on;
@@ -24343,7 +24470,12 @@ void main() {
         this._hudPct = pct;
         this.fillEl.style.width = pct + '%';
       }
-      const txt = VH.util.formatMoney(h.paid);
+      const label = h.hack ? 'HACKING ATM' : 'HOLD-UP';
+      if (label !== this._hudLabel) {
+        this._hudLabel = label;
+        this.hudEl.querySelector('span').textContent = label;
+      }
+      const txt = h.hack ? '' : VH.util.formatMoney(h.paid);
       if (txt !== this._hudCash) {
         this._hudCash = txt;
         this.cashEl.textContent = txt;
@@ -24363,13 +24495,13 @@ void main() {
 
     stats() {
       if (!this.ok) return [];
-      return [['Shops held up', String(this.robbed)], ['Cash from hold-ups', VH.util.formatMoney(this.cash)]];
+      return [['Shops held up', String(this.robbed)], ['ATMs hacked', String(this.atms || 0)], ['Cash from hold-ups and ATMs', VH.util.formatMoney(this.cash)]];
     }
 
     serialize() {
       const until = {};
       for (const k of Object.keys(this.until)) if (this.until[k] > this.game.playTime) until[k] = Math.round(this.until[k]);
-      return { until, robbed: this.robbed, cash: this.cash };
+      return { until, robbed: this.robbed, cash: this.cash, atms: this.atms || 0 };
     }
 
     load(data) {
@@ -24377,12 +24509,15 @@ void main() {
       this.until = Object.assign({}, data.until || {});
       this.robbed = data.robbed || 0;
       this.cash = data.cash || 0;
+      this.atms = data.atms || 0;
       this.active = null;
+      this.hack = null;
     }
 
     stop() {
       if (!this.ok) return;
       this.active = null;
+      this.hack = null;
       this._hudUpdate();
     }
 
