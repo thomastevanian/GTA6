@@ -1,5 +1,5 @@
 /*
- * photo.js — photo mode (F9).
+ * photo.js — photo mode (F2).
  *
  * Freezes the world, hides the HUD and hands you a free camera:
  *
@@ -10,7 +10,7 @@
  *   , .          focus nearer / further (manual focus)
  *   C            next look (cinematic, vivid, noir, warm, cool, faded)
  *   H            hide / show this help
- *   Enter        save the picture (PNG)           Esc / F9   back to the game
+ *   Enter        save the picture (PNG)           Esc / F2   back to the game
  *
  * The picture is saved at the size the game is rendering at, so on the Max
  * preset (supersampled) it is a large, very clean image.
@@ -51,7 +51,7 @@
         if (this.active && !document.pointerLockElement) this.exit();
       };
       window.addEventListener('keydown', (e) => {
-        if (e.code === 'F9' && !e.repeat) {
+        if (e.code === 'F2' && !e.repeat) {
           e.preventDefault();
           if (this.active) this.exit();
           else this.enter();

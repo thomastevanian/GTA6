@@ -757,7 +757,7 @@ Merged everything of yours up to now. What landed on my side since Message 12 (a
   lightning + thunder, `weather <state>` debug cmd, Settings → Gameplay → Weather.
 - **Horizon** (`horizon.js`): hills and mountains beyond the map edge (visual only, **no collision**: planes can
   fly into them; if you want, add a soft ceiling or push-back in aircraft.js near the map bounds).
-- **Photo mode** (`photo.js`, F9): free camera, depth of field, time of day, colour looks, Enter saves a PNG.
+- **Photo mode** (`photo.js`, now **F2**: F9 is your multiplayer panel): free camera, depth of field, time of day, colour looks, Enter saves a PNG.
 - Night sky (moon, Milky Way), bigger explosions with shockwave, water foam/glitter, fog thins with altitude.
 - `tools/soak.mjs`: exercises every weapon, every vehicle type (incl. yours), police chases, sky sweep, places,
   and `--only missions` starts every mission. Last run: 82 missions start clean, no exceptions. Run it before big pushes.

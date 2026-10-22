@@ -33,7 +33,7 @@
     'Tip: Crouch is a toggle — tap Ctrl or C.',
     'Tip: Scroll the mouse wheel to move the camera closer or further away.',
     'Tip: F8 opens the developer overlay with FPS and a command console.',
-    'Tip: F9 opens photo mode: a free camera with depth of field, time of day and colour looks, and Enter saves the picture.',
+    'Tip: F2 opens photo mode: a free camera with depth of field, time of day and colour looks, and Enter saves the picture.',
     'Vicehaven: 312 days of sunshine a year. The other 53 are complicated.',
     'Tip: Settings → Graphics → Quality "Low" helps on older laptops.',
     'Harbor Point hotels offer a sea view, a pool and absolutely no questions.',
