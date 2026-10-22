@@ -864,6 +864,8 @@
     const p = { color: hex, vertexColors: true, metalness: light ? 0.22 : 0.5, roughness: light ? 0.3 : 0.35, clearcoat: 1, clearcoatRoughness: 0.08 };
     if (finish === 'matte') Object.assign(p, { metalness: 0.05, roughness: 0.78, clearcoat: 0.08, clearcoatRoughness: 0.6 });
     if (finish === 'candy') Object.assign(p, { metalness: 0.7, roughness: 0.25, clearcoat: 1, clearcoatRoughness: 0.03 });
+    if (finish === 'steel') Object.assign(p, { metalness: 0.62, roughness: 0.4, clearcoat: 0.15, clearcoatRoughness: 0.5 });
+    if (finish === 'satin') Object.assign(p, { metalness: 0.45, roughness: 0.5, clearcoat: 0.35, clearcoatRoughness: 0.35 });
     if (finish === 'pearl') Object.assign(p, { metalness: 0.35, roughness: 0.28, clearcoat: 1, clearcoatRoughness: 0.04, sheen: 0.4, sheenColor: 0xfff2e0 });
     return p;
   }
@@ -957,7 +959,7 @@
     const pb = new PartBuilder('trim');
     const segs = lod ? 10 : 16;
     const hw = width / 2;
-    const rimR = R * (styleName === 'truck' || styleName === 'steel' || styleName === 'silversteel' || styleName === 'rusty' || whitewall ? 0.62 : 0.7);
+    const rimR = R * (st.rimK || (styleName === 'truck' || styleName === 'steel' || styleName === 'silversteel' || styleName === 'rusty' || whitewall ? 0.62 : 0.7));
 
     // Tyre: rounded shoulders, slightly bulged sidewalls. Outboard is +X.
     const sh = Math.min(0.045, width * 0.2);
@@ -2202,6 +2204,152 @@
     },
   });
 
+  // ======================================================================
+  // Roster v2: modern, classic and off-road cars. Invented makes; the shapes
+  // follow well-known real-world silhouettes (proportions in metres).
+  // ======================================================================
+  WHEEL_STYLES.aero = { spokes: 8, pair: 0, w0: 0.08, w1: 0.105, col: 0x474a4f, rm: [0.3, 0.85], lip: 0xcfd2d5, dish: 0.02 };
+  WHEEL_STYLES.sport = { spokes: 7, pair: 0.075, w0: 0.03, w1: 0.046, col: 0x26282b, rm: [0.3, 0.85], lip: 0xcfd2d5, dish: 0.055 };
+  WHEEL_STYLES.blackalloy = { spokes: 6, pair: 0, w0: 0.075, w1: 0.1, col: 0x17181a, rm: [0.4, 0.6], lip: 0x17181a, dish: 0.035, rimK: 0.64 };
+  WHEEL_STYLES.cover = { spokes: 18, pair: 0, w0: 0.09, w1: 0.145, col: 0x3d4045, rm: [0.35, 0.85], lip: 0x3d4045, dish: 0.012, rimK: 0.66 };
+  WHEEL_STYLES.crager = { spokes: 5, pair: 0, w0: 0.06, w1: 0.07, col: 0xd9dcde, rm: RM.chrome, lip: 0xd9dcde, dish: 0.03, rimK: 0.66 };
+  WHEEL_STYLES.fivestar = { spokes: 5, pair: 0.05, w0: 0.026, w1: 0.04, col: 0xb7bbbf, rm: RM.alloy, lip: 0xd0d3d6, dish: 0.045 };
+
+  /** Black arch flares round both axles (uses the body's own arch numbers). */
+  function archFlares(ctx, width, color) {
+    const d = ctx.def, zF = d.L / 2 - d.fo, zR = -d.L / 2 + d.ro;
+    const g = d.archGap === undefined ? 0.06 : d.archGap;
+    flares(ctx, zF, d.R + g, d.R, width, color);
+    flares(ctx, zR, d.R + (d.archGapR === undefined ? g : d.archGapR), d.R, width, color);
+  }
+  /** Flush door handle: a slim dark slot with a bright lip. */
+  function flushHandles(ctx, zs, y, color) {
+    if (ctx.lod) return;
+    for (const z of zs) {
+      ctx.rect('left', z, y, 0.15, 0.022, { round: 0.9, color: color || 0x15171a, rm: RM.gloss, nu: 3, off: 0.0022, mirror: true });
+      ctx.rect('left', z, y + 0.014, 0.15, 0.004, { round: 0.9, color: 0xc4c8cc, rm: RM.chrome, nu: 3, off: 0.0028, mirror: true, lod0: true });
+    }
+  }
+  const GLASS_ROOF = 0x131b23;
+
+  // ---- 19. Volta S: electric fastback sedan, light bars and flush handles.
+  (function () {
+    const gh = greenhouse({ zb: 0.8, yb: 0.97, top: [0.02, 1.43], mid: [-0.85, 1.45, 0.6], rear: [-1.75, 1.35], base: [-2.42, 1.02], bot: 0.88, r: [0.03, 0.25, 0.4, 0.1] });
+    DEFS.volta = {
+      L: 4.98, W: 1.96, H: 1.45, fo: 0.9, ro: 1.12, R: 0.352, tyreW: 0.245, tyreWR: 0.265, sill: 0.2, archGap: 0.05, wheel: 'aero',
+      finishFor: (hex) => (new THREE.Color(hex).r > 0.6 && new THREE.Color(hex).b > 0.6 ? 'pearl' : ''),
+      body: [
+        [2.4, 0.28, 0.04], [2.49, 0.4, 0.08], [2.49, 0.64, 0.1], [2.38, 0.78, 0.14], [1.5, 0.91, 0.5], [0.84, 1.0, 0.1],
+        [-0.9, 1.0, 0.4], [-1.9, 1.02, 0.3], [-2.42, 0.99, 0.14], [-2.5, 0.9, 0.1], [-2.5, 0.55, 0.1], [-2.46, 0.34, 0.05], [-2.36, 0.28, 0.03],
+      ],
+      bevel: 0.07,
+      plan: [[-2.5, 0.88], [-2.1, 0.97], [-1.4, 1.0], [0.8, 1.0], [1.6, 0.98], [2.1, 0.93], [2.5, 0.8]],
+      nose: 0.14, tail: 0.1, endLen: 0.55, tumble: [0.7, 1.0, 0.07],
+      cabin: { pts: gh.pts, width: 1.66, bevel: 0.08, tumble: 0.17, y0: 0.95, y1: 1.45, crown: 0.025, wf: [0.08, 0.02, 0.8], wr: [0.06, -1.75, -2.42] },
+      glass: { ws: gh.ws, rw: gh.rw, rwT: [0.06, 0.88], aw: 0.09, cw: 0.2, side: [{ f: 'A', r: -0.34, b: 1.04, t: 1.38 }, { f: -0.42, r: -1.3, b: 1.04, t: 1.3 }] },
+      seatZ: 0.1,
+      details(ctx) {
+        ctx.headlight('front', 0.66, 0.7, 0.4, 0.07, { round: 0.8, skew: 0.55, taper: -0.1, drl: { dy: -0.036, h: 0.011, w: 0.96 } });
+        ctx.rect('front', 0, 0.36, 1.1, 0.1, { round: 0.6, color: COL.grille, rm: RM.dark, nu: 6, off: 0.003 });
+        ctx.rect('front', 0.68, 0.42, 0.2, 0.05, { round: 0.6, color: COL.grille, rm: RM.dark, nu: 3, off: 0.003, mirror: true, lod0: true });
+        ctx.rect('front', 0, 0.22, 1.7, 0.035, { round: 0.3, color: 0x101113, rm: RM.satin, nu: 8, off: 0.003, thick: 0.01 });
+        ctx.plate('front', 0.5, { off: 0.012 });
+        ctx.taillight('rear', 0.7, 0.9, 0.46, 0.07, { round: 0.6, skew: -0.45, bezel: null, rev: { dx: -0.17, dy: -0.04, w: 0.06, h: 0.025 } });
+        ctx.rect('rear', 0, 0.9, 0.92, 0.018, { part: 'lights', round: 0.6, color: COL.tailLens, rm: RM.tail, light: G.TAIL, nu: 6, off: 0.006 });
+        ctx.plate('rear', 0.7);
+        ctx.rect('rear', 0, 0.4, 1.56, 0.16, { round: 0.5, color: COL.plastic, rm: RM.plastic, nu: 6, off: 0.003 });
+        ctx.rect('rear', 0.7, 0.55, 0.1, 0.03, { part: 'lights', round: 0.6, color: 0x700a0a, rm: RM.tail, nu: 2, off: 0.005, mirror: true, lod0: true });
+        ctx.seams([{ z: 0.68, y0: 0.27, y1: 0.97 }, { z: -0.22, y0: 0.26, y1: 1.0 }, { z: -1.14, y0: 0.3, y1: 1.0, lean: 0.03 }, { z0: -1.14, z1: 0.68, y: 0.26 }]);
+        flushHandles(ctx, [0.2, -0.78], 0.935);
+        ctx.rect('left', -0.0, 0.245, 2.3, 0.05, { round: 0.5, color: COL.plastic, rm: RM.plastic, nu: 8, off: 0.003, thick: 0.008, mirror: true });
+        ctx.mirrors(0.66, 0.985, { sy: 0.095, sz: 0.17 });
+        ctx.rect('left', 1.45, 0.68, 0.07, 0.025, { part: 'lights', round: 0.7, color: COL.amber, rm: RM.lens, light: G.AMBER, nu: 2, off: 0.004, mirror: true, lod0: true });
+        // Panoramic glass roof.
+        ctx.rect('top', 0, -0.52, 1.18, 2.0, { round: 0.25, color: GLASS_ROOF, rm: RM.glass, nu: 3, nv: 8, off: 0.004 });
+        // Subtle ducktail.
+        ctx.box('paint', 0, ctx.roofY(-2.36, 0) + 0.004, -2.4, 1.3, 0.025, 0.1, 0.012, 'body', null, { rx: 0.1, lod0: true });
+      },
+    };
+  })();
+
+  // ---- 20. Volta Y: electric crossover, tall hatch, glass roof, black lower trim.
+  (function () {
+    const gh = greenhouse({ zb: 0.8, yb: 1.05, top: [0.1, 1.58], mid: [-0.9, 1.61, 0.5], rear: [-1.75, 1.52], base: [-2.33, 1.1], bot: 0.96, r: [0.03, 0.22, 0.3, 0.08], baseOut: 0.03 });
+    DEFS.voltaic = {
+      L: 4.75, W: 1.94, H: 1.63, fo: 0.88, ro: 0.98, R: 0.365, tyreW: 0.24, tyreWR: 0.255, sill: 0.28, archGap: 0.055, wheel: 'aero',
+      finishFor: (hex) => (new THREE.Color(hex).r > 0.6 && new THREE.Color(hex).b > 0.6 ? 'pearl' : ''),
+      body: [
+        [2.28, 0.34, 0.04], [2.375, 0.46, 0.08], [2.37, 0.7, 0.1], [2.26, 0.84, 0.14], [1.4, 0.98, 0.5], [0.82, 1.06, 0.1],
+        [-1.2, 1.1, 0.4], [-2.2, 1.12, 0.2], [-2.36, 1.08, 0.1], [-2.375, 0.9, 0.1], [-2.375, 0.55, 0.1], [-2.32, 0.38, 0.05], [-2.24, 0.34, 0.03],
+      ],
+      bevel: 0.07,
+      plan: [[-2.375, 0.9], [-2.0, 0.98], [-1.4, 1.0], [0.8, 1.0], [1.6, 0.985], [2.0, 0.95], [2.375, 0.84]],
+      nose: 0.12, tail: 0.1, endLen: 0.5, tumble: [0.8, 1.12, 0.07],
+      cabin: { pts: gh.pts, width: 1.72, bevel: 0.08, tumble: 0.14, y0: 1.04, y1: 1.62, crown: 0.025, wf: [0.07, 0.1, 0.8], wr: [0.05, -1.75, -2.33] },
+      glass: { ws: gh.ws, rw: gh.rw, rwT: [0.08, 0.88], aw: 0.1, cw: 0.18, side: [{ f: 'A', r: -0.3, b: 1.12, t: 1.5 }, { f: -0.38, r: 'C', b: 1.12, t: 1.44 }] },
+      seatZ: 0.1,
+      details(ctx) {
+        ctx.headlight('front', 0.66, 0.9, 0.4, 0.075, { round: 0.8, skew: 0.5, taper: -0.1, drl: { dy: -0.038, h: 0.011, w: 0.96 } });
+        ctx.rect('front', 0, 0.5, 1.0, 0.12, { round: 0.6, color: COL.grille, rm: RM.dark, nu: 6, off: 0.003 });
+        ctx.rect('front', 0, 0.37, 1.8, 0.16, { round: 0.4, color: COL.plastic, rm: RM.plastic, nu: 8, off: 0.003, thick: 0.008 });
+        ctx.plate('front', 0.5, { off: 0.012 });
+        ctx.taillight('rear', 0.7, 1.0, 0.44, 0.075, { round: 0.6, skew: -0.4, bezel: null, rev: { dx: -0.16, dy: -0.04, w: 0.06, h: 0.025 } });
+        ctx.rect('rear', 0, 1.0, 0.96, 0.018, { part: 'lights', round: 0.6, color: COL.tailLens, rm: RM.tail, light: G.TAIL, nu: 6, off: 0.006 });
+        ctx.plate('rear', 0.78);
+        ctx.rect('rear', 0, 0.46, 1.8, 0.2, { round: 0.4, color: COL.plastic, rm: RM.plastic, nu: 8, off: 0.003, thick: 0.01 });
+        ctx.seams([{ z: 0.7, y0: 0.4, y1: 1.1 }, { z: -0.24, y0: 0.36, y1: 1.12 }, { z: -1.1, y0: 0.4, y1: 1.12, lean: 0.03 }]);
+        flushHandles(ctx, [0.22, -0.78], 1.03);
+        archFlares(ctx, 0.05);
+        ctx.rect('left', 0.0, 0.41, 2.6, 0.12, { round: 0.3, color: COL.plastic, rm: RM.plastic, nu: 8, off: 0.003, thick: 0.01, mirror: true });
+        ctx.mirrors(0.7, 1.12, { sy: 0.1, sz: 0.18 });
+        ctx.rect('top', 0, -0.9, 1.3, 2.1, { round: 0.25, color: GLASS_ROOF, rm: RM.glass, nu: 3, nv: 8, off: 0.004 });
+        const rr = ctx.roofY(-1.55, 0);
+        ctx.box('paint', 0, rr + 0.0, -2.38, 1.34, 0.045, 0.12, 0.02, 'body', null, { rx: 0.1, lod0: true });
+      },
+    };
+  })();
+
+  // ---- 21. Monolith: angular stainless-steel electric truck.
+  (function () {
+    DEFS.monolith = {
+      L: 5.7, W: 2.04, H: 1.8, fo: 0.95, ro: 0.97, R: 0.43, tyreW: 0.285, sill: 0.46, archGap: 0.05, wheel: 'cover',
+      finishFor: (hex) => (hex === 0xb7babd || hex === 0x9c9fa3 || hex === 0xcdd0d2 ? 'steel' : 'satin'),
+      body: [
+        [2.8, 0.5, 0.025], [2.85, 0.58, 0.02], [2.85, 0.86, 0.03], [1.55, 1.29, 0.03], [0.4, 1.77, 0.07], [-0.6, 1.72, 0.04],
+        [-2.8, 1.25, 0.03], [-2.85, 1.2, 0.02], [-2.85, 0.62, 0.03], [-2.78, 0.5, 0.025],
+      ],
+      bevel: 0.025,
+      plan: [[-2.85, 0.95], [-2.0, 1.0], [2.0, 1.0], [2.85, 0.94]],
+      nose: 0.0, tail: 0.0, endLen: 0.3, tumble: [1.0, 1.77, 0.17],
+      glass: {
+        ws: [[1.2, 1.44], [0.48, 1.74]], wsT: [0.0, 0.95], inset: 0.12, aw: 0.1, wipers: false,
+        side: [{ f: 'A', r: -0.1, b: 1.36, t: 1.63 }, { f: -0.17, r: -1.1, b: 1.36, t: 1.55 }],
+      },
+      seatZ: 0.2,
+      details(ctx) {
+        // Full-width light bar, slit headlamps, black lower bumper.
+        ctx.rect('front', 0, 0.8, 1.84, 0.03, { part: 'lights', round: 0.8, color: 0xffffff, rm: RM.lens, light: G.DRL, nu: 14, off: 0.006 });
+        ctx.headlight('front', 0.74, 0.66, 0.3, 0.05, { round: 0.8, skew: 0.3, drl: null });
+        ctx.rect('front', 0, 0.54, 1.96, 0.22, { round: 0.1, color: COL.plastic, rm: RM.plastic, nu: 8, nv: 2, off: 0.004 });
+        ctx.plate('front', 0.58, { off: 0.012 });
+        ctx.rect('rear', 0, 1.13, 1.9, 0.034, { part: 'lights', round: 0.6, color: COL.tailLens, rm: RM.tail, light: G.TAIL, nu: 14, off: 0.006 });
+        for (const s of [1, -1]) ctx.anchors.taillights.push(new THREE.Vector3(s * 0.85, 1.13, -2.88));
+        ctx.rect('rear', 0.52, 0.98, 0.14, 0.03, { part: 'lights', round: 0.6, color: COL.reverse, rm: RM.lens, light: G.REVERSE, nu: 2, off: 0.006, mirror: true });
+        ctx.plate('rear', 0.82);
+        ctx.rect('rear', 0, 0.58, 1.96, 0.2, { round: 0.1, color: COL.plastic, rm: RM.plastic, nu: 8, off: 0.004 });
+        // Faceted side: shut lines, a black sill and cladding, flush handles.
+        ctx.seams([{ z: 1.15, y0: 0.52, y1: 1.4, lean: -0.55 }, { z: 0.12, y0: 0.5, y1: 1.76, lean: 0.05 }, { z: -0.95, y0: 0.5, y1: 1.58, lean: 0.12 }, { z0: -2.7, z1: -0.95, y: 1.28 }]);
+        flushHandles(ctx, [0.55, -0.45], 1.28, 0x2a2c2f);
+        ctx.rect('left', 0.0, 0.5, 3.4, 0.13, { round: 0.2, color: COL.plastic, rm: RM.plastic, nu: 10, off: 0.003, thick: 0.01, mirror: true });
+        archFlares(ctx, 0.09);
+        ctx.mirrors(0.95, 1.4, { reach: 0.05, sx: 0.06, sy: 0.12, sz: 0.2, color: COL.black });
+        // Glass roof panel and the bed cover's seam.
+        ctx.rect('top', 0, -0.62, 1.2, 1.6, { color: GLASS_ROOF, rm: RM.glass, nu: 3, nv: 6, off: 0.004 });
+        ctx.rect('top', 0, -1.9, 1.5, 0.012, { color: 0x0b0b0c, rm: RM.plastic, nu: 4, off: 0.003, lod0: true });
+      },
+    };
+  })();
+
   // --------------------------------------------------------------- specs
   const INFO = {
     vireo: ['Vireo GT', 'Aurel', 'sports', 1420, 71, 0.92, 0.9, 2, [0xff6a1a, 0xff3d8b, 0x13b5b1, 0xf2f2ee, 0x121314]],
@@ -2223,6 +2371,10 @@
     lowrider: ['Duchess', 'Dunmore', 'muscle', 2100, 48, 0.38, 0.4, 4, [0x9a0a1e, 0x4a0f5e, 0x0a6f7a, 0xb8862a, 0x1f6b2a]],
     beater: ['Pipit Rustbucket', 'Kobo', 'compact', 980, 36, 0.18, 0.4, 4, [0x7a8c7e, 0x9c6d5a, 0x8f8a73, 0x5f6f86]],
     unmarked: ['Halcyon Detective', 'Merrow', 'police', 1580, 62, 0.7, 0.66, 4, [0x3a3d42, 0x23262b, 0x4a4d52]],
+    // Roster v2. [name, make, class, mass kg, top speed m/s, accel 0..1, grip 0..1, seats, palette]
+    volta: ['Volta S', 'Arcus', 'sedan', 2100, 62, 0.95, 0.74, 5, [0xf3f3f1, 0x15171a, 0x8a8f95, 0x7d1220, 0x1b3560, 0xc9ccd0]],
+    voltaic: ['Volta Y', 'Arcus', 'suv', 1980, 57, 0.86, 0.66, 5, [0xf3f3f1, 0x15171a, 0x8a8f95, 0x7d1220, 0x1b3560, 0xe8e9ea]],
+    monolith: ['Monolith', 'Arcus', 'pickup', 3100, 50, 0.84, 0.62, 5, [0xb7babd, 0x9c9fa3, 0xcdd0d2, 0x1b1c1f, 0x3a4a3a]],
   };
 
   const TYPES = {};
