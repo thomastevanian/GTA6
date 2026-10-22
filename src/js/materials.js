@@ -26,7 +26,155 @@
       uSkyZenith: { value: new THREE.Color(0.2, 0.4, 0.8) },
       uSkyHorizon: { value: new THREE.Color(0.7, 0.8, 0.9) },
       uWind: { value: 1.0 },
+      // Weather (weather.js): how wet surfaces are (0..1) and how hard it is raining right now.
+      uWet: { value: 0 },
+      uRain: { value: 0 },
     };
+  }
+
+  // ------------------------------------------------------------ wetness
+  // Rain darkens surfaces, lowers their roughness, fills puddles on roads
+  // and pavements (a noise mask over world space), rings them with ripples
+  // while it is raining, and at night mirrors a smear of the city's lights.
+  // The whole block is skipped by a uniform branch while the world is dry.
+  const WET_PARS = /* glsl */ `
+    uniform float uWet;
+    uniform float uRain;
+    uniform float uWetTime;
+    uniform float uWetGlow;
+    uniform vec3 uSkyHorizon;
+    uniform vec3 uSkyZenith;
+    varying vec3 vWetPos;
+    float vhWHash(vec2 p) {
+      vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+      p3 += dot(p3, p3.yzx + 33.33);
+      return fract((p3.x + p3.y) * p3.z);
+    }
+    float vhWNoise(vec2 p) {
+      vec2 i = floor(p);
+      vec2 f = fract(p);
+      vec2 u = f * f * (3.0 - 2.0 * f);
+      return mix(mix(vhWHash(i), vhWHash(i + vec2(1.0, 0.0)), u.x), mix(vhWHash(i + vec2(0.0, 1.0)), vhWHash(i + vec2(1.0, 1.0)), u.x), u.y);
+    }
+    // Height gradient of a few expanding rings per metre-scale cell.
+    vec2 vhRipples(vec2 p, float t) {
+      vec2 g = vec2(0.0);
+      for (int k = 0; k < 2; k++) {
+        vec2 q = p * (1.7 + float(k) * 1.1) + float(k) * 17.3;
+        vec2 id = floor(q);
+        vec2 f = fract(q) - 0.5;
+        float h = vhWHash(id);
+        float ph = fract(t * (0.8 + h * 0.6) + h * 7.0);
+        vec2 c = vec2(h - 0.5, fract(h * 13.7) - 0.5) * 0.4;
+        vec2 d = f - c;
+        float r = length(d) + 1e-4;
+        float w = r - ph * 0.45;
+        float a = (1.0 - ph) * (1.0 - ph) * exp(-w * w * 420.0);
+        g += d / r * sin(w * 70.0) * a * step(0.35, h);
+      }
+      return g;
+    }
+  `;
+  const WET_VERTEX_MAIN = /* glsl */ `
+    {
+      vec4 vhWp = vec4(transformed, 1.0);
+      #ifdef USE_INSTANCING
+        vhWp = instanceMatrix * vhWp;
+      #endif
+      vWetPos = (modelMatrix * vhWp).xyz;
+    }
+  `;
+  // Before the normal is built: darken, polish, find the puddles.
+  const WET_SURFACE = /* glsl */ `
+    float vhPud = 0.0;
+    float vhWetK = 0.0;
+    if (uWet > 0.002) {
+      #ifdef FLAT_SHADED
+        float vhUp = 1.0;
+      #else
+        float vhUp = dot(normalize(vNormal), normalize((viewMatrix * vec4(0.0, 1.0, 0.0, 0.0)).xyz));
+      #endif
+      float vhFlat = smoothstep(0.5, 0.92, vhUp);
+      #if VH_WET_KIND == 3
+        vhWetK = uWet * (0.55 + 0.25 * vhFlat) * (1.0 - vhGlass);
+      #else
+        vhWetK = uWet * vhFlat;
+      #endif
+      #if VH_WET_KIND <= 1
+        float vhN = vhWNoise(vWetPos.xz * 0.13) * 0.62 + vhWNoise(vWetPos.xz * 0.47 + 3.1) * 0.38;
+        float vhLvl = smoothstep(0.3, 0.85, uWet);
+        float vhT = 0.75 - 0.15 * vhLvl;
+        #if VH_WET_KIND == 1
+          vhT += 0.05;
+        #endif
+        vhPud = smoothstep(vhT, vhT + 0.05, vhN) * vhLvl * vhFlat;
+      #endif
+      #if VH_WET_KIND == 2
+        diffuseColor.rgb *= mix(1.0, 0.7, vhWetK);
+        roughnessFactor = mix(roughnessFactor, roughnessFactor * 0.7, vhWetK);
+      #else
+        diffuseColor.rgb *= mix(1.0, 0.58, vhWetK) * mix(1.0, 0.62, vhPud);
+        roughnessFactor = mix(roughnessFactor, min(roughnessFactor, 0.3), vhWetK);
+        roughnessFactor = mix(roughnessFactor, 0.035, vhPud);
+      #endif
+    }
+  `;
+  const WET_NORMAL = /* glsl */ `
+    if (vhPud > 0.01 && uRain > 0.01) {
+      vec2 vhG = vhRipples(vWetPos.xz, uWetTime);
+      normal = normalize(normal + (viewMatrix * vec4(vhG.x, 0.0, vhG.y, 0.0)).xyz * vhPud * uRain * 0.5);
+    }
+  `;
+  // Streaks of the city's lights on the wet ground, stretched along the view direction.
+  const WET_EMISSIVE = /* glsl */ `
+    float vhRefl = max(vhPud, vhWetK * 0.3);
+    if (vhRefl > 0.01) {
+      vec2 vhRel = vWetPos.xz - cameraPosition.xz;
+      float vhDist = max(length(vhRel), 1.0);
+      float vhFres = pow(1.0 - clamp(dot(normal, normalize(vViewPosition)), 0.0, 1.0), 3.0);
+      // The sky in the water.
+      vec3 vhSky = mix(uSkyHorizon, uSkyZenith, 0.3);
+      totalEmissiveRadiance += vhSky * vhFres * vhRefl * 0.32;
+      if (uWetGlow > 0.01) {
+        // Smears of the city's lights, stretched along the view direction.
+        float vhAng = atan(vhRel.y, vhRel.x);
+        vec2 vhRc = vec2(vhAng * 16.0, log(vhDist) * 0.5);
+        float vhN = vhWNoise(vhRc * vec2(1.0, 1.0) + 7.0) * 0.65 + vhWNoise(vhRc * vec2(2.7, 1.6)) * 0.35;
+        float vhBlob = smoothstep(0.5, 0.8, vhN);
+        float vhHueN = vhWNoise(vhRc * vec2(0.8, 0.5) + 41.0);
+        vec3 vhHue = mix(vec3(1.0, 0.62, 0.3), vhHueN > 0.62 ? vec3(0.25, 0.7, 1.0) : vec3(1.0, 0.25, 0.5), smoothstep(0.42, 0.62, vhHueN));
+        totalEmissiveRadiance += vhHue * vhBlob * (0.1 + vhFres) * vhRefl * uWetGlow * 0.55 * exp(-vhDist * 0.012);
+      }
+    }
+  `;
+
+  /**
+   * Make a standard material react to the weather. kind: 0 road (puddles),
+   * 1 pavement (smaller puddles), 2 soil / grass (darker, no puddles), 3 walls.
+   */
+  function addWet(mat, shared, kind) {
+    const prev = mat.onBeforeCompile;
+    const prevKey = mat.customProgramCacheKey ? mat.customProgramCacheKey() : '';
+    mat.onBeforeCompile = (shader, renderer) => {
+      if (prev) prev.call(mat, shader, renderer);
+      shader.uniforms.uWet = shared.uWet;
+      shader.uniforms.uRain = shared.uRain;
+      shader.uniforms.uWetTime = shared.uTime;
+      shader.uniforms.uSkyHorizon = shared.uSkyHorizon;
+      shader.uniforms.uSkyZenith = shared.uSkyZenith;
+      shader.uniforms.uWetGlow = shared.uWetGlow || (shared.uWetGlow = { value: 0 });
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', '#include <common>\nvarying vec3 vWetPos;')
+        .replace('#include <project_vertex>', '#include <project_vertex>\n' + WET_VERTEX_MAIN);
+      shader.fragmentShader = shader.fragmentShader
+        .replace('#include <common>', '#include <common>\n#define VH_WET_KIND ' + kind + '\n' + WET_PARS)
+        .replace('#include <normal_fragment_begin>', WET_SURFACE + '\n#include <normal_fragment_begin>')
+        .replace('#include <normal_fragment_maps>', '#include <normal_fragment_maps>\n' + WET_NORMAL)
+        .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n' + WET_EMISSIVE);
+    };
+    mat.customProgramCacheKey = () => prevKey + '|wet' + kind;
+    mat.needsUpdate = true;
+    return mat;
   }
 
   // ------------------------------------------------------------ building
@@ -364,6 +512,13 @@
         })(),
         emissiveScreen: new THREE.MeshBasicMaterial({ vertexColors: true, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2 }),
       };
+      // Rain-ready surfaces (see addWet above).
+      const wetKinds = {
+        road: 0, asphaltTop: 0, markings: 0, decal: 0, sidewalk: 1, plaza: 1, plazaTop: 1, concrete: 1,
+        grass: 2, grassTop: 2, wood: 2, building: 3,
+      };
+      shared.uWetGlow = { value: 0 };
+      for (const k in wetKinds) addWet(this.list[k], shared, wetKinds[k]);
       return this.list;
     },
 
