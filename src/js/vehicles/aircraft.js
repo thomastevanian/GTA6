@@ -9,13 +9,15 @@
  *          airliner), talon (a fighter jet with a cannon and missiles),
  *          kestrel (a WWII-style warbird with guns and rockets), phantom (a
  *          flying-wing stealth bomber), bison (a
- *          rugged single-engine cargo transport).
+ *          rugged single-engine cargo transport), pelican (a flying boat:
+ *          air.floats lets it take off from and land on the bay).
  *          Arcade flight: the nose follows the mouse (the view is where the
  *          plane goes), or fly it on the keys. W/S throttle, A/D roll (steer
  *          on the ground), Space/Ctrl pull up/push down, Shift afterburner.
  *          Lift-off past stall speed; land gently on the wheels or crash.
  *   Heli   sparrow (a civil helicopter), warden (an army gunship with a
- *          minigun and rockets), ufo (the Visitor: a hovering saucer from Area 51). Flies like a drone: it turns to face the
+ *          minigun and rockets), mule (a tandem-rotor army transport: rotor2
+ *          is its second main rotor), ufo (the Visitor: a hovering saucer from Area 51). Flies like a drone: it turns to face the
  *          view; W/S forward/back, A/D turn, Space up, Ctrl down, Shift fast.
  *
  * Jumping out in the air opens a parachute (vehicles._jumpOut). Models are
@@ -111,6 +113,19 @@
         probes: [[0, 2.0, 9.4], [11, 4.0, 0.8], [-11, 4.0, 0.8], [0, 6.2, -9.0], [0, 2.0, -9.6], [2.2, 0.8, 1.0], [-2.2, 0.8, 1.0]],
       },
     },
+    pelican: {
+      kind: 'plane', name: 'Pelican A4', make: 'Ardea', cls: 'plane', length: 14, width: 2.0, height: 5.6, mass: 4500, seats: 8,
+      palette: [0xe8641c, 0x1d4fb8, 0xd8262e, 0x13b5b1, 0xf2c500],
+      air: {
+        span: 18, stall: 24, top: 70, thrust: 5.8, pitchRate: 1.0, rollRate: 1.6, yawRate: 0.45, turnK: 2.1, align: 2.8,
+        taxiTurn: 0.8, rollRes: 0.32, brakeDecel: 4.5, crashVs: 6, crashSpeed: 22, rotateMax: 0.18, fixedGear: true,
+        // A flying boat: it can take off from and land on the bay, the hull sitting `draft` deep.
+        floats: true, draft: 1.0,
+        camDist: 25, camLift: 3, camUp: 2, cockpit: { z: 4.4, y: 2.55 }, doorZ: 1.5,
+        voice: 'prop', voiceRef: 28,
+        probes: [[0, 1.8, 6.6], [9, 3.65, 0.5], [-9, 3.65, 0.5], [0, 5.5, -7.2], [0, 2.6, -7.3], [0, 4.5, 3.1], [7.2, 1.3, 0.6], [-7.2, 1.3, 0.6]],
+      },
+    },
     ufo: {
       kind: 'heli', name: 'Visitor', make: 'Unknown', cls: 'heli', length: 12, width: 12, height: 4, mass: 5000, seats: 2,
       palette: [0xb6bdc6, 0x8d96a1, 0xc9ccd0],
@@ -155,6 +170,17 @@
         voiceRef: 34,
         weapons: { gunRate: 18, gunDamage: 24, gunRange: 260, gunSound: 'smg', guns: [[0, 0.75, 3.9]], rocketCool: 0.55, rocketSpeed: 110, rocketBlast: 8, rocketDamage: 260, rockets: [[2.25, 1.35, 1.0], [-2.25, 1.35, 1.0]] },
         probes: [[7, 3.65, 0.5], [-7, 3.65, 0.5], [0, 3.65, 7.5], [0, 3.65, -6.5], [0, 1.4, 4.2], [0, 2.4, -7.4]],
+      },
+    },
+    mule: {
+      kind: 'heli', name: 'Mule CH-4', make: 'Breakwater Arsenal', cls: 'heli', length: 15, width: 2.8, height: 5.4, mass: 11000, seats: 12,
+      palette: [0x4b5320, 0x5d6b3c, 0x3d4650, 0x8a7a50],
+      military: true,
+      air: {
+        span: 14, rotorY: 4.3, rotorZ: 5.4, vmax: 42, boost: 1.4, climb: 8, climbAcc: 8, acc: 6, resp: 1.2, yawFollow: 2.4, spool: 4, crashVs: 7,
+        camDist: 27, camLift: 2.8, camUp: 2, cockpit: { z: 6.2, y: 2.7 }, doorZ: 2.5,
+        voiceRef: 38,
+        probes: [[0, 4.3, 12.4], [7, 4.3, 5.4], [-7, 4.3, 5.4], [0, 5.1, -12.6], [7, 5.1, -5.6], [-7, 5.1, -5.6], [0, 1.8, 7.4], [0, 2.2, -6.8]],
       },
     },
   };
@@ -491,6 +517,71 @@
         prop: { kit: prop, at: [0, 2.15, 9.72], disc: 2.0 },
       };
     },
+    pelican(c) {
+      const k = new Kit();
+      const gl = new Kit();
+      const hull = 0x3b4148; // the planing bottom
+      // Boat hull: a deep rounded body, a V keel with a step, spray rails, and an upswept tail.
+      k.lathe([[0.9, -3.0], [0.98, -1.5], [1.0, 0], [1.0, 3.4], [0.92, 4.8], [0.72, 5.8], [0.42, 6.4], [0.05, 6.65]], 18, 0, 1.75, 0, WHITE, 1, 1.15);
+      k.cyl(0.95, 0.25, 4.74, 16, 0, 2.27, -4.85, WHITE, 0.138);
+      k.box(0.9, 0.9, 7.0, 0, 1.2, 1.0, hull, 0, 0, Math.PI / 4); // the V bottom
+      k.box(0.62, 0.62, 3.2, 0, 1.5, -4.0, hull, 0.12, 0, Math.PI / 4); // aft of the step
+      k.box(0.6, 0.6, 1.2, 0, 1.32, 4.9, hull, -0.25, 0, Math.PI / 4); // the forefoot
+      for (const s of [1, -1]) k.box(0.32, 0.05, 6.2, s * 0.95, 1.02, 1.2, c); // spray rails
+      k.box(2.02, 0.16, 6.8, 0, 1.7, 0.9, c); // cheat line
+      // Cockpit and cabin windows.
+      gl.box(1.2, 0.55, 1.1, 0, 2.62, 4.55, 0x000000, -0.55);
+      gl.box(1.62, 0.35, 0.9, 0, 2.45, 3.75, 0x000000);
+      for (let i = 0; i < 4; i++) gl.box(1.8, 0.3, 0.5, 0, 2.2, 2.1 - i * 1.0, 0x000000);
+      k.box(1.0, 0.05, 0.6, 0, 2.7, 5.3, DARK, 0.35); // anti-glare panel
+      // Parasol wing on a pylon, braced from the hull.
+      k.box(0.55, 0.75, 2.0, 0, 3.25, 0.5, WHITE);
+      for (const s of [1, -1]) {
+        k.slab([[s * 0.2, 1.6], [s * 0.2, -0.6], [s * 9.0, -0.25], [s * 9.0, 1.2]], 3.55, 3.75, WHITE);
+        k.slab([[s * 7.6, -0.3], [s * 9.0, -0.25], [s * 9.0, 1.2], [s * 7.6, 1.3]], 3.55, 3.755, c);
+        k.strut([s * 0.9, 1.9, 0.9], [s * 3.6, 3.55, 0.6], 0.07, GREY);
+        k.strut([s * 0.9, 1.9, 0.1], [s * 3.6, 3.55, 0.3], 0.06, GREY);
+        // Underwing float on two struts.
+        k.lathe([[0.04, -1.0], [0.18, -0.75], [0.27, -0.2], [0.27, 0.45], [0.18, 0.88], [0.04, 1.05]], 12, s * 7.2, 1.3, 0.6, c, 1, 0.9);
+        k.strut([s * 7.2, 1.48, 1.0], [s * 7.2, 3.55, 0.9], 0.045, GREY);
+        k.strut([s * 7.2, 1.48, 0.1], [s * 7.0, 3.55, 0.2], 0.045, GREY);
+      }
+      // The engine: a nacelle on top of the wing, prop clear of the hull.
+      k.box(0.5, 0.4, 1.6, 0, 3.9, 1.0, WHITE);
+      k.cyl(0.5, 0.56, 2.6, 16, 0, 4.5, 1.6, WHITE);
+      k.cyl(0.56, 0.18, 1.3, 14, 0, 4.5, -0.35, WHITE);
+      k.cyl(0.46, 0.5, 0.12, 16, 0, 4.5, 2.95, GREY);
+      k.box(0.12, 0.12, 0.6, 0.45, 4.25, 0.6, DARK);
+      k.box(0.12, 0.12, 0.6, -0.45, 4.25, 0.6, DARK);
+      k.sphere(0.24, 1, 1, 1.4, 0, 4.5, 3.12, c, 10, 8);
+      // Tail: fin with a coloured top, stabiliser across it.
+      k.slab([[-4.3, 2.75], [-7.1, 2.75], [-7.4, 5.6], [-6.3, 5.6]], -0.08, 0.08, WHITE, 'zy');
+      k.slab([[-5.95, 4.9], [-7.33, 4.9], [-7.4, 5.6], [-6.3, 5.6]], -0.09, 0.09, c, 'zy');
+      k.slab([[-3.2, -7.3], [3.2, -7.3], [2.8, -6.2], [-2.8, -6.2]], 4.24, 4.36, WHITE);
+      k.slab([[-3.2, -7.3], [-2.4, -7.3], [-2.4, -6.25], [-2.8, -6.2]], 4.365, 4.37, c);
+      k.slab([[2.4, -7.3], [3.2, -7.3], [2.8, -6.2], [2.4, -6.25]], 4.365, 4.37, c);
+      // Beaching gear: two main wheels on the hull sides and a nose wheel.
+      for (const s of [1, -1]) {
+        k.strut([s * 0.85, 1.35, 0.6], [s * 1.3, 0.45, 0.6], 0.08, GREY);
+        k.strut([s * 0.7, 1.0, 1.4], [s * 1.3, 0.45, 0.6], 0.05, GREY);
+        k.cyl(0.45, 0.45, 0.26, 14, s * 1.32, 0.45, 0.6, RUBBER, 0, Math.PI / 2);
+      }
+      k.strut([0, 0.9, 4.8], [0, 0.3, 4.8], 0.06, GREY);
+      k.cyl(0.3, 0.3, 0.16, 12, 0, 0.3, 4.8, RUBBER, 0, Math.PI / 2);
+      const prop = new Kit();
+      for (let i = 0; i < 3; i++) {
+        const a = (i / 3) * Math.PI * 2;
+        prop.box(0.2, 1.25, 0.06, -Math.sin(a) * 0.62, Math.cos(a) * 0.62, 0, DARK, 0, 0, a);
+      }
+      prop.cyl(0.16, 0.16, 0.16, 8, 0, 0, 0, GREY);
+      return {
+        kit: k, glass: gl,
+        lights: [['red', 9.0, 3.65, 0.5, 0.08], ['green', -9.0, 3.65, 0.5, 0.08], ['white', 0, 5.0, -7.42, 0.07]],
+        strobe: [0, 5.68, -6.9],
+        beaconLow: [0, 2.92, -1.8],
+        prop: { kit: prop, at: [0, 4.5, 3.2], disc: 1.3 },
+      };
+    },
     ufo(c) {
       const k = new Kit();
       const gl = new Kit();
@@ -607,6 +698,71 @@
         tailRotor: { kit: tail, at: [0.25, 2.6, -7.25] },
       };
     },
+    mule(c) {
+      const k = new Kit();
+      const gl = new Kit();
+      const lower = 0x2f3328;
+      const band = 0xc9b458;
+      // Boxy cabin with a rounded roof and belly, a rounded nose and an upswept tail with the ramp.
+      k.box(2.5, 2.3, 10, 0, 1.95, 0, c);
+      k.box(2.5, 1.7, 1.5, 0, 2.25, -5.75, c);
+      k.box(2.5, 0.12, 1.62, 0, 1.1, -5.75, DARK, 0.38); // the loading ramp
+      k.slab([[-5.0, 0.8], [-5.0, 1.42], [-6.5, 1.42]], -1.25, 1.25, c, 'zy');
+      k.lathe([[0.05, -6.5], [1.25, -6.45], [1.25, 4.95], [0.05, 5.0]], 18, 0, 3.1, 0, c, 1, 0.35);
+      k.lathe([[0.05, -5.0], [1.25, -4.95], [1.25, 4.95], [0.05, 5.0]], 18, 0, 0.8, 0, lower, 1, 0.2);
+      k.lathe([[1.25, 5.0], [1.22, 5.9], [1.05, 6.7], [0.7, 7.25], [0.05, 7.5]], 18, 0, 2.0, 0, c, 1, 0.95);
+      k.box(2.52, 0.18, 11.6, 0, 1.45, -0.3, band); // a hi-vis band
+      k.box(2.52, 0.5, 10, 0, 1.05, 0, lower);
+      k.box(0.95, 0.05, 0.7, 0, 3.15, 6.0, DARK, 0.3); // anti-glare panel
+      // Side sponsons (fuel) along the lower cabin.
+      for (const s of [1, -1]) {
+        k.box(0.55, 0.85, 7.0, s * 1.48, 1.25, -0.6, c);
+        k.box(0.57, 0.12, 7.0, s * 1.48, 1.75, -0.6, band);
+      }
+      // Cockpit glass, chin windows and a row of cabin portholes.
+      gl.box(1.1, 0.62, 0.7, 0, 2.62, 6.35, 0x000000, -0.6);
+      gl.box(2.3, 0.55, 0.8, 0, 2.5, 5.45, 0x000000);
+      gl.box(0.9, 0.3, 0.4, 0, 1.4, 6.75, 0x000000, 0.6);
+      for (let i = 0; i < 6; i++) gl.box(2.54, 0.38, 0.42, 0, 2.45, 3.4 - i * 1.45, 0x000000);
+      // Forward rotor hump and mast; the tall aft pylon with its mast.
+      k.box(1.3, 0.55, 2.4, 0, 3.55, 4.9, c);
+      k.cyl(0.2, 0.2, 0.8, 8, 0, 3.95, 5.4, DARK, Math.PI / 2);
+      k.slab([[-3.4, 3.2], [-7.0, 3.2], [-6.8, 4.75], [-4.6, 4.75]], -0.75, 0.75, c, 'zy');
+      k.box(1.1, 0.1, 2.1, 0, 4.78, -5.7, lower);
+      k.cyl(0.2, 0.2, 0.5, 8, 0, 4.95, -5.6, DARK, Math.PI / 2);
+      // Twin turboshafts on the pylon sides.
+      for (const s of [1, -1]) {
+        k.cyl(0.45, 0.5, 2.6, 14, s * 1.25, 3.95, -5.0, 0x3a3f45);
+        k.cyl(0.4, 0.45, 0.1, 14, s * 1.25, 3.95, -3.68, GREY);
+        k.cyl(0.32, 0.3, 0.4, 12, s * 1.25, 3.95, -6.45, DARK);
+        k.strut([s * 0.75, 3.6, -5.0], [s * 1.0, 3.8, -5.0], 0.12, GREY);
+      }
+      // Four wheels: a pair under the nose, a pair under the sponsons.
+      for (const s of [1, -1]) {
+        k.strut([s * 0.9, 0.85, 3.8], [s * 1.15, 0.42, 3.8], 0.08, GREY);
+        k.cyl(0.42, 0.42, 0.26, 14, s * 1.15, 0.42, 3.8, RUBBER, 0, Math.PI / 2);
+        k.strut([s * 1.48, 0.85, -3.6], [s * 1.48, 0.45, -3.6], 0.09, GREY);
+        k.cyl(0.45, 0.45, 0.3, 14, s * 1.48, 0.45, -3.6, RUBBER, 0, Math.PI / 2);
+      }
+      // Three-bladed rotors: the front one spins one way, the aft one the other.
+      const blades = (r) => {
+        const kit = new Kit();
+        for (let i = 0; i < 3; i++) {
+          const a = (i / 3) * Math.PI * 2;
+          kit.box(r, 0.06, 0.48, Math.cos(a) * r / 2, 0, -Math.sin(a) * r / 2, DARK, 0, a, 0);
+        }
+        kit.cyl(0.3, 0.3, 0.3, 10, 0, 0, 0, GREY, Math.PI / 2);
+        return kit;
+      };
+      return {
+        kit: k, glass: gl,
+        lights: [['red', 1.77, 1.35, 1.0, 0.07], ['green', -1.77, 1.35, 1.0, 0.07], ['white', 0, 4.6, -7.02, 0.07]],
+        strobe: [0, 3.62, 2.6],
+        beaconLow: [0, 0.6, 0],
+        rotor: { kit: blades(7), at: [0, 4.3, 5.4], r: 7 },
+        rotor2: { kit: blades(7), at: [0, 5.1, -5.6], r: 7 },
+      };
+    },
   };
 
   // Geometry is cached per type and colour; materials per aircraft (damage tint).
@@ -622,6 +778,7 @@
       gear: d.gear ? d.gear.geometry() : null,
       prop: d.prop ? { geo: d.prop.kit.geometry(), at: d.prop.at, disc: d.prop.disc } : null,
       rotor: d.rotor ? { geo: d.rotor.kit.geometry(), at: d.rotor.at, r: d.rotor.r } : null,
+      rotor2: d.rotor2 ? { geo: d.rotor2.kit.geometry(), at: d.rotor2.at, r: d.rotor2.r } : null,
       tailRotor: d.tailRotor ? { geo: d.tailRotor.kit.geometry(), at: d.tailRotor.at } : null,
       lights: d.lights || [],
       strobe: d.strobe || null,
@@ -671,13 +828,18 @@
         this.propDisc.visible = false;
         this.prop.add(this.propDisc);
       }
+      const rotorDisc = (grp, r) => {
+        const disc = new THREE.Mesh(new THREE.CircleGeometry(r, 28), M.blur);
+        disc.rotation.x = -Math.PI / 2;
+        disc.visible = false;
+        grp.add(disc);
+        return disc;
+      };
       this.rotor = g.rotor ? spinner(g.rotor) : null;
-      if (this.rotor) {
-        this.rotorDisc = new THREE.Mesh(new THREE.CircleGeometry(g.rotor.r, 28), M.blur);
-        this.rotorDisc.rotation.x = -Math.PI / 2;
-        this.rotorDisc.visible = false;
-        this.rotor.add(this.rotorDisc);
-      }
+      if (this.rotor) this.rotorDisc = rotorDisc(this.rotor, g.rotor.r);
+      // A second main rotor (tandem helicopters), turning the other way.
+      this.rotor2 = g.rotor2 ? spinner(g.rotor2) : null;
+      if (this.rotor2) this.rotor2Disc = rotorDisc(this.rotor2, g.rotor2.r);
       this.tailRotor = g.tailRotor ? spinner(g.tailRotor) : null;
       // Navigation lights, the strobe and the beacon.
       const dot = (m, x, y, z, r) => {
@@ -776,6 +938,8 @@
     }
 
     place(x, z, heading, y) {
+      // A flying boat put down on the bay floats on it (not on the sea bed).
+      if (y === undefined && this.air.floats) y = this._groundAt(x, z, 50);
       super.place(x, z, heading, y);
       this.q.setFromEuler(_e.set(0, heading, 0, 'YXZ'));
       this.prevQ.copy(this.q);
@@ -789,7 +953,7 @@
     _groundAt(x, z, y) {
       let gy = this.sys.physics.groundHeight(x, z, y + 0.6);
       this._overWater = x > SEAWALL && gy < WATER;
-      if (this._overWater) gy = WATER;
+      if (this._overWater) gy = this.air.floats ? WATER - (this.air.draft || 0) : WATER;
       return gy;
     }
 
@@ -1149,7 +1313,7 @@
       const A = this.air;
       // Rolling speed along the ground (not along a nose that's lifting).
       const sp = Math.max(0, speedF) > 0 ? Math.hypot(this.vel.x, this.vel.z) : 0;
-      if (this._overWater) {
+      if (this._overWater && !A.floats) {
         this.explode();
         return;
       }
@@ -1161,7 +1325,8 @@
       if (this.ctl.pitch > 0 && sp > A.stall * 0.72) this.groundPitch = Math.min(A.rotateMax || 0.24, this.groundPitch + this.ctl.pitch * A.pitchRate * 0.45 * h);
       else this.groundPitch = Math.max(0, this.groundPitch - 0.5 * h);
       let a = thrust - A.rollRes - (A.thrust / (A.top * A.top)) * sp * sp;
-      if (this.brake) a -= A.brakeDecel;
+      if (this._overWater) a -= A.rollRes + 0.002 * sp * sp; // the water drags at the hull
+      if (this.brake) a -= this._overWater ? A.brakeDecel * 0.4 : A.brakeDecel;
       let ns = sp + a * h;
       if (ns < 0) ns = 0;
       this.q.setFromEuler(_e.set(-this.groundPitch, yaw, 0, 'YXZ'));
@@ -1272,7 +1437,7 @@
       const l = _l.set(1, 0, 0).applyQuaternion(this.q);
       const bank = Math.abs(Math.asin(clamp(l.y, -1, 1)));
       this.pos.y = ground;
-      if (this._overWater) {
+      if (this._overWater && !A.floats) {
         this.explode();
         return;
       }
@@ -1441,6 +1606,11 @@
         m.rotor.rotation.y += r * 28 * dt;
         if (m.rotorDisc) m.rotorDisc.visible = r > 0.45;
         m.rotor.children[0].visible = r < 0.75;
+      }
+      if (m.rotor2) {
+        m.rotor2.rotation.y -= r * 28 * dt;
+        m.rotor2Disc.visible = r > 0.45;
+        m.rotor2.children[0].visible = r < 0.75;
       }
       if (m.tailRotor) m.tailRotor.rotation.x += r * 55 * dt;
     }

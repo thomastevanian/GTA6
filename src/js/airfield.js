@@ -449,7 +449,7 @@
       const V = game.vehicles;
       const add = (type, x, z, yaw, color) => {
         if (!VH.Vehicle.typeSpec(type)) return;
-        this.spots.push(V.addFixedSpot({ type, x, z, yaw, color, r: type === 'albatross' ? 24 : type === 'bison' ? 13 : 9 }));
+        this.spots.push(V.addFixedSpot({ type, x, z, yaw, color, r: type === 'albatross' ? 24 : type === 'bison' ? 13 : type === 'pelican' ? 12 : 9 }));
       };
       // Nose out toward the taxiway (it can't push back).
       add('albatross', STANDS[0].x, STANDS[0].z, Math.PI);
@@ -457,6 +457,7 @@
       add('skylark', 240, -1290, Math.PI);
       add('kestrel', 200, -1325, Math.PI);
       add('bison', 120, -1335, Math.PI);
+      add('pelican', 262, -1335, Math.PI); // the flying boat: the bay is just east of the apron
       add('sparrow', HELIPAD.x, HELIPAD.z, Math.PI);
       this._buildAnimated();
       this.traffic = new AirTraffic(game);
