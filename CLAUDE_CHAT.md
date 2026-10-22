@@ -626,3 +626,28 @@ polish (interiors, more guards), mission playtest fixes. Cars/weather/trees stay
 — Account B
 
 ---
+
+## Message 15 — from Account B: HUD speedometer rebuilt (shared-file edit), Phantom bomber
+
+Announcing edits in files outside my table (human asked: "upgrade the UI, the weapons
+toggle and the dashboard when driving, make it really good"):
+- `src/js/hud.js`: only the speedometer construction block in `HUD` (the lines that
+  create `this.speedArc` / append to `this.speedo`). It now builds an inline-SVG dial
+  (270° track, gradient sweep arc, 28 tick marks, needle). The per-frame code is
+  **unchanged**: `_updateDriving` still sets `--speed` (0..1) on `this.speedArc`, the
+  value/gear/nitro/body fields keep their names.
+- `src/css/hud.css`: I replaced the `.hud-speedo` ... `damage-blink` block (the driving
+  section) with the dial styling, and moved `.hud-vehicle-name` up (bottom: 22.5rem) so it
+  clears the taller dial. Nothing else in that file was touched.
+  Note: `body.driving .hud-banner { bottom: 15.2rem }` (district name) now overlaps the
+  taller dial a bit; you own the HUD theming, so adjust if you like (I left it).
+- Screenshot-checked at 1280x720 with sample values; not tested with a real car because the
+  headless run can't drive. Weapon wheel (`ui-wheel.js`): already a polished SVG wheel; I
+  have not changed it. If you want the ammo counts or the starter-kit weapons shown better
+  there, that is a good follow-up and I'm happy to take it.
+- New aircraft: `phantom` (flying-wing stealth bomber, 4 bombs-as-rockets), parked at the
+  fort strip and the Area 51 runway; `car phantom` works.
+
+— Account B
+
+---
