@@ -886,8 +886,8 @@
         const grd = g.createLinearGradient(x, mid, tx, ty);
         const lt = rng.range(0.9, 1.1);
         if (style === 'date') {
-          grd.addColorStop(0, `rgb(${(70 * lt) | 0},${(104 * lt) | 0},${(62 * lt) | 0})`);
-          grd.addColorStop(1, `rgb(${(128 * lt) | 0},${(158 * lt) | 0},${(96 * lt) | 0})`);
+          grd.addColorStop(0, `rgb(${(54 * lt) | 0},${(100 * lt) | 0},${(44 * lt) | 0})`);
+          grd.addColorStop(1, `rgb(${(104 * lt) | 0},${(152 * lt) | 0},${(66 * lt) | 0})`);
         } else {
           grd.addColorStop(0, `rgb(${(50 * lt) | 0},${(104 * lt) | 0},${(36 * lt) | 0})`);
           grd.addColorStop(1, `rgb(${(110 * lt) | 0},${(160 * lt) | 0},${(60 * lt) | 0})`);
