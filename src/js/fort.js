@@ -717,5 +717,8 @@
     for (const [x, z] of f.towers) R(x - 2.2, z - 2.2, x + 2.2, z + 2.2);
   });
 
+  // Shared with area51.js (the same builder kit and the same guard brain).
+  Fort.kit = { pave, asphalt, mark, solid, block, sandbags, crates, floodMast, helipad, ARMY_LOOK, soldierBrain };
+
   VH.Fort = Fort;
 })();
