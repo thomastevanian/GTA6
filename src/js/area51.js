@@ -134,6 +134,16 @@
       const gz = s.z + Math.sin(a) * 7.62;
       ctx.screen.box(gx - 0.15, 2.3, gz - 0.15, gx + 0.15, 2.5, gz + 0.15, VH.col(0x7dffb2, 2.6));
     }
+    // Crates of recovered parts glowing faintly green, and a scanner arch.
+    for (const [dx, dz] of [[-11, -14], [-9, -14], [11, 13], [-12, 12]]) {
+      ctx.propMatte.box(s.x + dx - 0.8, 0, s.z + dz - 0.8, s.x + dx + 0.8, 1.4, s.z + dz + 0.8, VH.col(0x3a3f45));
+      ctx.screen.box(s.x + dx - 0.6, 1.4, s.z + dz - 0.6, s.x + dx + 0.6, 1.45, s.z + dz + 0.6, VH.col(0x7dffb2, 1.8));
+      world.physics.addBox(s.x + dx - 0.8, 0, s.z + dz - 0.8, s.x + dx + 0.8, 1.4, s.z + dz + 0.8, 'crate', F().ALL);
+    }
+    ctx.prop.box(s.x + 12, 0, s.z - 3.2, s.x + 12.4, 5, s.z - 2.8, dark);
+    ctx.prop.box(s.x + 12, 0, s.z + 2.8, s.x + 12.4, 5, s.z + 3.2, dark);
+    ctx.prop.box(s.x + 12, 5, s.z - 3.2, s.x + 12.4, 5.4, s.z + 3.2, dark);
+    ctx.screen.box(s.x + 12.05, 4.9, s.z - 2.8, s.x + 12.35, 5.0, s.z + 2.8, VH.col(0x9fd6e8, 2.2));
     // A scorch mark and a few warning cones.
     k_mark(world, s.x - 9, s.z - 9, s.x + 9, s.z + 9, 0x2c2a26, 0.02);
     world.physics.addBox(s.x - 7.5, 0, s.z - 7.5, s.x + 7.5, 4.7, s.z + 7.5, 'building', F().ALL);
@@ -209,6 +219,10 @@
       // Radar masts, fuel tanks, the bunker.
       for (const [x, z] of DISHES) radarMast(world, x, z);
       world.area51Radars = DISHES.map(([x, z]) => ({ x, y: 13, z }));
+      // Red alarm beacons (runtime meshes, dark until the alarm goes).
+      world.area51Beacons = TOWERS.map(([x, z]) => ({ x, y: TOWER_Y + 3.05, z }))
+        .concat([{ x: BASE.x1 - 6, y: 3.6, z: GATE.z1 + 4.5 }])
+        .concat(HANGARS.map((h) => ({ x: h.x0 - 1.3, y: h.h + 0.4, z: (h.z0 + h.z1) / 2 })));
       for (const [x, z] of FUEL) {
         const ctx = world.ctxAt(x, z);
         ctx.prop.cylinder(x, 0, z, 6, 6, 8, 20, VH.col(0xd0d3d6), true, VH.col(0xb6b9bc));
@@ -231,7 +245,7 @@
     static registerPlaces(world, places) {
       if (!world.area51) return;
       places.add('area51_gate', { name: 'The gate of Area 51', x: BASE.x1 + 30, z: GATE.z1 + 14, yaw: -Math.PI / 2, kind: 'fort', district: 'fort' });
-      places.add('area51_hangar', { name: 'Hangar 2, Area 51', x: -1396, z: SAUCER.z, yaw: -Math.PI / 2, kind: 'fort', district: 'fort' });
+      places.add('area51_hangar', { name: 'Hangar 2, Area 51', x: HANGARS[1].x0 - 8, z: SAUCER.z, yaw: Math.PI / 2, kind: 'fort', district: 'fort' }); // in front of the open side
       places.add('area51_runway', { name: 'The runway, Area 51', x: RUNWAY.x + RUNWAY.w / 2 + 6, z: -1500, yaw: -Math.PI / 2, kind: 'fort', district: 'fort' });
     }
 
@@ -367,6 +381,23 @@
         g.scene.add(dish);
         this.dishes.push(dish);
       }
+      // Alarm beacons: a red lamp and a rotating beam on each, shown only during the alarm.
+      this.beacons = [];
+      const lampMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(6, 0.3, 0.2) });
+      const beamMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(1.6, 0.1, 0.05), transparent: true, opacity: 0.35, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
+      const lampGeo = new THREE.SphereGeometry(0.35, 10, 8);
+      const beamGeo = new THREE.ConeGeometry(1.4, 9, 12, 1, true).rotateZ(Math.PI / 2).translate(4.5, 0, 0);
+      for (const b of g.world.area51Beacons || []) {
+        const grp = new THREE.Group();
+        grp.add(new THREE.Mesh(lampGeo, lampMat));
+        const beam = new THREE.Mesh(beamGeo, beamMat);
+        beam.frustumCulled = false;
+        grp.add(beam);
+        grp.position.set(b.x, b.y, b.z);
+        grp.visible = false;
+        g.scene.add(grp);
+        this.beacons.push(grp);
+      }
     }
 
     // ------------------------------------------------------------- frame
@@ -375,6 +406,11 @@
       const g = this.game;
       this._t += dt;
       this.dishes.forEach((d, i) => { d.rotation.y += dt * (0.7 + i * 0.25); });
+      for (let i = 0; i < this.beacons.length; i++) {
+        const b = this.beacons[i];
+        b.visible = this.alarm;
+        if (this.alarm) b.rotation.y = this._t * 4 + i;
+      }
       const p = g.player;
       const v = p.vehicle;
       const pos = p.pos;
@@ -411,6 +447,24 @@
           this._clearT = 0;
         }
       } else this._clearT = 0;
+      this._siren(d);
+    }
+
+    /** The base siren: wails while the alarm is up and Jay is within earshot. */
+    _siren(d) {
+      const g = this.game;
+      const audio = g.audio;
+      if (!audio || !audio.ready || !audio.createSiren) return;
+      const on = this.alarm && d < 750;
+      if (on && !this.voice) this.voice = audio.createSiren({ style: 'wail' });
+      if (this.voice) {
+        const gain = on ? 0.6 / (1 + Math.pow(d / 170, 1.4)) : 0;
+        this.voice.update({ gain, pan: g.vehicleFeedback ? g.vehicleFeedback._pan(CENTER.x, CENTER.z) : 0, style: 'wail', dopplerRate: 0.78 });
+        if (!on) {
+          this.voice.stop();
+          this.voice = null;
+        }
+      }
     }
 
     _spawnGuards() {
@@ -452,6 +506,10 @@
     stop() {
       if (!this.ok) return;
       this._hud(false);
+      if (this.voice) {
+        this.voice.stop();
+        this.voice = null;
+      }
     }
 
     reset() {
