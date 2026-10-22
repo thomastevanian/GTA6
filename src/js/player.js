@@ -811,8 +811,16 @@
         danceStyle: this.dancing ? this.dancing.style : 0,
         beat: this.dancing ? this.dancing.beat : undefined,
         beatN: this.dancing ? this.dancing.beatN : undefined,
-        recoil: this._recoil || 0,
+        recoil: (this._recoil || 0) * (this._recoilKick || 1),
         swing: this._meleeSwing || 0,
+        // Combat poses (combat.js sets these): reloading, drawing a weapon, winding up a throw, melee combos.
+        reload: this._reload || 0,
+        reloadStyle: this._reloadStyle || 0,
+        reloadLoop: this._reloadLoop || 0,
+        draw: this._draw || 0,
+        throwWind: this._throwWind || 0,
+        meleeCombo: this._meleeCombo || 0,
+        meleeStyle: this._meleeStyle || 0,
         handsUp: this.parachute && this.parachute.open ? 0.85 : 0,
         // Getting into / out of a car or hauling a driver out (vehicles.js sets this.entry).
         board: this.entry ? this.entry.board : undefined,
@@ -821,7 +829,11 @@
       });
       this._updateCanopy(dt);
       if (this._recoil > 0) this._recoil = Math.max(0, this._recoil - dt * 9);
-      if (this._meleeSwing > 0) this._meleeSwing = Math.max(0, this._meleeSwing - dt * 3.2);
+      // A landed blow freezes the swing for a beat (hit-stop).
+      if (this._hitStop > 0) this._hitStop -= dt;
+      else if (this._meleeSwing > 0) this._meleeSwing = Math.max(0, this._meleeSwing - dt * (this._meleeRate || 3.2));
+      else this._meleeCombo = 0;
+      if (this._draw > 0) this._draw = Math.max(0, this._draw - dt * (this._drawRate || 3));
       return rp;
     }
 

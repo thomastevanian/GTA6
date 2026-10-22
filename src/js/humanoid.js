@@ -41,6 +41,23 @@
   const VH = window.VH;
   const { damp, smoothstep, clamp } = VH.math;
 
+  /** Piecewise-linear lookup in a flat [t0, v0, t1, v1, ...] key list (t ascending). */
+  function keyAt(t, K) {
+    if (t <= K[0]) return K[1];
+    for (let i = 2; i < K.length; i += 2) {
+      if (t <= K[i]) {
+        const k = (t - K[i - 2]) / (K[i] - K[i - 2]);
+        return K[i - 1] + (K[i + 1] - K[i - 1]) * k;
+      }
+    }
+    return K[K.length - 1];
+  }
+
+  // Reload keys (progress 0..1 -> joint angle) for the off hand: reach the gun, pull the magazine
+  // down, fetch a new one from the belt, seat it, rack, let go. Style 1 pistol, 2 long gun.
+  const RL_SH = [0, 0.1, 0.1, 0.95, 0.2, 0.95, 0.3, 0.45, 0.4, 0.3, 0.48, 0.95, 0.62, 0.95, 0.72, 0.9, 0.77, 0.7, 0.84, 0.95, 0.92, 0.5, 1, 0.1];
+  const RL_EL = [0, 0.2, 0.1, 1.25, 0.2, 1.2, 0.3, 0.95, 0.4, 0.9, 0.48, 1.25, 0.62, 1.2, 0.72, 1.3, 0.77, 1.6, 0.84, 1.2, 0.92, 0.7, 1, 0.2];
+
   // At night people glow very faintly in their own colours, so Jay and the
   // cast stay readable away from street lamps (a common game-lighting cheat).
   const NIGHT_FILL = { value: 0 };
@@ -1748,7 +1765,7 @@ ${vis}        return true;
           T.splay = VH.math.lerp(T.splay, 0.05, aim);
         }
       }
-      if (s.swing > 0) {
+      if (s.swing > 0 && !s.meleeStyle) {
         // A swing: wind up, then strike across the body.
         const k = Math.sin((1 - s.swing) * Math.PI);
         T.shoulderR = VH.math.lerp(T.shoulderR, 2.1 - 1.6 * (1 - s.swing), k);
@@ -1759,6 +1776,187 @@ ${vis}        return true;
       if (s.recoil) {
         T.shoulderR -= s.recoil * 0.25;
         T.elbowR += s.recoil * 0.2;
+      }
+
+      // ------------------------------------------------------------------
+      // Combat poses (combat.js via player.js): holding a weapon low-ready, drawing it, reloading,
+      // winding up and releasing a throw, and the melee combos. All additive and all optional.
+      {
+        const L = VH.math.lerp;
+        const pose = s.weaponPose;
+        const aimK = s.aim || 0;
+        const free = s.grounded && s.climb < 0 && !swim && !s.dead && !(s.board !== undefined && s.board >= 0);
+        // Low-ready: the weapon is carried in the hand, not left dangling.
+        if (pose && free) {
+          const k = (1 - aimK) * (0.9 - 0.25 * r) * (1 - 0.6 * crouch);
+          if (pose === 'pistol') {
+            T.shoulderR = L(T.shoulderR, 0.5 + sinP * 0.06 * w, k);
+            T.elbowR = L(T.elbowR, 0.8, k);
+          } else if (pose === 'rifle') {
+            T.shoulderR = L(T.shoulderR, 0.72, k);
+            T.elbowR = L(T.elbowR, 1.1, k);
+            T.shoulderL = L(T.shoulderL, 0.85, k);
+            T.elbowL = L(T.elbowL, 1.15, k);
+            T.splay = L(T.splay, 0.1, k);
+          } else if (pose === 'bat') {
+            T.shoulderR = L(T.shoulderR, 0.85, k);
+            T.elbowR = L(T.elbowR, 1.25, k);
+            T.shoulderL = L(T.shoulderL, 0.6, k);
+            T.elbowL = L(T.elbowL, 1.35, k);
+          } else if (pose === 'knife') {
+            T.shoulderR = L(T.shoulderR, 0.55, k);
+            T.elbowR = L(T.elbowR, 1.3, k);
+          }
+        }
+        // Drawing a weapon (s.draw 1 -> 0): the arm comes up from low and back.
+        const draw = s.draw || 0;
+        if (draw > 0) {
+          const d = draw * draw;
+          T.shoulderR -= 1.0 * d;
+          T.elbowR -= 0.35 * d;
+          if (pose === 'rifle' || pose === 'bat') {
+            T.shoulderL -= 0.7 * d;
+            T.elbowL -= 0.3 * d;
+          }
+          T.lean -= 0.06 * d;
+        }
+        // Reloading (s.reload 0..1, s.reloadStyle 1 pistol 2 long gun 3 shells 4 bolt).
+        const rl = s.reload || 0;
+        if (rl > 0 && free) {
+          const e = smoothstep(0, 0.1, rl) * (1 - smoothstep(0.88, 1, rl));
+          const st = s.reloadStyle || 1;
+          // Gun hand brings the weapon in to the chest; the muzzle tilts up and away.
+          T.shoulderR = L(T.shoulderR, st === 1 ? 0.62 : 0.8, e);
+          T.elbowR = L(T.elbowR, st === 1 ? 1.2 : 1.05, e);
+          let sl;
+          let el;
+          if (st === 3) {
+            // Shell by shell: the off hand shuttles from the belt to the loading port, then pumps.
+            const lp = 0.5 - 0.5 * Math.cos((s.reloadLoop || 0) * Math.PI * 2);
+            sl = L(0.35, 0.95, lp);
+            el = L(0.9, 1.3, lp);
+            if (rl > 0.8) {
+              sl = 0.95;
+              el = 1.3 - 0.45 * Math.sin(smoothstep(0.82, 0.96, rl) * Math.PI);
+            }
+          } else {
+            sl = keyAt(rl, RL_SH);
+            el = keyAt(rl, RL_EL);
+            if (st === 4) el += 0.3 * Math.sin(smoothstep(0.2, 0.5, rl) * Math.PI);
+          }
+          T.shoulderL = L(T.shoulderL, sl, e);
+          T.elbowL = L(T.elbowL, el, e);
+          T.splay = L(T.splay, 0.1, e);
+          T.lean += 0.08 * e;
+          T.headPitch += 0.28 * e;
+        }
+        // Throwing: wind the arm back overhead (s.throwWind 0..1), then whip it through (meleeStyle 4).
+        const tw = s.throwWind || 0;
+        const throwing = s.meleeStyle === 4 && s.swing > 0;
+        if ((tw > 0 || throwing) && free) {
+          let sh = 2.5;
+          let el = 1.75;
+          let wk = tw;
+          let lean = -0.22 * tw;
+          let twist = 0.4 * tw;
+          if (throwing) {
+            const t = 1 - s.swing;
+            const f = smoothstep(0, 0.4, t);
+            sh = L(2.5, 0.55, f);
+            el = L(1.75, 0.1, f);
+            lean = L(-0.22, 0.38, f) * (1 - smoothstep(0.6, 1, t));
+            twist = L(0.4, -0.7, f) * (1 - smoothstep(0.6, 1, t));
+            wk = 1 - smoothstep(0.75, 1, t);
+          }
+          T.shoulderR = L(T.shoulderR, sh, wk);
+          T.elbowR = L(T.elbowR, el, wk);
+          T.shoulderL = L(T.shoulderL, 1.2, wk);
+          T.elbowL = L(T.elbowL, 0.35, wk);
+          T.lean += lean;
+          T.twist += twist;
+          T.splay = L(T.splay, 0.15, wk);
+        }
+        // Melee combos (s.swing 1 -> 0 while s.meleeStyle: 1 fists, 2 bat, 3 knife; s.meleeCombo 1..3).
+        const ms = s.meleeStyle || 0;
+        if (s.swing > 0 && ms >= 1 && ms <= 3 && free) {
+          const ph = 1 - s.swing;
+          const idx = s.meleeCombo || 1;
+          const env = smoothstep(0, 0.1, ph) * (1 - smoothstep(0.82, 1, ph));
+          const a = smoothstep(0, 0.4, ph); // wind-up
+          const b = smoothstep(0.4, 0.58, ph); // strike
+          const c = smoothstep(0.72, 1, ph); // recover
+          if (ms === 1) {
+            if (idx < 3) {
+              // Jab (right) then cross (left): guard up, one fist shoots straight out.
+              const ext = smoothstep(0, 0.42, ph) * (1 - smoothstep(0.5, 0.86, ph));
+              const right = idx === 1;
+              const gSh = 1.0;
+              const gEl = 1.85;
+              T.shoulderR = L(T.shoulderR, right ? L(gSh, 1.55, ext) : gSh, env);
+              T.elbowR = L(T.elbowR, right ? L(gEl, 0.12, ext) : gEl, env);
+              T.shoulderL = L(T.shoulderL, right ? gSh : L(gSh, 1.55, ext), env);
+              T.elbowL = L(T.elbowL, right ? gEl : L(gEl, 0.12, ext), env);
+              T.twist += (right ? -0.3 : 0.3) * ext;
+              T.lean += 0.12 * ext;
+              T.splay = L(T.splay, 0.1, env);
+            } else {
+              // The finisher: a big wind-up and an overhand hook with the whole body behind it.
+              const sh = L(L(1.0, 0.1, a), 1.5, b);
+              const el = L(L(1.85, 1.1, a), 0.25, b);
+              T.shoulderR = L(T.shoulderR, sh, env);
+              T.elbowR = L(T.elbowR, el, env);
+              T.shoulderL = L(T.shoulderL, L(1.0, 0.6, b), env);
+              T.elbowL = L(T.elbowL, 1.6, env);
+              T.twist += (0.6 * a - 1.5 * b) * (1 - c);
+              T.lean += (-0.14 * a + 0.5 * b) * (1 - c);
+              T.hipL += 0.2 * b;
+              T.kneeL += 0.2 * b;
+              T.splay = L(T.splay, 0.12, env);
+            }
+          } else if (ms === 2) {
+            // Bat in both hands: round the body one way, back the other, then an overhead smash.
+            if (idx < 3) {
+              const dirn = idx === 1 ? 1 : -1;
+              T.shoulderR = L(T.shoulderR, L(1.15, 1.45, b), env);
+              T.elbowR = L(T.elbowR, L(1.3, 0.75, b), env);
+              T.shoulderL = L(T.shoulderL, L(0.95, 1.3, b), env);
+              T.elbowL = L(T.elbowL, L(1.5, 0.9, b), env);
+              T.twist += dirn * (0.95 * a - 2.2 * b) * (1 - c * 0.9);
+              T.lean += 0.1 * b;
+            } else {
+              const sh = L(L(0.95, 2.9, a), 0.9, b);
+              const el = L(L(1.3, 1.2, a), 0.35, b);
+              T.shoulderR = L(T.shoulderR, sh, env);
+              T.elbowR = L(T.elbowR, el, env);
+              T.shoulderL = L(T.shoulderL, sh * 0.95, env);
+              T.elbowL = L(T.elbowL, el * 1.2, env);
+              T.lean += (-0.32 * a + 0.75 * b) * (1 - c);
+              T.hipL += 0.25 * b;
+              T.hipR -= 0.1 * b;
+              T.kneeL += 0.3 * b;
+              T.twist += 0.15 * b;
+            }
+          } else {
+            // Knife: two quick stabs and a lunging slash.
+            const ext = smoothstep(0.1, 0.42, ph) * (1 - smoothstep(0.52, 0.86, ph));
+            const cock = smoothstep(0, 0.22, ph) * (1 - smoothstep(0.22, 0.4, ph));
+            if (idx < 3) {
+              T.shoulderR = L(T.shoulderR, L(L(0.55, 0.15, cock), 1.45, ext), env);
+              T.elbowR = L(T.elbowR, L(L(1.3, 1.7, cock), 0.1, ext), env);
+              T.lean += 0.22 * ext;
+              T.twist += (idx === 1 ? -0.25 : 0.25) * ext;
+              T.hipL += 0.2 * ext;
+              T.kneeL += 0.2 * ext;
+            } else {
+              T.shoulderR = L(T.shoulderR, L(L(0.6, 1.9, a), 1.1, b), env);
+              T.elbowR = L(T.elbowR, L(L(1.3, 0.9, a), 0.15, b), env);
+              T.twist += (0.9 * a - 1.5 * b) * (1 - c);
+              T.lean += 0.4 * b * (1 - c);
+              T.hipL += 0.3 * b;
+              T.kneeL += 0.3 * b;
+            }
+          }
+        }
       }
 
       // Smoothly move every joint toward its target.

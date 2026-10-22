@@ -365,20 +365,6 @@
       this._aim(this._vx, this._vy, Math.min(len, MAX_TRAVEL) >= DEADZONE);
     }
 
-    /** Keyboard: rotate the highlighted slot one place round the ring (dir = +1 clockwise). */
-    step(dir) {
-      if (!this.isOpen || !dir) return;
-      const n = this.slotIds.length;
-      const i = (this.sel + (dir > 0 ? 1 : n - 1)) % n;
-      this._setHighlight(i);
-      const deg = (i * 360) / n;
-      this._vx = Math.sin((deg * Math.PI) / 180) * MAX_TRAVEL;
-      this._vy = -Math.cos((deg * Math.PI) / 180) * MAX_TRAVEL;
-      this._pointer(this._vx, this._vy);
-      this._render();
-      this._changed('slot');
-    }
-
     stick(x, y) {
       if (!this.isOpen) return;
       const len = Math.hypot(x, y);

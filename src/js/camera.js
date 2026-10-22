@@ -45,6 +45,9 @@
       this.pivot = new THREE.Vector3();
       this.curDist = 3.5;
       this.fov = settings.get('graphics.fov');
+      this.aimZoom = 1; // weapon zoom: multiplies the field of view while aiming (combat.js: the sniper scope)
+      this.scopeK = 0; // 0..1 how far the camera has moved into the scope (at the eye)
+      this.sensMul = 1; // look sensitivity factor (aim friction)
       this._behind = 0;
       this._dip = 0;
       this._shake = 0;
@@ -104,7 +107,8 @@
       const inp = this.input;
       const md = inp.takeMouseDelta();
       if (md.x || md.y) this._lookIdle = 0;
-      const sens = 0.0022 * this.settings.get('gameplay.mouseSensitivity') * (aiming ? 0.62 : 1);
+      // combat.js: aimZoom < 1 is a scope (slower look), sensMul < 1 is friction over a target.
+      const sens = 0.0022 * this.settings.get('gameplay.mouseSensitivity') * (aiming ? 0.62 * Math.max(0.25, this.aimZoom) : 1) * this.sensMul;
       const invert = this.settings.get('gameplay.invertY') ? -1 : 1;
       this.yaw -= md.x * sens;
       this.pitch -= md.y * sens * invert;
@@ -218,6 +222,7 @@
       let targetFov = settings.get('graphics.fov');
       const sprintFactor = player.sprinting ? clamp((player.speed - 4.6) / 2.8, 0, 1) : 0;
       targetFov += sprintFactor * 7 - aim * 16;
+      targetFov *= this.aimZoom;
 
       if (first) {
         player.model.setVisible(true);
@@ -229,8 +234,13 @@
         cam.near = 0.1;
         const m = this.mode;
         const baseDist = Math.max(1.4, m.distance + this.zoom);
-        const dist = lerp(baseDist + sprintFactor * 0.5, 1.75, aim);
+        let dist = lerp(baseDist + sprintFactor * 0.5, 1.75, aim);
         let side = lerp(0.42, 0.62, aim);
+        if (this.scopeK > 0) {
+          // Looking through a scope: the camera sits at the eye.
+          dist = lerp(dist, 0.05, this.scopeK);
+          side = lerp(side, 0, this.scopeK);
+        }
         const up = lerp(m.height, 0.08, aim) - this._dip;
 
         // Leg 1: head → shoulder (the shoulder offset must not poke into a wall).

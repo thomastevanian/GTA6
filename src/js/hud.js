@@ -200,7 +200,9 @@
       this.weaponIcon = el('div', 'hw-icon');
       this.weaponName = el('div', 'hw-name');
       this.weaponAmmo = el('div', 'hw-ammo');
-      this.weaponBox.append(this.weaponIcon, this.weaponName, this.weaponAmmo);
+      this.weaponBar = el('div', 'hw-bar');
+      this.weaponBar.append(el('i'));
+      this.weaponBox.append(this.weaponIcon, this.weaponName, this.weaponAmmo, this.weaponBar);
       this.hitMarker = el('div', 'hud-hitmarker');
       this.hitMarker.append(el('i'), el('i'), el('i'), el('i'));
       this.damageArc = el('div', 'hud-damage-arc');
@@ -415,26 +417,49 @@
 
     // ------------------------------------------------------------- combat
     setWeapon(w, inv, reloading) {
-      const key = w ? w.id + ':' + (inv ? inv.mag + '/' + inv.ammo : '') + (reloading ? 'r' : '') : '';
+      const cb = VH.game && VH.game.combat;
+      // The reload bar moves in 5% steps; everything else only when the weapon or its ammo changes.
+      const prog = reloading && cb ? Math.round(cb._reloadProg * 20) : 0;
+      const key = w ? w.id + ':' + (inv ? inv.mag + '/' + inv.ammo : '') + (reloading ? 'r' + prog : '') : '';
       this._set('weapon', key, () => {
         const armed = w && w.slot !== 'unarmed';
         this.weaponBox.classList.toggle('visible', !!armed);
         document.body.classList.toggle('armed', !!armed); // the checklist moves down out of its way
         if (!armed) return;
-        if (this._weaponIconFor !== w.slot && VH.WeaponWheel && VH.WeaponWheel.icon) {
-          this.weaponIcon.innerHTML = VH.WeaponWheel.icon(w.slot);
-          this._weaponIconFor = w.slot;
+        if (this._weaponIconFor !== w.id && VH.WeaponWheel && VH.WeaponWheel.icon) {
+          this.weaponIcon.innerHTML = VH.WeaponWheel.icon(w.id);
+          this._weaponIconFor = w.id;
+          // A short pop when the weapon changes.
+          this.weaponBox.classList.remove('swap');
+          void this.weaponBox.offsetWidth;
+          this.weaponBox.classList.add('swap');
         }
         this.weaponName.textContent = w.name;
-        this.weaponAmmo.textContent = w.kind === 'melee' ? '' : reloading ? 'RELOADING' : inv ? (w.kind === 'thrown' ? String(inv.mag + inv.ammo) : inv.mag + ' / ' + inv.ammo) : '';
-        this.weaponAmmo.classList.toggle('empty', !!inv && inv.mag === 0 && w.kind !== 'melee');
+        const ranged = w.kind !== 'melee';
+        const reserve = inv ? inv.ammo : 0;
+        const mag = inv ? inv.mag : 0;
+        if (!ranged) this.weaponAmmo.innerHTML = '';
+        else if (reloading) this.weaponAmmo.innerHTML = '<span class="hw-rl">RELOADING</span>';
+        else if (w.kind === 'thrown') this.weaponAmmo.innerHTML = '<b>' + (mag + reserve) + '</b>';
+        else if (inv) this.weaponAmmo.innerHTML = '<b>' + mag + '</b><i>/ ' + reserve + '</i>';
+        else this.weaponAmmo.innerHTML = '';
+        const total = mag + reserve;
+        const low = ranged && w.kind !== 'thrown' && w.magSize > 0 && mag > 0 && mag <= Math.ceil(w.magSize * 0.25);
+        this.weaponAmmo.classList.toggle('empty', !!inv && ranged && total === 0);
+        this.weaponAmmo.classList.toggle('dry', !!inv && ranged && mag === 0 && total > 0 && !reloading);
+        this.weaponAmmo.classList.toggle('low', !!low);
+        this.weaponBox.classList.toggle('reloading', !!reloading);
+        this.weaponBox.style.setProperty('--rl', (prog * 5) + '%');
       });
     }
 
-    flashHit() {
-      this.hitMarker.classList.remove('show');
-      void this.hitMarker.offsetWidth;
-      this.hitMarker.classList.add('show');
+    flashHit(kind) {
+      const cb = VH.game && VH.game.combat;
+      const k = kind || (cb && cb.hitKind) || 'hit';
+      const m = this.hitMarker;
+      m.classList.remove('show', 'hit', 'head', 'kill');
+      void m.offsetWidth;
+      m.classList.add('show', k);
     }
 
     /** Red arc toward whoever just hurt Jay (angle in screen space, 0 = ahead). */

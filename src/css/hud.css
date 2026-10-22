@@ -277,12 +277,38 @@ body.reduced-flashing .bar-health.low .fill {
   background: #fff;
   box-shadow: 0 0 2px rgba(0, 0, 0, 0.9);
   border-radius: 1px;
+  transition: transform 0.08s ease-out, background-color 0.1s;
 }
 
-.hud-crosshair i:nth-child(1) { left: 12px; top: 0; width: 2px; height: 8px; }
-.hud-crosshair i:nth-child(2) { left: 12px; bottom: 0; width: 2px; height: 8px; }
-.hud-crosshair i:nth-child(3) { top: 12px; left: 0; width: 8px; height: 2px; }
-.hud-crosshair i:nth-child(4) { top: 12px; right: 0; width: 8px; height: 2px; }
+.hud-crosshair i:nth-child(1) { left: 12px; top: 0; width: 2px; height: 8px; transform: translateY(calc(var(--xh-gap, 0px) * -1)); }
+.hud-crosshair i:nth-child(2) { left: 12px; bottom: 0; width: 2px; height: 8px; transform: translateY(var(--xh-gap, 0px)); }
+.hud-crosshair i:nth-child(3) { top: 12px; left: 0; width: 8px; height: 2px; transform: translateX(calc(var(--xh-gap, 0px) * -1)); }
+.hud-crosshair i:nth-child(4) { top: 12px; right: 0; width: 8px; height: 2px; transform: translateX(var(--xh-gap, 0px)); }
+
+/* A centre dot, and red over a hostile (combat.js toggles .enemy / .hide). */
+.hud-crosshair::after {
+  content: '';
+  position: absolute;
+  left: 11px;
+  top: 11px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 2px rgba(0, 0, 0, 0.9);
+  opacity: 0.85;
+  transition: background-color 0.1s;
+}
+
+.hud-crosshair.enemy i,
+.hud-crosshair.enemy::after {
+  background: #ff3b3b;
+  box-shadow: 0 0 5px rgba(255, 40, 40, 0.8);
+}
+
+.hud-crosshair.hide {
+  opacity: 0;
+}
 
 .hud-prompt {
   position: absolute;
@@ -1440,27 +1466,42 @@ body.driving .hud .hud-hints {
   right: 1.8rem;
   top: 6.6rem;
   display: grid;
-  grid-template-columns: 3.2rem auto;
+  grid-template-columns: 3.6rem auto;
   grid-template-rows: auto auto;
-  column-gap: 0.7rem;
+  column-gap: 0.75rem;
   align-items: center;
-  padding: 0.45rem 0.9rem 0.45rem 0.6rem;
+  min-width: 11.5rem;
+  padding: 0.5rem 1rem 0.65rem 0.65rem;
   border-radius: 12px;
-  background: rgba(8, 11, 22, 0.6);
+  background: rgba(8, 11, 22, 0.62);
   border: 1px solid rgba(255, 255, 255, 0.1);
   font-family: var(--vh-font-display);
   opacity: 0;
-  transition: opacity 0.3s;
+  transition: opacity 0.3s, border-color 0.2s;
+  overflow: hidden;
 }
 
 .hud-weapon.visible {
   opacity: 1;
 }
 
+.hud-weapon.swap {
+  animation: hw-swap 0.32s ease-out;
+}
+
+@keyframes hw-swap {
+  0% { transform: translateX(14px) scale(0.96); border-color: rgba(255, 190, 90, 0.9); }
+  100% { transform: none; }
+}
+
+.hud-weapon.reloading {
+  border-color: rgba(255, 190, 90, 0.5);
+}
+
 .hw-icon {
   grid-row: 1 / 3;
-  width: 3.2rem;
-  height: 2rem;
+  width: 3.6rem;
+  height: 2.1rem;
   color: #fff;
 }
 
@@ -1477,13 +1518,72 @@ body.driving .hud .hud-hints {
 }
 
 .hw-ammo {
-  font-size: 1.35rem;
+  font-size: 1.1rem;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
+  min-height: 1.5rem;
+  display: flex;
+  align-items: baseline;
+  gap: 0.35rem;
 }
 
-.hw-ammo.empty {
+.hw-ammo b {
+  font-size: 1.55rem;
+  line-height: 1;
+}
+
+.hw-ammo i {
+  font-style: normal;
+  font-size: 0.95rem;
+  color: var(--vh-muted);
+}
+
+.hw-ammo .hw-rl {
+  font-size: 0.85rem;
+  letter-spacing: 0.22em;
+  color: #ffbe5a;
+  animation: hw-pulse 0.7s ease-in-out infinite;
+}
+
+@keyframes hw-pulse {
+  50% { opacity: 0.45; }
+}
+
+.hw-ammo.low b {
+  color: #ffbe5a;
+}
+
+.hw-ammo.dry b,
+.hw-ammo.empty,
+.hw-ammo.empty b {
   color: #ff5a5a;
+}
+
+.hw-ammo.dry b {
+  animation: hw-pulse 0.5s ease-in-out infinite;
+}
+
+.hw-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  background: rgba(255, 255, 255, 0.08);
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.hud-weapon.reloading .hw-bar {
+  opacity: 1;
+}
+
+.hw-bar i {
+  display: block;
+  height: 100%;
+  width: var(--rl, 0%);
+  background: linear-gradient(90deg, #ffb347, #ff6a59);
+  transition: width 0.1s linear;
 }
 
 .hud-hitmarker {
@@ -1515,6 +1615,28 @@ body.driving .hud .hud-hints {
 @keyframes hitmarker {
   0% { opacity: 1; transform: translate(-50%, -50%) rotate(45deg) scale(1.3); }
   100% { opacity: 0; transform: translate(-50%, -50%) rotate(45deg) scale(1); }
+}
+
+/* Headshots and kills: the marker turns red and flares larger. */
+.hud-hitmarker.head i {
+  background: #ff8a4a;
+  box-shadow: 0 0 8px rgba(255, 110, 40, 1);
+}
+
+.hud-hitmarker.kill i {
+  background: #ff3030;
+  box-shadow: 0 0 10px rgba(255, 30, 30, 1);
+}
+
+.hud-hitmarker.head.show,
+.hud-hitmarker.kill.show {
+  animation: hitmarker-big 0.4s ease-out;
+}
+
+@keyframes hitmarker-big {
+  0% { opacity: 1; transform: translate(-50%, -50%) rotate(45deg) scale(1.9); }
+  35% { opacity: 1; transform: translate(-50%, -50%) rotate(45deg) scale(1.35); }
+  100% { opacity: 0; transform: translate(-50%, -50%) rotate(45deg) scale(1.1); }
 }
 
 .hud-damage-arc {
