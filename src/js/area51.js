@@ -251,7 +251,7 @@
       const add = (type, x, z, yaw, color) => {
         if (!VH.Vehicle.typeSpec(type)) return;
         this.spots.push(game.vehicles.addFixedSpot({
-          type, x, z, yaw, color, r: type === 'bison' ? 13 : type === 'ufo' ? 10 : 8,
+          type, x, z, yaw, color, r: type === 'bison' ? 13 : type === 'phantom' ? 17 : type === 'ufo' ? 10 : 8,
           onSpawn: (v) => {
             v.military = true;
           },
@@ -261,6 +261,7 @@
       add('kestrel', RUNWAY.x + 24, RUNWAY.z0 + 120, 0, 0x9aa1a8);
       add('bison', RUNWAY.x + 28, RUNWAY.z0 + 180, 0, 0x4b5320);
       add('ufo', -1431, -1455, -Math.PI / 2, 0xb6bdc6);
+      add('phantom', RUNWAY.x - 4, RUNWAY.z1 - 110, Math.PI, 0x2b2f36);
       this._posts = Area51._posts();
       this._buildHud();
       this._buildAnimated();
