@@ -37,15 +37,17 @@
 
   // --------------------------------------------------------- projectile
   class Thrown {
-    constructor(combat, weapon, x, y, z, vx, vy, vz, owner) {
+    constructor(combat, weapon, x, y, z, vx, vy, vz, owner, cook) {
       this.combat = combat;
       this.w = weapon;
       this.pos = new THREE.Vector3(x, y, z);
       this.vel = new THREE.Vector3(vx, vy, vz);
-      this.t = 0;
+      this.t = cook || 0; // a cooked grenade has already burnt part of its fuse
+      this._trail = 0;
       this.owner = owner;
       this.mesh = VH.WeaponModels ? VH.WeaponModels.build(weapon.id) : new THREE.Mesh(new THREE.SphereGeometry(0.06), new THREE.MeshStandardMaterial({ color: 0x334422 }));
       this.mesh.position.copy(this.pos);
+      if (this.mesh.userData && this.mesh.userData.flame) this.mesh.userData.flame.visible = true; // the molotov's rag burns
       combat.game.scene.add(this.mesh);
       this.done = false;
     }
@@ -85,6 +87,13 @@
       this.mesh.position.copy(this.pos);
       this.mesh.rotation.x += dt * 9;
       this.mesh.rotation.z += dt * 5;
+      if (this.w.id === 'molotov') {
+        this._trail -= dt;
+        if (this._trail <= 0) {
+          this._trail = 0.05;
+          this.combat.game.fx.flame(this.pos.x, this.pos.y + 0.1, this.pos.z, 0.3);
+        }
+      }
       if (this.w.id !== 'molotov' && this.t > (this.w.fuse || 2.6)) this._explode();
       if (this.t > 8) this._remove();
     }
@@ -349,6 +358,31 @@
   }
 
   // ------------------------------------------------------------ combat
+  const _v1 = new THREE.Vector3();
+  const _v2 = new THREE.Vector3();
+  const _v3 = new THREE.Vector3();
+  const _v4 = new THREE.Vector3();
+
+  // Per-weapon feel that the data file doesn't carry: kick of the gun model in the hand,
+  // how long a draw takes, and which pose the arms take while reloading (1 pistol, 2 long
+  // gun, 3 shell by shell, 4 bolt).
+  const FEEL = {
+    pistol: { kick: 1, draw: 0.32, reload: 1 },
+    revolver: { kick: 1.8, draw: 0.38, reload: 1 },
+    smg: { kick: 0.8, draw: 0.34, reload: 2 },
+    shotgun: { kick: 2.2, draw: 0.5, reload: 3 },
+    rifle: { kick: 1.1, draw: 0.46, reload: 2 },
+    sniper: { kick: 2.4, draw: 0.55, reload: 4 },
+  };
+  const FEEL_DEFAULT = { kick: 1, draw: 0.3, reload: 1 };
+
+  // Melee swings: seconds the arm animation takes and the share of it before contact.
+  const SWING = {
+    fists: { dur: 0.3, hit: 0.4 },
+    bat: { dur: 0.56, hit: 0.46 },
+    knife: { dur: 0.34, hit: 0.42 },
+  };
+
   class Combat {
     constructor(game) {
       this.game = game;
@@ -360,18 +394,87 @@
       this.fires = []; // burning ground: { x, z, r, t }
       this._cool = 0;
       this._bloom = 0;
+      this._kick = 0;
+      this._recoil = 0;
+      // Reloading.
       this._reloadT = 0;
+      this._reloadDur = 1;
       this._reloadFor = null;
+      this._reloadSnd = null;
+      this._reloadProg = 0;
+      this._shellsDone = 0;
+      this._shellsLeft = 0;
+      this._autoReload = 0;
+      this._pumpEject = 0;
+      // Melee combos.
       this._meleeT = 0;
-      this._throwCharge = 0;
+      this._combo = 0;
+      this._comboT = 0;
+      this._bufT = 0;
+      this._hitPending = null; // { t, w, idx } resolved in update() so slow-motion and hit-stop apply
+      this._staggers = [];
+      // Throwing.
+      this._thr = { state: 0, cook: 0, rel: 0 };
+      // Aim.
+      this._probeT = 0;
+      this.targetKind = 0; // 0 nothing, 1 civilian / neutral, 2 hostile
+      this.targetDist = 0;
+      this._asAgent = null;
+      this._asYaw = 0;
+      this._asPitch = 0;
+      this._scopeK = 0;
+      this._breath = 1;
+      this._breathHeld = false;
+      this._swayX = 0;
+      this._swayY = 0;
+      this._swayT = Math.random() * 20;
+      this._xh = { gap: -1, enemy: false, hide: false, bloom: 0 };
       this.playerArmed = false;
       this.hitMarkerT = 0;
+      this.hitKind = 'hit';
       this._tmp = new THREE.Vector3();
       this._dir = new THREE.Vector3();
+      this._up = new THREE.Vector3();
+      this._right = new THREE.Vector3();
+      this._low = lowFx(game);
+      this._fxReady = false;
       this.giveWeapon('fists', 0);
       this._attachModel();
       this.wheel = VH.WeaponWheel ? new VH.WeaponWheel(game.hud.root) : null;
       this._bindEvents();
+    }
+
+    // ------------------------------------------------------- fx objects
+    /** Pools and overlays are created the first time they are needed (the scene and physics exist by then). */
+    _ensureFx() {
+      if (this._fxReady) return true;
+      const g = this.game;
+      const FX = VH.CombatFX;
+      if (!FX || !g.physics || !g.scene) return false;
+      this._fxReady = true;
+      const low = this._low;
+      const metal = (c, r, m) => new THREE.MeshStandardMaterial({ color: c, roughness: r, metalness: m });
+      const land = (hull) => (it) => {
+        const a = g.audio;
+        if (!a || !a.casingDrop) return;
+        const gain = this.gain(it.x, it.z, 7);
+        if (gain > 0.02) a.casingDrop(this.pan(it.x, it.z), gain, hull);
+      };
+      this.brass = new FX.DebrisPool(g.scene, g.physics, new THREE.CylinderGeometry(0.0048, 0.0048, 0.03, 6), metal(0xd8a640, 0.35, 0.9), low ? 10 : 28, { radius: 0.005, life: low ? 4 : 9, onLand: land(false) });
+      this.hulls = new FX.DebrisPool(g.scene, g.physics, new THREE.CylinderGeometry(0.0095, 0.0095, 0.062, 8), metal(0xc23a2a, 0.6, 0.05), low ? 4 : 10, { radius: 0.01, life: low ? 4 : 10, onLand: land(true) });
+      this.mags = new FX.DebrisPool(g.scene, g.physics, new THREE.BoxGeometry(0.03, 0.1, 0.055), metal(0x2c3036, 0.5, 0.6), low ? 2 : 5, { radius: 0.018, restX: 0, restZ: Math.PI / 2, life: low ? 5 : 12, onLand: land(true) });
+      this.holes = new FX.DecalPool(g.scene, low ? 16 : 56);
+      this.arc = new FX.ArcPreview(g.scene);
+      this.scope = new FX.Scope(g.hud.root);
+      // The fresh magazine Jay's off hand brings to the gun.
+      const mp = new THREE.Mesh(new THREE.BoxGeometry(0.032, 0.1, 0.058), metal(0x2c3036, 0.5, 0.6));
+      mp.visible = false;
+      mp.position.set(0, -0.3, 0.05);
+      mp.name = 'reload-magazine';
+      const hand = g.player.model && g.player.model.joints && g.player.model.joints.elbowL;
+      if (hand) hand.add(mp);
+      this._magProp = mp;
+      return true;
     }
 
     _bindEvents() {
@@ -383,6 +486,14 @@
           if (w && w.kind !== 'melee') this.addPickup('ammo', a.weapon, w.pickupAmmo || Math.max(4, Math.round((w.magSize || 10) * 0.8)), a.pos.x, a.pos.y + 0.6, a.pos.z, 0, true);
         }
         if (a.faction !== 'civilian' && e.source === 'player' && Math.random() < 0.35) this.addPickup('cash', null, 20 + Math.floor(Math.random() * 60), a.pos.x + 0.5, a.pos.y + 0.6, a.pos.z, 0, true);
+      });
+      // A wheel left open when the window loses focus must not strand the game in slow motion.
+      window.addEventListener('blur', () => this.closeWheel(true));
+      document.addEventListener('visibilitychange', () => {
+        if (document.hidden) this.closeWheel(true);
+      });
+      VH.events.on('settings:changed', () => {
+        this._low = lowFx(this.game);
       });
     }
 
@@ -409,16 +520,50 @@
       return !!this.inventory[id];
     }
 
+    /** Equip a weapon: the old one is lowered, the new one drawn (with a sound), reloads and swings are cancelled. */
     select(id) {
       if (!this.inventory[id]) return;
       if (this.current === id) return;
+      this._cancelActions();
       this.current = id;
       const w = def(id);
       if (w) this.lastBySlot[w.slot] = id;
-      this._reloadT = 0;
       this._attachModel();
-      if (this.game.audio.weaponSwitch) this.game.audio.weaponSwitch();
+      const p = this.game.player;
+      const feel = (w && FEEL[w.id]) || FEEL_DEFAULT;
+      p._draw = w && w.slot !== 'unarmed' ? 1 : 0.5;
+      p._drawRate = 1 / feel.draw;
+      this._cool = Math.max(this._cool, feel.draw * 0.8);
+      this._meleeT = Math.max(this._meleeT, 0.2);
+      if (this.game.audio.weaponSwitch) this.game.audio.weaponSwitch(id);
       VH.events.emit('weapon:changed', { id });
+    }
+
+    /** Stop a reload, a swing, a cooked grenade (it is dropped live at Jay's feet). */
+    _cancelActions() {
+      const p = this.game.player;
+      if (this._reloadT > 0) {
+        this._reloadT = 0;
+        if (this._reloadSnd && this._reloadSnd.stop) this._reloadSnd.stop();
+        this._reloadSnd = null;
+      }
+      this._reloadProg = 0;
+      p._reload = 0;
+      if (this._magProp) this._magProp.visible = false;
+      this._hitPending = null;
+      this._combo = 0;
+      this._bufT = 0;
+      this._autoReload = 0;
+      this._pumpEject = 0;
+      const t = this._thr;
+      if (t.state) {
+        const w = this.weapon;
+        if (w.kind === 'thrown' && w.id === 'grenade' && t.state === 1) this._launch(w, 0, t.cook);
+        t.state = 0;
+        t.cook = 0;
+        p._throwWind = 0;
+      }
+      if (this.arc) this.arc.hide();
     }
 
     get weapon() {
@@ -464,8 +609,10 @@
         });
         if (slot === 'unarmed' && !weapons.length) weapons.push({ id: 'fists', name: 'Fists', ammo: 0, mag: 0, owned: true });
         const owned = weapons.filter((w) => w.owned);
-        const cur = Math.max(0, owned.findIndex((w) => w.id === (this.current === w ? w.id : this.lastBySlot[slot])));
-        slots.push({ slot, weapons: owned.length ? owned : weapons, current: cur });
+        const shown = owned.length ? owned : weapons;
+        const want = this.weapon.slot === slot ? this.current : this.lastBySlot[slot];
+        const cur = Math.max(0, shown.findIndex((w) => w.id === want));
+        slots.push({ slot, weapons: shown, current: cur });
       }
       return { slots, selected: this.weapon.slot };
     }
@@ -518,6 +665,42 @@
       return 'concrete';
     }
 
+    /**
+     * A bullet hit the city (or a car): dust, sparks, splinters or a splash, a bullet hole on solid
+     * surfaces, and the sound. `loud` = the shot was Jay's (always heard), else it's culled by distance.
+     */
+    impactAt(x, y, z, nx, ny, nz, surf, quiet) {
+      const g = this.game;
+      const fx = g.fx;
+      if (surf === 'concrete' && y < -0.6 && ny > 0.5) surf = 'water';
+      if (VH.CombatFX) VH.CombatFX.impact(fx, x, y, z, nx, ny, nz, surf, this._low);
+      if (this._ensureFx() && (surf === 'concrete' || surf === 'wood' || surf === 'metal')) this.holes.add(x, y, z, nx, ny, nz, surf === 'metal' ? 0.07 : 0.1 + Math.random() * 0.04);
+      if (g.audio.bulletImpact && !quiet) {
+        g.audio.bulletImpact(surf, this.pan(x, z), this.gain(x, z, 10));
+        if (surf === 'metal' && g.audio.ricochet && Math.random() < 0.3) g.audio.ricochet(this.pan(x, z), this.gain(x, z, 9) * 0.7);
+      }
+    }
+
+    /** Spit a casing (brass, or a red shotgun hull) from (x, y, z) to the side given by (rx, ry, rz). */
+    _eject(hull, x, y, z, rx, ry, rz, vx, vz) {
+      if (!this._ensureFx()) return;
+      const pool = hull ? this.hulls : this.brass;
+      const s = 1.5 + Math.random() * 1.3;
+      pool.spawn(x, y, z, rx * s + (vx || 0) * 0.5 + (Math.random() - 0.5) * 0.4, 1.6 + Math.random() * 1.4 + ry * s, rz * s + (vz || 0) * 0.5 + (Math.random() - 0.5) * 0.4);
+    }
+
+    /** Eject brass from the player's gun (the ejection port is on the model's -X side). */
+    _ejectFromGun(w) {
+      const m = this._model;
+      if (!m || m.visible === false) return;
+      m.updateMatrixWorld(true);
+      const e = m.matrixWorld.elements;
+      const p = this.game.player;
+      const port = m.userData.muzzle ? _v1.set(-0.02, m.userData.muzzle.y, Math.max(0.02, m.userData.muzzle.z * 0.35)) : _v1.set(-0.02, 0.04, 0.05);
+      m.localToWorld(port);
+      this._eject(w.slot === 'shotgun', port.x, port.y, port.z, -e[0] * 0.9, -e[1] * 0.9 + 0.1, -e[2] * 0.9, p.vel.x, p.vel.z);
+    }
+
     /** Area damage (grenades, explosions) to people and Jay. */
     blastDamage(x, y, z, radius, damage, owner) {
       const p = this.game.player;
@@ -532,6 +715,76 @@
         }
       }
       void owner;
+    }
+
+    // ------------------------------------------------------------ wheel
+    get wheelOpen() {
+      return !!(this.wheel && this.wheel.isOpen);
+    }
+
+    /** Close the weapon wheel; `cancel` leaves the current weapon alone, otherwise the highlighted one is equipped. */
+    closeWheel(cancel) {
+      if (!this.wheel || !this.wheel.isOpen) return;
+      const g = this.game;
+      const pick = this.wheel.close();
+      g.input.wantDeltas = false;
+      if (this._wheelSlow) {
+        g._slowT = 0; // time speeds back up on its own
+        this._wheelSlow = false;
+      }
+      if (!cancel && pick && pick.weaponId) this.select(pick.weaponId);
+    }
+
+    _updateWheel() {
+      const g = this.game;
+      const inp = g.input;
+      const p = g.player;
+      if (!this.wheel) return;
+      const holding = inp.down('weaponWheel') && g.state === 'playing' && p.state !== 'dead';
+      inp.wantDeltas = holding; // steer the wheel with the mouse even before the pointer is locked
+      if (holding && !this.wheel.isOpen) {
+        for (const k of ['moveRight', 'moveLeft', 'moveForward', 'moveBack']) inp.discard(k); // old key presses must not spin the wheel
+        for (let i = 1; i <= 8; i++) inp.discard('weapon' + i);
+        inp.takeMouseDelta();
+        inp.takeWheel();
+        this._cancelActions(); // a cooked grenade can't wait while you browse
+        this.wheel.open(this.wheelState());
+        // Slow motion for the wheel, whatever the cinematic slow-mo setting says: it is a gameplay feature.
+        g._slowT = 9999;
+        g.timeScale = Math.min(g.timeScale, 0.25);
+        this._wheelSlow = true;
+      } else if (this.wheel.isOpen) {
+        if (holding) {
+          // The camera ignores the mouse while the wheel is open; the wheel gets it.
+          const md = inp.takeMouseDelta();
+          if (md.x || md.y) this.wheel.move(md.x, md.y);
+          const wheelNotches = inp.takeWheel();
+          if (wheelNotches) this.wheel.cycle(Math.sign(wheelNotches));
+          // Keys: A / D (or the arrows) turn the wheel, W / S pick a weapon within the slot, 1-8 jump to a slot.
+          if (inp.consume('moveRight')) this.wheel.step(1);
+          if (inp.consume('moveLeft')) this.wheel.step(-1);
+          if (inp.consume('moveForward')) this.wheel.cycle(1);
+          if (inp.consume('moveBack')) this.wheel.cycle(-1);
+          for (let i = 1; i <= 8; i++) if (inp.consume('weapon' + i)) this.wheel.setSlot(i - 1);
+          const pad = inp.pad;
+          if (pad && pad.connected && (Math.abs(pad.look.x) > 0.3 || Math.abs(pad.look.y) > 0.3)) this.wheel.stick(pad.look.x, pad.look.y);
+        } else this.closeWheel(false);
+      }
+    }
+
+    /**
+     * Called every frame whatever the game state (through the `reloading` getter, which the HUD reads):
+     * a wheel left open by a pause or a dialogue closes, and Jay's gun only shows while he can use it.
+     */
+    _syncState() {
+      const g = this.game;
+      if (this.wheel && this.wheel.isOpen && (g.state !== 'playing' || g.player.state === 'dead')) this.closeWheel(true);
+      if (this._model) {
+        const p = g.player;
+        const live = g.state === 'playing';
+        this._model.visible = live ? !p.inVehicle || p.aiming : false;
+        if (!live) p.weaponPose = null;
+      }
     }
 
     // ------------------------------------------------------------ frame
@@ -550,40 +803,7 @@
       }
       if (this.hitMarkerT > 0) this.hitMarkerT -= dt;
 
-      // Weapon wheel.
-      if (this.wheel) {
-        const holding = inp.down('weaponWheel') && g.state === 'playing' && p.state !== 'dead';
-        inp.wantDeltas = holding; // steer the wheel with the mouse even before the pointer is locked
-        if (holding && !this.wheel.isOpen) {
-          for (const k of ['moveRight', 'moveLeft', 'moveForward', 'moveBack']) inp.discard(k); // old key presses must not spin the wheel
-          inp.takeMouseDelta();
-          this.wheel.open(this.wheelState());
-          g.slowmo(9999, 0.25);
-          this._wheelSlow = true;
-        } else if (this.wheel.isOpen) {
-          if (holding) {
-            // The camera ignores the mouse while the wheel is open; the wheel gets it.
-            const md = inp.takeMouseDelta();
-            if (md.x || md.y) this.wheel.move(md.x, md.y);
-            const wheelNotches = inp.takeWheel();
-            if (wheelNotches) this.wheel.cycle(Math.sign(wheelNotches));
-            // Keys: A / D (or the arrows) turn the wheel, W / S pick a weapon within the slot.
-            if (inp.consume('moveRight')) this.wheel.step(1);
-            if (inp.consume('moveLeft')) this.wheel.step(-1);
-            if (inp.consume('moveForward')) this.wheel.cycle(1);
-            if (inp.consume('moveBack')) this.wheel.cycle(-1);
-            const pad = inp.pad;
-            if (pad && pad.connected && (Math.abs(pad.look.x) > 0.3 || Math.abs(pad.look.y) > 0.3)) this.wheel.stick(pad.look.x, pad.look.y);
-          } else {
-            const pick = this.wheel.close();
-            if (this._wheelSlow) {
-              g._slowT = 0;
-              this._wheelSlow = false;
-            }
-            if (pick && pick.weaponId) this.select(pick.weaponId);
-          }
-        }
-      }
+      this._updateWheel();
       for (let i = 1; i <= 8; i++) {
         if (inp.consume('weapon' + i)) {
           const slot = SLOT_ORDER[i - 1];
@@ -608,32 +828,45 @@
         }
       }
       this.pickups = this.pickups.filter((pk) => !pk.gone);
-
-      if (this._flash && this._flashT > 0) {
-        this._flashT -= dt;
-        this._flash.visible = this._flashT > 0;
-        this._flash.rotation.z = Math.random() * 6.28;
+      if (this._fxReady) {
+        this.brass.update(dt);
+        this.hulls.update(dt);
+        this.mags.update(dt);
       }
+      this._updateStaggers(dt);
+
+      if (this._flash && this._flash.userData.update) this._flash.userData.update(dt);
       if (this._recoil > 0) this._recoil = Math.max(0, this._recoil - dt * 8);
-
-      // Reloading.
-      if (this._reloadT > 0) {
-        this._reloadT -= dt;
-        if (this._reloadT <= 0) this._finishReload();
+      if (this._pumpEject > 0) {
+        this._pumpEject -= dt;
+        if (this._pumpEject <= 0) this._ejectFromGun(this.weapon);
       }
-      if (g.state !== 'playing' || p.state === 'dead' || p.state === 'knocked' || p.frozen || (this.wheel && this.wheel.isOpen)) {
+
+      const blocked = g.state !== 'playing' || p.state === 'dead' || p.state === 'knocked' || p.frozen || (this.wheel && this.wheel.isOpen);
+      this._updateReload(dt, blocked);
+      this._poseModel();
+      if (blocked) {
         inp.discard('fire');
+        this._showScope(false);
+        this._setReticle(false, 0);
+        if (this.arc) this.arc.hide();
         return;
       }
       const w = this.weapon;
       // Weapon in hand is hidden while driving; the pose follows the weapon.
       if (this._model) this._model.visible = !p.inVehicle || p.aiming;
-      p.weaponPose = w.kind === 'melee' || w.slot === 'unarmed' || w.kind === 'thrown' ? null : w.slot === 'pistol' ? 'pistol' : 'rifle';
+      p.weaponPose = w.kind === 'thrown' || w.slot === 'unarmed' ? null : w.id === 'bat' ? 'bat' : w.kind === 'melee' ? 'knife' : w.slot === 'pistol' ? 'pistol' : 'rifle';
       if (inp.consume('reload') && !p.inVehicle) this.reload();
+      if (this._autoReload > 0) {
+        this._autoReload -= dt;
+        if (this._autoReload <= 0 && !p.inVehicle) this.reload();
+      }
       const firing = inp.down('fire');
       const pressed = inp.consume('fire');
       if (p.inVehicle) {
         const v = p.vehicle;
+        this._showScope(false);
+        this._setReticle(false, 0);
         // A tank's cannon, a jet's guns: the vehicle has its own weapons.
         if (v.fireWeapon) {
           p.aiming = false;
@@ -645,30 +878,117 @@
         if (p.aiming && (pressed || (firing && w.auto)) && this._cool <= 0) this._fireHitscan(w, true);
         return;
       }
+      this._updateAim(dt, w);
       if (w.kind === 'thrown') {
-        if (pressed && this._cool <= 0) this._throw(w);
+        this._updateThrow(w, firing, pressed, dt);
         return;
       }
       if (w.kind === 'melee' || w.slot === 'unarmed') {
-        if (pressed && this._meleeT <= 0) this._melee(w);
-        this._meleeT -= dt;
+        this._updateMelee(w, pressed, dt);
         return;
       }
+      // A shotgun can interrupt its own reload to fire; other guns ignore the trigger.
       if ((pressed || (firing && w.auto)) && this._cool <= 0) this._fireHitscan(w, false);
     }
 
+    // ----------------------------------------------------------- reload
     reload() {
       const w = this.weapon;
       const inv = this.inventory[w.id];
       if (!inv || !w.magSize || inv.mag >= w.magSize || inv.ammo <= 0 || this._reloadT > 0) return;
-      this._reloadT = w.reloadTime || 1.5;
+      if (w.kind === 'thrown' || w.kind === 'melee') return;
+      if (this._thr.state) return;
+      const feel = FEEL[w.id] || FEEL_DEFAULT;
       this._reloadFor = w.id;
-      if (this.game.audio.reload) this.game.audio.reload(w.id);
+      this._reloadStyle = feel.reload;
+      this._shellsDone = 0;
+      if (w.shellReload) {
+        this._shellsLeft = Math.min(w.magSize - inv.mag, inv.ammo);
+        this._reloadDur = 0.4 + this._shellsLeft * (w.shellTime || 0.42) + 0.5;
+        this._reloadSnd = null;
+      } else {
+        this._reloadDur = w.reloadTime || 1.5;
+        this._reloadSnd = this.game.audio.reload ? this.game.audio.reload(w.id) : null;
+      }
+      this._reloadT = this._reloadDur;
+      this._reloadProg = 0;
+      this._autoReload = 0;
+      this._magDropped = false;
+    }
+
+    _updateReload(dt, blocked) {
+      const p = this.game.player;
+      if (this._reloadT <= 0) {
+        if (p._reload) p._reload = 0;
+        return;
+      }
+      if (blocked && this.game.state !== 'playing') return;
+      this._reloadT -= dt;
+      const dur = this._reloadDur;
+      const el = Math.max(0, dur - this._reloadT);
+      const w = def(this._reloadFor);
+      const inv = w && this.inventory[w.id];
+      if (!inv) {
+        this._reloadT = 0;
+        return;
+      }
+      this._reloadProg = clamp(el / dur, 0, 1);
+      p._reload = this._reloadProg;
+      p._reloadStyle = this._reloadStyle;
+      const mp = this._magProp;
+      if (w.shellReload) {
+        // One shell at a time, the way the sound is built; then the pump.
+        const st = w.shellTime || 0.42;
+        const n = this._shellsLeft;
+        const cyc = (el - 0.3) / st;
+        p._reloadLoop = cyc > 0 && cyc < n + 0.2 ? cyc - Math.floor(cyc) : 0;
+        while (this._shellsDone < n && el >= 0.4 + (this._shellsDone + 1) * st - 0.12) {
+          if (inv.ammo > 0 && inv.mag < w.magSize) {
+            inv.mag++;
+            inv.ammo--;
+          }
+          this._shellsDone++;
+          if (this.game.audio.shellInsert) this.game.audio.shellInsert();
+        }
+        if (this._shellsDone >= n && !this._racked && el >= 0.4 + n * st) {
+          this._racked = true;
+          if (this.game.audio.pumpRack) this.game.audio.pumpRack();
+        }
+        if (this._reloadT <= 0) {
+          this._racked = false;
+          this._reloadT = 0;
+          this._reloadProg = 0;
+          p._reload = 0;
+        }
+        return;
+      }
+      // Magazine props: the old one comes out and drops, a fresh one goes in.
+      if (mp && this._reloadStyle !== 4) {
+        const r = this._reloadProg;
+        mp.visible = (r > 0.14 && r < 0.3) || (r > 0.32 && r < 0.46);
+        if (r >= 0.3 && !this._magDropped) {
+          this._magDropped = true;
+          if (this._ensureFx() && this._reloadFor !== 'revolver') {
+            const hand = p.model.joints.elbowL;
+            hand.updateWorldMatrix(true, false);
+            const q = hand.localToWorld(_v1.set(0, -0.3, 0.05));
+            this.mags.spawn(q.x, q.y, q.z, p.vel.x * 0.5 + (Math.random() - 0.5) * 0.6, 0.4, p.vel.z * 0.5 + (Math.random() - 0.5) * 0.6);
+          }
+        }
+      }
+      if (this._reloadT <= 0) {
+        this._reloadT = 0;
+        this._reloadProg = 0;
+        p._reload = 0;
+        if (mp) mp.visible = false;
+        this._finishReload();
+      }
     }
 
     _finishReload() {
       const w = def(this._reloadFor);
       const inv = w && this.inventory[w.id];
+      this._reloadSnd = null;
       if (!inv) return;
       const need = w.magSize - inv.mag;
       const take = Math.min(need, inv.ammo);
@@ -676,14 +996,27 @@
       inv.ammo -= take;
     }
 
-    get wheelOpen() {
-      return !!(this.wheel && this.wheel.isOpen);
-    }
-
     get reloading() {
+      this._syncState();
       return this._reloadT > 0;
     }
 
+    /** Where the gun sits in the hand right now: draw, reload tilt and recoil kick. */
+    _poseModel() {
+      const m = this._model;
+      if (!m) return;
+      const p = this.game.player;
+      const w = this.weapon;
+      const feel = FEEL[w.id] || FEEL_DEFAULT;
+      const draw = p._draw || 0;
+      const rl = this._reloadT > 0 ? Math.sin(this._reloadProg * Math.PI) : 0;
+      const k = this._recoil;
+      // Kick: the gun slides back along the forearm and the muzzle climbs.
+      m.position.set(0, -0.31 + k * 0.035 * feel.kick, 0.03 - draw * 0.02);
+      m.rotation.set(Math.PI / 2 - k * 0.1 * feel.kick - draw * 0.5 - rl * 0.25, 0, rl * (this._reloadStyle === 3 ? 0.35 : 0.55));
+    }
+
+    // -------------------------------------------------------------- aim
     /** The aim ray: from the camera through the crosshair. */
     _aimRay(spread) {
       const cam = this.game.renderer.camera;
@@ -692,8 +1025,8 @@
       if (spread > 0) {
         const r = Math.sqrt(Math.random()) * spread;
         const a = Math.random() * Math.PI * 2;
-        const up = new THREE.Vector3(0, 1, 0).applyQuaternion(cam.quaternion);
-        const right = new THREE.Vector3(1, 0, 0).applyQuaternion(cam.quaternion);
+        const up = this._up.set(0, 1, 0).applyQuaternion(cam.quaternion);
+        const right = this._right.set(1, 0, 0).applyQuaternion(cam.quaternion);
         dir.addScaledVector(right, Math.cos(a) * r).addScaledVector(up, Math.sin(a) * r).normalize();
       }
       return { o: cam.position, d: dir };
@@ -730,6 +1063,184 @@
       }
     }
 
+    /**
+     * Everything that follows the crosshair while Jay is on foot: what's under it (red over enemies),
+     * sticky aim that rides a moving target, the sniper scope with sway and held breath, and the
+     * crosshair's bloom.
+     */
+    _updateAim(dt, w) {
+      const g = this.game;
+      const p = g.player;
+      const inp = g.input;
+      const rig = g.cameraRig;
+      const ranged = w.kind === 'hitscan' || w.kind === 'pellets';
+      const aiming = p.aiming && ranged;
+      // What's under the crosshair (10 Hz).
+      this._probeT -= dt;
+      if ((aiming || (this._scopeK > 0.05)) && this._probeT <= 0) {
+        this._probeT = 0.1;
+        const cam = g.renderer.camera;
+        const d = _v2.set(0, 0, -1).applyQuaternion(cam.quaternion);
+        const o = cam.position;
+        const ts = Math.max(0, _v3.subVectors(p.renderPos, o).dot(d) - 0.2);
+        const hit = this.trace(o.x + d.x * ts, o.y + d.y * ts, o.z + d.z * ts, d.x, d.y, d.z, w.range || 60, null, p.vehicle);
+        this.targetDist = hit.type === 'none' ? 0 : hit.t + ts;
+        this.targetKind = hit.type === 'agent' && !hit.agent.dead ? (hit.agent.brain && hit.agent.brain.hostile ? 2 : 1) : 0;
+      } else if (!aiming && this._scopeK < 0.05) {
+        this.targetKind = 0;
+        this.targetDist = 0;
+      }
+      // Sticky aim: once the crosshair is on a hostile it rides along when they move.
+      const assistOn = aiming && g.settings.get('gameplay.aimAssist');
+      if (assistOn) this._trackAssist(dt);
+      else this._asAgent = null;
+      rig.sensMul = this.targetKind === 2 && assistOn ? (g.input.lastDevice === 'gamepad' ? 0.6 : 0.7) : 1;
+
+      // Sniper scope.
+      const wantScope = aiming && w.slot === 'sniper' && p.aimAmount > 0.7 && !this.wheelOpen;
+      this._scopeK += ((wantScope ? 1 : 0) - this._scopeK) * Math.min(1, dt * 9);
+      if (this._scopeK < 0.01) this._scopeK = 0;
+      rig.scopeK = this._scopeK;
+      rig.aimZoom = 1 + ((w.zoom || 1) - 1) * this._scopeK;
+      const scoped = this._scopeK > 0.85;
+      if (scoped !== !!this._scoped) {
+        this._scoped = scoped;
+        if (g.audio.scopeIn) g.audio.scopeIn(scoped);
+      }
+      this._showScope(scoped);
+      // Sway, and holding breath (Sprint) steadies it for a few seconds.
+      let tx = 0;
+      let ty = 0;
+      if (wantScope) {
+        const wantHold = inp.down('sprint') && this._breath > 0.02;
+        if (wantHold !== this._breathHeld) {
+          this._breathHeld = wantHold;
+          if (g.audio.holdBreath) g.audio.holdBreath(wantHold);
+        }
+        if (this._breathHeld) this._breath = Math.max(0, this._breath - dt / 4.5);
+        else this._breath = Math.min(1, this._breath + dt / (this._breath < 0.25 ? 7 : 4));
+        const speed = Math.hypot(p.vel.x, p.vel.z);
+        const amp = (this._breathHeld ? 0.00018 : 0.0017) * (1 + speed * 0.5) * (this._breath < 0.25 && !this._breathHeld ? 1.6 : 1);
+        this._swayT += dt;
+        const t = this._swayT;
+        tx = (Math.sin(t * 0.9) + 0.5 * Math.sin(t * 2.3 + 1)) * amp;
+        ty = (Math.cos(t * 0.7) + 0.5 * Math.sin(t * 1.9)) * amp * 0.8;
+      } else {
+        this._breathHeld = false;
+        this._breath = Math.min(1, this._breath + dt / 3);
+      }
+      // The sway is a movement of the camera itself (the bullets go where it points), so apply the change.
+      const sx = this._swayX + (tx - this._swayX) * Math.min(1, dt * 12);
+      const sy = this._swayY + (ty - this._swayY) * Math.min(1, dt * 12);
+      rig.yaw += sx - this._swayX;
+      rig.pitch += sy - this._swayY;
+      this._swayX = sx;
+      this._swayY = sy;
+      if (this.scope && scoped) this.scope.set(this.targetDist, this._breath, this._breathHeld);
+
+      // Crosshair: bloom from movement, recent fire and the weapon's own spread.
+      const speed = Math.hypot(p.vel.x, p.vel.z);
+      let bloom = this._bloom * 0.8 + Math.min(1, speed / 6) * 0.35 + this._recoil * 0.3;
+      if ((w.pellets || 1) > 1) bloom = Math.max(bloom, 0.55);
+      if (w.slot === 'sniper') bloom += 0.15;
+      this._setReticle(!ranged || scoped || w.slot === 'unarmed', bloom);
+
+      // Throw arc: shown while aiming a grenade or molotov, or while cooking one.
+      if (this.arc) {
+        if (w.kind === 'thrown' && (p.aiming || this._thr.state === 1) && this.inventory[w.id]) this._previewThrow(w);
+        else this.arc.hide();
+      }
+    }
+
+    _trackAssist(dt) {
+      const g = this.game;
+      const cam = g.renderer.camera;
+      const rig = g.cameraRig;
+      const pad = g.input.lastDevice === 'gamepad';
+      const cone = pad ? 0.1 : 0.05;
+      let a = this._asAgent;
+      const o = cam.position;
+      if (a && (a.dead || a.hidden || !a.brain || !a.brain.hostile)) a = this._asAgent = null;
+      if (!a) {
+        if (this.targetKind !== 2) return;
+        // Acquire the hostile the probe says we're on (or nearly on).
+        const d = _v2.set(0, 0, -1).applyQuaternion(cam.quaternion);
+        let best = null;
+        let bestAng = cone;
+        for (const c of g.crowd.agents) {
+          if (c.dead || c.hidden || !c.brain || !c.brain.hostile) continue;
+          const tx = c.pos.x - o.x;
+          const ty = c.pos.y + 1.25 - o.y;
+          const tz = c.pos.z - o.z;
+          const dist = Math.hypot(tx, ty, tz);
+          if (dist < 2 || dist > 80) continue;
+          const ang = Math.acos(clamp((tx * d.x + ty * d.y + tz * d.z) / dist, -1, 1));
+          if (ang < bestAng) {
+            bestAng = ang;
+            best = c;
+          }
+        }
+        if (!best) return;
+        this._asAgent = a = best;
+        const tx = a.pos.x - o.x;
+        const ty = a.pos.y + 1.25 - o.y;
+        const tz = a.pos.z - o.z;
+        this._asYaw = Math.atan2(tx, tz);
+        this._asPitch = Math.asin(ty / (Math.hypot(tx, ty, tz) || 1));
+        return;
+      }
+      const tx = a.pos.x - o.x;
+      const ty = a.pos.y + 1.25 - o.y;
+      const tz = a.pos.z - o.z;
+      const dist = Math.hypot(tx, ty, tz) || 1;
+      const yaw = Math.atan2(tx, tz);
+      const pitch = Math.asin(ty / dist);
+      const dYaw = VH.math.angleDelta ? VH.math.angleDelta(this._asYaw, yaw) : yaw - this._asYaw;
+      const dPitch = pitch - this._asPitch;
+      this._asYaw = yaw;
+      this._asPitch = pitch;
+      // Release if Jay has looked well away from them.
+      const fx = Math.sin(rig.yaw) * Math.cos(rig.pitch);
+      const fy = Math.sin(rig.pitch);
+      const fz = Math.cos(rig.yaw) * Math.cos(rig.pitch);
+      const off = Math.acos(clamp((tx * fx + ty * fy + tz * fz) / dist, -1, 1));
+      if (off > cone * 2.2 || dist > 90) {
+        this._asAgent = null;
+        return;
+      }
+      if (Math.abs(dYaw) < 0.08 && Math.abs(dPitch) < 0.08) {
+        const k = pad ? 0.9 : 0.7;
+        rig.yaw += dYaw * k;
+        rig.pitch += dPitch * k;
+      }
+    }
+
+    _showScope(on) {
+      if (this.scope) this.scope.show(on);
+    }
+
+    /** Crosshair classes and size (cheap: only touches the DOM when something changed). */
+    _setReticle(hide, bloom) {
+      const h = this.game.hud && this.game.hud.crosshair;
+      if (!h) return;
+      const xh = this._xh;
+      const gap = Math.round(clamp(bloom, 0, 1) * 7) * 2;
+      const enemy = this.targetKind === 2 && !hide;
+      if (hide !== xh.hide) {
+        xh.hide = hide;
+        h.classList.toggle('hide', hide);
+      }
+      if (enemy !== xh.enemy) {
+        xh.enemy = enemy;
+        h.classList.toggle('enemy', enemy);
+      }
+      if (gap !== xh.gap) {
+        xh.gap = gap;
+        h.style.setProperty('--xh-gap', gap + 'px');
+      }
+    }
+
+    // ------------------------------------------------------------ shooting
     /** First thing a ray hits: a person, a car, or the city. */
     trace(ox, oy, oz, dx, dy, dz, range, ignoreAgent, ignoreVehicle) {
       const g = this.game;
@@ -773,20 +1284,52 @@
       return t0;
     }
 
+    /**
+     * Tracers, by weapon: pistols and revolvers every shot, an SMG or rifle every other or third
+     * round (a real tracer belt), the sniper a long bright streak, the shotgun a few pellet streaks.
+     */
+    _tracer(w, mx, my, mz, hx, hy, hz, i, shotN) {
+      const g = this.game;
+      if (w.tracer === false) return;
+      if (w.slot === 'shotgun') {
+        if (i !== 0 && Math.random() > 0.3) return;
+      } else if ((w.slot === 'smg' && shotN % 2) || (w.slot === 'rifle' && shotN % 3)) return;
+      g.fx.tracer(mx, my, mz, hx, hy, hz);
+      if (w.slot === 'sniper' && !this._low) {
+        // A glowing trail that lingers a moment.
+        const dx = hx - mx;
+        const dy = hy - my;
+        const dz = hz - mz;
+        const len = Math.hypot(dx, dy, dz) || 1;
+        const n = Math.min(14, Math.ceil(len / 8));
+        for (let k = 1; k <= n; k++) {
+          const f = k / (n + 1);
+          g.fx.glow.emit({ x: mx + dx * f, y: my + dy * f, z: mz + dz * f, life: 0.22, size: 0.1, size1: 0.02, r: 3, g: 2, b: 0.9, a: 0.45, drag: 1 });
+        }
+      }
+    }
+
     _fireHitscan(w, driveby) {
       const g = this.game;
       const inv = this.inventory[w.id];
       if (!inv) return;
+      const p = g.player;
+      // A shotgun interrupts its shell-by-shell reload; every other gun waits for the reload to finish.
+      if (this._reloadT > 0) {
+        if (w.shellReload && inv.mag > 0) {
+          this._cancelActions();
+        } else return;
+      }
       if (inv.mag <= 0) {
         if (inv.ammo > 0) this.reload();
         else if (g.audio.dryFire) g.audio.dryFire();
         this._cool = 0.3;
         return;
       }
-      if (this._reloadT > 0) return;
       inv.mag--;
       this._cool = 1 / (w.fireRate || 3);
-      const p = g.player;
+      this._shotN = (this._shotN || 0) + 1;
+      const feel = FEEL[w.id] || FEEL_DEFAULT;
       // Where the bullets go: exactly through the middle of the crosshair,
       // walking or standing, aimed or from the hip. Only the automatics (the
       // Wasp, the Mantis) wander a little, more the longer you hold the
@@ -796,16 +1339,20 @@
       else if (w.auto) {
         spread = (p.aiming ? 0.005 : 0.01) + this._bloom * (p.aiming ? 0.008 : 0.014) + (driveby ? 0.008 : 0);
         this._bloom = Math.min(1, this._bloom + 0.2);
+      } else if (w.slot === 'sniper' && this._scopeK < 0.85) spread = 0.03; // from the hip it's a guess
+      else {
+        this._bloom = Math.min(1, this._bloom + 0.12);
       }
       const pellets = w.pellets || 1;
-      // Muzzle position (world).
-      const muzzle = this._muzzleWorld();
+      // Muzzle position (world). Copied: later calls reuse the vector.
+      const muzzle = _v4.copy(this._muzzleWorld());
       let hitSomething = false;
+      let kind = '';
       for (let i = 0; i < pellets; i++) {
         const ray = this._aimRay(spread);
         // Skip past Jay himself: start the trace near him along the camera ray.
         const cam = ray.o;
-        const tStart = Math.max(0, (new THREE.Vector3().subVectors(p.renderPos, cam)).dot(ray.d) - 0.2);
+        const tStart = Math.max(0, _v1.subVectors(p.renderPos, cam).dot(ray.d) - 0.2);
         const ox = cam.x + ray.d.x * tStart;
         const oy = cam.y + ray.d.y * tStart;
         const oz = cam.z + ray.d.z * tStart;
@@ -814,7 +1361,7 @@
         const hx = ox + ray.d.x * hit.t;
         const hy = oy + ray.d.y * hit.t;
         const hz = oz + ray.d.z * hit.t;
-        if (w.tracer !== false && (i === 0 || Math.random() < 0.3)) g.fx.tracer(muzzle.x, muzzle.y, muzzle.z, hx, hy, hz);
+        this._tracer(w, muzzle.x, muzzle.y, muzzle.z, hx, hy, hz, i, this._shotN);
         const dmgAt = (head) => (VH.Data.weaponDamage ? VH.Data.weaponDamage(w, hit.t, head) : (w.damage || 25) * (head ? w.headshotMult || 2.5 : 1));
         if (hit.type === 'agent') {
           const a = hit.agent;
@@ -830,36 +1377,48 @@
             a.down.vy = 1;
           }
           hitSomething = true;
+          // Confirmation: a kill beats a headshot beats a hit.
+          if (a.dead) kind = 'kill';
+          else if (hit.head && kind !== 'kill') kind = 'head';
+          else if (!kind) kind = 'hit';
         } else if (hit.type === 'car') {
           hit.v.damage(dmgAt(false) * 0.45, 'player', 'bullet');
           hit.v.wake();
-          g.fx.impact(hx, hy, hz, -ray.d.x, 0, -ray.d.z, 'car');
-          if (g.audio.bulletImpact) g.audio.bulletImpact('car', this.pan(hx, hz), this.gain(hx, hz, 8));
+          this.impactAt(hx, hy, hz, -ray.d.x, 0, -ray.d.z, 'car', false);
           if (hit.v.driver === 'ai' && hit.v.controller && hit.v.controller.onBump) hit.v.controller.onBump(hit.v, { driver: 'player' }, 6);
+          if (!kind) kind = 'hit';
           hitSomething = true;
         } else if (hit.type === 'world') {
           const surf = this._surface(hit.hit.collider);
-          g.fx.impact(hx, hy, hz, hit.hit.nx, hit.hit.ny, hit.hit.nz, surf);
-          if (g.audio.bulletImpact && i === 0) g.audio.bulletImpact(surf, this.pan(hx, hz), this.gain(hx, hz, 10));
+          this.impactAt(hx, hy, hz, hit.hit.nx, hit.hit.ny, hit.hit.nz, surf, i > 0);
+        } else if (hit.type === 'none' && ray.d.y < -0.02 && oy > 0) {
+          // Over the sea: the round lands in the water.
+          const tw = (oy + 0.7) / -ray.d.y;
+          if (tw < range && ox + ray.d.x * tw > 250) this.impactAt(ox + ray.d.x * tw, -0.7, oz + ray.d.z * tw, 0, 1, 0, 'water', i > 0);
         }
       }
-      if (hitSomething) this.hitMarkerT = 0.18;
-      g.fx.muzzle(muzzle.x, muzzle.y, muzzle.z, pellets > 1 || w.slot === 'rifle' || w.slot === 'sniper');
-      if (this._flash) {
-        this._flash.visible = true;
-        this._flashT = 0.045;
+      if (hitSomething) {
+        this.hitMarkerT = 0.18;
+        this.hitKind = kind || 'hit';
+        if (g.audio.hitConfirm) g.audio.hitConfirm(this.hitKind);
       }
+      g.fx.muzzle(muzzle.x, muzzle.y, muzzle.z, pellets > 1 || w.slot === 'rifle' || w.slot === 'sniper');
+      if (this._flash && this._flash.userData.pop) this._flash.userData.pop((this._model && this._model.userData.flashScale) || w.flash || 1, 0.05);
+      else if (this._flash) this._flash.visible = true;
       if (g.audio.gunshot) g.audio.gunshot(w.id, 0, 1, false);
-      // Kick.
-      // A kick straight up that settles back (no random sideways jerk).
-      const rec = (w.recoil || 0.02) * (p.aiming ? 0.5 : 0.7) * (w.auto ? 0.6 : 1);
+      // Brass flies out (a shotgun's hull waits for the pump).
+      if (w.slot === 'shotgun') this._pumpEject = 0.38;
+      else if (w.id !== 'revolver') this._ejectFromGun(w);
+      // Kick: the camera climbs and settles back; the gun jumps in the hand; the view shudders.
+      const rec = (w.recoil || 0.02) * (p.aiming ? 0.5 : 0.7) * (w.auto ? 0.6 : 1) * (this._scopeK > 0.85 ? 0.6 : 1);
       g.cameraRig.pitch += rec;
       this._kick = (this._kick || 0) + rec;
-      g.cameraRig.addShake((w.shake || 0.08) * 0.7);
+      g.cameraRig.addShake((w.shake || 0.08) * (w.slot === 'sniper' ? 1.0 : 0.7));
       this._recoil = 1;
       p._recoil = 1;
+      p._recoilKick = feel.kick;
       VH.events.emit('gunshot', { x: p.pos.x, z: p.pos.z, byPlayer: true, loud: w.slot !== 'pistol' });
-      if (inv.mag === 0 && inv.ammo > 0) setTimeout(() => this.reload(), 180);
+      if (inv.mag === 0 && inv.ammo > 0) this._autoReload = Math.max(0.3, this._cool * 0.8);
     }
 
     _muzzleWorld() {
@@ -867,6 +1426,7 @@
       if (this._model && this._model.visible !== false) {
         const m = this._model.userData.muzzle || new THREE.Vector3(0, 0.05, 0.25);
         out.copy(m);
+        this._model.updateWorldMatrix(true, false);
         this._model.localToWorld(out);
         return out;
       }
@@ -876,14 +1436,10 @@
       return out;
     }
 
-    _melee(w) {
+    // -------------------------------------------------------------- melee
+    _meleeTarget(w, range) {
       const g = this.game;
       const p = g.player;
-      this._meleeT = 1 / (w.fireRate || 2);
-      p._meleeSwing = 1;
-      if (g.audio.meleeSwing) g.audio.meleeSwing();
-      // A generous reach and a wide arc: a punch that looks like it lands, lands.
-      const range = (w.range || 1.5) + 1.3;
       const fx = Math.sin(p.heading);
       const fz = Math.cos(p.heading);
       let target = null;
@@ -903,53 +1459,233 @@
           target = a;
         }
       }
-      if (!target) return;
-      // Turn into the punch.
-      p.heading = Math.atan2(target.pos.x - p.pos.x, target.pos.z - p.pos.z);
-      setTimeout(() => {
-        if (target.dead) return;
-        const dmg = w.damage || 12;
-        const heavy = w.slot === 'melee';
-        const l = Math.hypot(target.pos.x - p.pos.x, target.pos.z - p.pos.z) || 1;
-        const hx = (target.pos.x - p.pos.x) / l;
-        const hz = (target.pos.z - p.pos.z) / l;
-        target.damage(dmg, 'player', 'melee', { x: target.pos.x - hx * 0.2, y: target.pos.y + 1.45, z: target.pos.z - hz * 0.2, dx: hx, dy: 0.1, dz: hz, head: heavy });
-        if (target.brain && target.brain.setAlert) target.brain.setAlert(target);
-        if (heavy || target.dead || Math.random() < 0.25) target.knock(fx * (heavy ? 4 : 2.5), 1.5, fz * (heavy ? 4 : 2.5), 0, 'player');
-        if (g.audio.meleeHit) g.audio.meleeHit(heavy);
-        g.cameraRig.addShake(0.15);
-        this.hitMarkerT = 0.18;
-        VH.events.emit('combat:melee', { agent: target });
-        if (!target.brain && target.faction === 'civilian') g.police.crime('hitPed', target.pos.x, target.pos.z);
-      }, 140);
+      return target;
     }
 
-    _throw(w) {
+    _updateMelee(w, pressed, dt) {
       const g = this.game;
+      const p = g.player;
+      this._meleeT -= dt;
+      if (this._comboT > 0) {
+        this._comboT -= dt;
+        if (this._comboT <= 0) this._combo = 0;
+      }
+      if (pressed) this._bufT = 0.22; // a press just before the swing ends still counts
+      else if (this._bufT > 0) this._bufT -= dt;
+      // The blow lands part-way through the swing (so slow-motion and hit-stop stretch it too).
+      const hp = this._hitPending;
+      if (hp) {
+        hp.t -= dt;
+        if (hp.t <= 0) {
+          this._hitPending = null;
+          this._meleeLand(hp.w, hp.idx);
+        }
+      }
+      if (this._bufT > 0 && this._meleeT <= 0 && !this._hitPending) {
+        this._bufT = 0;
+        this._melee(w);
+      }
+    }
+
+    _melee(w) {
+      const g = this.game;
+      const p = g.player;
+      const sw = SWING[w.id] || SWING.fists;
+      const idx = this._combo % 3;
+      const heavy = idx === 2;
+      this._combo = idx + 1;
+      // Fists: 1-2-heavy. A blade or bat: three swings, the last one a big finisher.
+      const dur = sw.dur * (heavy ? 1.25 : 1);
+      this._meleeT = dur * 0.9 + (heavy ? 0.22 : 0.02);
+      this._comboT = this._meleeT + 0.55;
+      p._meleeSwing = 1;
+      p._meleeRate = 1 / dur;
+      p._meleeCombo = idx + 1;
+      p._meleeStyle = w.id === 'bat' ? 2 : w.id === 'knife' ? 3 : 1;
+      if (g.audio.meleeSwing) g.audio.meleeSwing();
+      // A generous reach and a wide arc: a punch that looks like it lands, lands.
+      const range = (w.range || 1.5) + 1.3;
+      const target = this._meleeTarget(w, range);
+      if (target) {
+        // Turn into the punch.
+        p.heading = Math.atan2(target.pos.x - p.pos.x, target.pos.z - p.pos.z);
+        // A short lunge so the blow reaches.
+        const d = Math.hypot(target.pos.x - p.pos.x, target.pos.z - p.pos.z);
+        if (d > 1.1) {
+          p.vel.x += Math.sin(p.heading) * 2.2;
+          p.vel.z += Math.cos(p.heading) * 2.2;
+        }
+      }
+      this._hitPending = { t: dur * sw.hit, w, idx };
+    }
+
+    /** The blow connects (or doesn't). */
+    _meleeLand(w, idx) {
+      const g = this.game;
+      const p = g.player;
+      const range = (w.range || 1.5) + 1.3;
+      const target = this._meleeTarget(w, range);
+      if (!target) return;
+      const heavy = idx === 2;
+      const big = w.slot === 'melee';
+      const dmg = (w.damage || 12) * (heavy ? 1.7 : 1);
+      const l = Math.hypot(target.pos.x - p.pos.x, target.pos.z - p.pos.z) || 1;
+      const hx = (target.pos.x - p.pos.x) / l;
+      const hz = (target.pos.z - p.pos.z) / l;
+      p.heading = Math.atan2(hx, hz);
+      target.damage(dmg, 'player', 'melee', { x: target.pos.x - hx * 0.2, y: target.pos.y + 1.45, z: target.pos.z - hz * 0.2, dx: hx, dy: 0.1, dz: hz, head: big || heavy });
+      if (target.brain && target.brain.setAlert) {
+        target.brain.setAlert(target);
+        target.brain._fireT = Math.max(target.brain._fireT || 0, heavy ? 1.2 : 0.55); // a hit throws off their aim
+      }
+      const kb = (w.knockback || 2.5) * (heavy ? 1.6 : 1);
+      if (heavy || big || target.dead) {
+        // Down they go (the finisher always floors them).
+        if (heavy || target.dead || Math.random() < 0.45) target.knock(hx * kb, 1.5 + (heavy ? 1.2 : 0), hz * kb, 0, 'player');
+        else this._stagger(target, hx, hz, 2.6);
+      } else this._stagger(target, hx, hz, 2.2);
+      if (g.audio.meleeHit) g.audio.meleeHit(big || heavy);
+      // Hit-stop: Jay's arm freezes for a beat, the camera thumps; the finisher also dips the clock.
+      p._hitStop = heavy ? 0.1 : 0.055;
+      g.cameraRig.addShake(heavy ? 0.32 : big ? 0.2 : 0.12);
+      if (heavy) {
+        g._slowT = Math.max(g._slowT, 0.05);
+        g.timeScale = Math.min(g.timeScale, 0.3);
+      }
+      this.hitMarkerT = 0.18;
+      this.hitKind = target.dead ? 'kill' : heavy ? 'head' : 'hit';
+      if (g.audio.hitConfirm) g.audio.hitConfirm(this.hitKind);
+      VH.events.emit('combat:melee', { agent: target });
+      if (!target.brain && target.faction === 'civilian') g.police.crime('hitPed', target.pos.x, target.pos.z);
+    }
+
+    /** A flinch: shove somebody back a step over a fraction of a second. */
+    _stagger(a, dx, dz, speed) {
+      if (this._staggers.length >= 8) this._staggers.shift();
+      this._staggers.push({ a, dx, dz, v: speed, t: 0.18 });
+    }
+
+    _updateStaggers(dt) {
+      if (!this._staggers.length) return;
+      const ph = this.game.physics;
+      for (const s of this._staggers) {
+        const a = s.a;
+        s.t -= dt;
+        if (a.dead || a.state === 'down' || s.t <= 0) {
+          s.t = 0;
+          continue;
+        }
+        const nx = a.pos.x + s.dx * s.v * dt;
+        const nz = a.pos.z + s.dz * s.v * dt;
+        if (!ph.overlaps(nx, nz, 0.3, a.pos.y + 0.2, a.pos.y + 1.6)) {
+          a.pos.x = nx;
+          a.pos.z = nz;
+        }
+      }
+      this._staggers = this._staggers.filter((s) => s.t > 0);
+    }
+
+    // ------------------------------------------------------------- thrown
+    /** Launch velocity of a throw from the aim ray (shared by the arc preview). */
+    _throwVel(w, charge, out) {
+      const cam = this.game.renderer.camera;
+      const d = _v2.set(0, 0, -1).applyQuaternion(cam.quaternion);
+      d.y += 0.28;
+      d.normalize();
+      const speed = (w.throwSpeed || 17) * (w.id === 'molotov' ? 0.75 + 0.25 * charge : 1);
+      const p = this.game.player;
+      return out.set(d.x * speed + p.vel.x * 0.5, d.y * speed, d.z * speed + p.vel.z * 0.5);
+    }
+
+    _previewThrow(w) {
+      const t = this._thr;
+      const charge = clamp(t.cook / 0.4, 0, 1);
+      const v = this._throwVel(w, charge, _v3);
+      const s = this._muzzleWorld();
+      const danger = w.id === 'grenade' && t.state === 1 && t.cook > (w.fuse || 3.2) - 1;
+      this.arc.update(this.game.physics, s.x, s.y + 0.2, s.z, v.x, v.y, v.z, w.id === 'grenade' ? w.blastRadius || 7 : w.blastRadius || 3.5, danger);
+    }
+
+    /**
+     * Grenades and molotovs: press to pull the pin / light the rag and wind up, hold to cook (a
+     * grenade's fuse runs), release to throw. Aim (right mouse) shows the arc.
+     */
+    _updateThrow(w, firing, pressed, dt) {
+      const g = this.game;
+      const p = g.player;
       const inv = this.inventory[w.id];
-      if (!inv || inv.mag + inv.ammo <= 0) return;
-      if (inv.mag > 0) inv.mag--;
-      else inv.ammo--;
+      const t = this._thr;
+      if (!inv) return;
+      if (t.state === 0) {
+        p._throwWind = Math.max(0, (p._throwWind || 0) - dt * 6);
+        if (pressed && this._cool <= 0 && inv.mag + inv.ammo > 0) {
+          // The pin is out: the grenade is spent from now on.
+          if (inv.mag > 0) inv.mag--;
+          else inv.ammo--;
+          t.state = 1;
+          t.cook = 0;
+          if (w.id === 'grenade' && g.audio.grenadePin) g.audio.grenadePin();
+          else if (g.audio.weaponSwitch) g.audio.weaponSwitch('molotov');
+        }
+      } else if (t.state === 1) {
+        t.cook += dt;
+        p._throwWind = Math.min(1, t.cook / 0.2);
+        if (w.id === 'grenade' && t.cook >= (w.fuse || 3.2)) {
+          // Held it too long.
+          t.state = 0;
+          p._throwWind = 0;
+          this._cool = 0.8;
+          g.vehicleFeedback.explosion(p.pos.x, p.pos.y + 1, p.pos.z, (w.blastRadius || 7) / 8, 'player');
+          this.blastDamage(p.pos.x, p.pos.y + 1, p.pos.z, w.blastRadius || 7, w.damage || 180, 'player');
+          this._afterThrow(w);
+          return;
+        }
+        if (!firing && t.cook >= 0.2) {
+          t.state = 2;
+          t.rel = 0.13;
+          p._meleeSwing = 1;
+          p._meleeRate = 1 / 0.3;
+          p._meleeStyle = 4;
+          p._meleeCombo = 1;
+          if (g.audio.meleeSwing) g.audio.meleeSwing();
+        }
+      } else if (t.state === 2) {
+        t.rel -= dt;
+        if (t.rel <= 0) {
+          t.state = 0;
+          p._throwWind = 0;
+          this._launch(w, clamp(t.cook / 0.4, 0, 1), t.cook);
+          this._cool = 0.6;
+          this._afterThrow(w);
+        }
+      }
+    }
+
+    _afterThrow(w) {
+      const inv = this.inventory[w.id];
+      if (!inv) return;
       if (inv.mag === 0 && inv.ammo > 0) {
         inv.mag = 1;
         inv.ammo--;
       }
-      this._cool = 0.9;
-      const p = g.player;
-      const ray = this._aimRay(0);
-      const speed = w.throwSpeed || 17;
-      const start = this._muzzleWorld();
-      const up = 0.28;
-      const d = ray.d.clone();
-      d.y += up;
-      d.normalize();
-      this.thrown.push(new Thrown(this, w, start.x, start.y + 0.2, start.z, d.x * speed + p.vel.x * 0.5, d.y * speed, d.z * speed + p.vel.z * 0.5, 'player'));
-      p._meleeSwing = 1;
-      if (g.audio.meleeSwing) g.audio.meleeSwing();
       if (inv.mag + inv.ammo <= 0) {
         delete this.inventory[w.id];
-        this.select('fists');
+        // Next thrown weapon if there is one, otherwise fists.
+        const other = weaponList().find((o) => o.slot === 'thrown' && this.inventory[o.id]);
+        this.select(other ? other.id : 'fists');
       }
+    }
+
+    /** Send a thrown weapon off (speed 0..1 of the launch charge; 0 drops it at Jay's feet). */
+    _launch(w, charge, cook) {
+      const g = this.game;
+      const p = g.player;
+      const start = this._muzzleWorld();
+      const v = _v3;
+      if (charge > 0) this._throwVel(w, charge, v);
+      else v.set(p.vel.x * 0.5, 0.5, p.vel.z * 0.5);
+      const th = new Thrown(this, w, start.x, start.y + 0.2, start.z, v.x, v.y, v.z, 'player', cook || 0);
+      this.thrown.push(th);
     }
 
     _updateFires(dt) {
@@ -1027,12 +1763,15 @@
       const hx = mx + (dx / len) * endT;
       const hy = my + (dy / len) * endT;
       const hz = mz + (dz / len) * endT;
-      g.fx.tracer(mx, my, mz, hx, hy, hz);
-      g.fx.muzzle(mx, my, mz, false);
-      if (tr.type === 'world') g.fx.impact(hx, hy, hz, tr.hit.nx, tr.hit.ny, tr.hit.nz, this._surface(tr.hit.collider));
+      this._tracer(w, mx, my, mz, hx, hy, hz, 0, (a.id || 0) + Math.floor(g.time * 10));
+      g.fx.muzzle(mx, my, mz, w.slot === 'rifle' || w.slot === 'shotgun');
+      const gx = this.gain(mx, mz, 14);
+      if (tr.type === 'world') this.impactAt(hx, hy, hz, tr.hit.nx, tr.hit.ny, tr.hit.nz, this._surface(tr.hit.collider), gx < 0.12);
+      else if (tr.type === 'car') this.impactAt(hx, hy, hz, -dx / len, 0, -dz / len, 'car', gx < 0.12);
+      // Brass hits the ground near enemies too (only when close enough to be seen).
+      if (gx > 0.2 && w.slot !== 'shotgun') this._eject(false, mx, my - 0.1, mz, Math.cos(a.heading), 0.1, -Math.sin(a.heading), 0, 0);
       const pan = this.pan(mx, mz);
-      const gain = this.gain(mx, mz, 14);
-      if (g.audio.gunshot) g.audio.gunshot(w.id, pan, gain, gain < 0.25);
+      if (g.audio.gunshot) g.audio.gunshot(w.id, pan, gx, gx < 0.25);
       // A near miss whizzes past.
       if (!hit && target === p && g.audio.whizz && d < 50) g.audio.whizz(this.pan(ex, ez));
       a._recoilT = 1;
@@ -1085,21 +1824,44 @@
     }
 
     load(data) {
+      this._cancelActions();
+      this.closeWheel(true);
       this.inventory = {};
       this.giveWeapon('fists', 0, true);
       if (data && data.inventory) {
         for (const id of Object.keys(data.inventory)) this.inventory[id] = data.inventory[id];
       }
       this.current = data && data.current && this.inventory[data.current] ? data.current : 'fists';
+      this.lastBySlot = {};
+      if (this._fxReady) {
+        this.brass.clear();
+        this.hulls.clear();
+        this.mags.clear();
+        this.holes.clear();
+      }
       if (data === null) this.starterKit(); // a brand new game (main.js newGame passes null)
+      const w = def(this.current);
+      if (w) this.lastBySlot[w.slot] = w.id;
       this._attachModel();
     }
 
-    /** A new game starts with the guns and grenades already in the weapon wheel (fists stay selected). */
+    /**
+     * A new game starts with the guns and grenades already in the weapon wheel, and the pistol drawn
+     * (it stays holstered out of sight in cutscenes: the model is hidden unless the game is playing).
+     */
     starterKit() {
       for (const id of ['pistol', 'revolver', 'smg', 'shotgun', 'rifle', 'sniper', 'bat', 'knife']) this.giveWeapon(id, undefined, true);
       this.giveWeapon('grenade', 10, true);
       this.giveWeapon('molotov', 6, true);
+      if (this.inventory.pistol) this.current = 'pistol';
+    }
+  }
+
+  function lowFx(game) {
+    try {
+      return (game.settings.get('graphics.effects') || 'high') === 'low';
+    } catch (err) {
+      return false;
     }
   }
 

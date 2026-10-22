@@ -367,3 +367,128 @@
     display: none;
   }
 }
+
+/* ------------------------------------------------------------ sniper scope */
+.vh-scope {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.12s;
+  z-index: 4;
+}
+
+.vh-scope.on {
+  opacity: 1;
+}
+
+.vh-scope-mask {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 50% 50%, transparent 0, transparent 41vh, rgba(0, 0, 0, 0.55) 41.4vh, #000 43vh);
+}
+
+.vh-scope-ret {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 84vh;
+  height: 84vh;
+  margin: -42vh 0 0 -42vh;
+  border-radius: 50%;
+}
+
+.vh-scope-ret .h,
+.vh-scope-ret .v {
+  position: absolute;
+  background: rgba(8, 8, 8, 0.92);
+}
+
+.vh-scope-ret .h { left: 0; right: 0; top: 50%; height: 1.5px; margin-top: -0.75px; }
+.vh-scope-ret .v { top: 0; bottom: 0; left: 50%; width: 1.5px; margin-left: -0.75px; }
+
+/* The thick outer posts leave the middle clear. */
+.vh-scope-ret::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(#000, #000) 50% 0 / 5px 34% no-repeat,
+    linear-gradient(#000, #000) 50% 100% / 5px 34% no-repeat,
+    linear-gradient(#000, #000) 0 50% / 34% 5px no-repeat,
+    linear-gradient(#000, #000) 100% 50% / 34% 5px no-repeat;
+}
+
+.vh-scope-ret .dot {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 4px;
+  height: 4px;
+  margin: -2px 0 0 -2px;
+  border-radius: 50%;
+  background: #e33;
+}
+
+.vh-scope-ret .mil {
+  position: absolute;
+  width: 3px;
+  height: 3px;
+  background: #000;
+  border-radius: 50%;
+}
+
+.vh-scope-ret .m1 { left: 50%; top: calc(50% + 4vh); margin-left: -1.5px; }
+.vh-scope-ret .m2 { left: 50%; top: calc(50% + 8vh); margin-left: -1.5px; }
+.vh-scope-ret .m3 { top: 50%; left: calc(50% - 6vh); margin-top: -1.5px; }
+.vh-scope-ret .m4 { top: 50%; left: calc(50% + 6vh); margin-top: -1.5px; }
+
+.vh-scope-info {
+  position: absolute;
+  left: 50%;
+  bottom: 7vh;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  font-family: var(--vh-font-display);
+  color: #e8e8e8;
+  text-shadow: 0 0 4px #000;
+}
+
+.vh-scope-range {
+  font-size: 1.05rem;
+  letter-spacing: 0.15em;
+  min-height: 1.2em;
+}
+
+.vh-scope-breath {
+  width: 9rem;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.vh-scope-breath b {
+  display: block;
+  height: 100%;
+  width: 100%;
+  background: #fff;
+}
+
+.vh-scope.held .vh-scope-breath b {
+  background: #9fe0ff;
+}
+
+.vh-scope.winded .vh-scope-breath b {
+  background: #ff7a5a;
+}
+
+.vh-scope-hint {
+  font-size: 0.65rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  opacity: 0.55;
+}
