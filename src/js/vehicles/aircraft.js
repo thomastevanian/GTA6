@@ -32,6 +32,8 @@
 
   const G = 9.81;
   const SEAWALL = 424;
+  // Where aircraft get turned back (citygen bounds x -1600..424, z -1800..640, plus room; the sea runs east).
+  const AIRSPACE = { minX: -1950, maxX: 1800, minZ: -2150, maxZ: 1000, ceiling: 900, cx: -500, cz: -560 };
   const WATER = -1.1;
   const AX = new THREE.Vector3(1, 0, 0);
   const AY = new THREE.Vector3(0, 1, 0);
@@ -803,6 +805,7 @@
         this._step(h);
         if (!this.wrecked) this._step(h);
         if (!this.wrecked) this._hitWorld();
+        if (!this.wrecked && this.flying && this.driver === 'player') this._airspace(dt);
       }
       this._derive();
       if (this.burning > 0) {
@@ -812,6 +815,37 @@
       if (this.flying) this.airTime += dt;
       else this.airTime = 0;
       this.sirenTime += dt;
+    }
+
+    /**
+     * Vicehaven airspace: past the hills at the map's edge (horizon.js has no
+     * collision) the aircraft is turned back toward the city, and above the
+     * ceiling it can't climb any more. Out over the sea there's more room.
+     */
+    _airspace(dt) {
+      const A = AIRSPACE;
+      const p = this.pos;
+      const out = Math.max(A.minX - p.x, p.x - A.maxX, A.minZ - p.z, p.z - A.maxZ, 0);
+      if (p.y > A.ceiling) {
+        p.y = Math.min(p.y, A.ceiling + 30);
+        this.vel.y = Math.min(this.vel.y, -(p.y - A.ceiling) * 0.4);
+      }
+      if (out <= 0) {
+        this._warnedAirspace = false;
+        return;
+      }
+      if (!this._warnedAirspace) {
+        this._warnedAirspace = true;
+        const g = this.sys.game;
+        if (g.hud) g.hud.notify({ title: 'Leaving Vicehaven airspace', text: 'Turning back toward the city.', icon: '✈', tone: 'bad' });
+      }
+      // Yaw (and the velocity with it) toward the middle of the map, harder the further out.
+      const want = Math.atan2(A.cx - p.x, A.cz - p.z);
+      const d = VH.math.angleDelta(this.yaw, want);
+      const turn = clamp(d, -1, 1) * clamp(0.4 + out / 120, 0.4, 1.6) * dt;
+      _q.setFromAxisAngle(AY, turn);
+      this.q.premultiply(_q);
+      this.vel.applyQuaternion(_q);
     }
 
     /** yaw/pitch/roll, speeds and altitude from the body. */
