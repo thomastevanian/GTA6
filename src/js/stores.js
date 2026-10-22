@@ -73,6 +73,11 @@
     jewel: { base: 1800, extra: 1400, secs: 9, heat: 3, fight: 0, guards: 1 },
     bank: { base: 3500, extra: 3000, secs: 12, heat: 4, fight: 0, guards: 2 },
   };
+  // Big Otto's Scrapyard (a story place) buys stolen cars.
+  const CHOP_PLACE = 'market_scrapyard';
+  const CHOP_R = 14;
+  const CHOP_NO = new Set(['police', 'taxi']); // classes Otto won't touch (too hot)
+  const CHOP_MUL = { sports: 1.4, ev: 1.25, muscle: 1.2, suv: 1.0, sedan: 0.9, pickup: 0.85, compact: 0.7, van: 0.6 };
   const SPRAY_MAX = 3;
   const SPRAY_PRICE = 250;
   const SPRAY_COLORS = [0xd8262e, 0x1d4fb8, 0xf2c500, 0x1faa6b, 0xf1f2ef, 0x1c1c1f, 0xff4f8b, 0x13b5b1, 0x8a3fd1, 0xc4561d, 0x9aa1a8];
@@ -945,6 +950,7 @@
       }
       if (this.hack) this._hackStep(dt);
       this._sprayCheck(dt);
+      this._chopCheck(dt);
       this._atmT = (this._atmT || 0) - dt;
       if (this._atmT <= 0) {
         this._atmT = 1;
@@ -1166,6 +1172,68 @@
       this.sprays = (this.sprays || 0) + 1;
     }
 
+    // ---------------------------------------------------------- chop shop
+    /** What Otto pays for a car: its class and speed, less the dents; double for the car on his list. */
+    chopValue(v) {
+      const spec = v.spec || VH.Vehicle.typeSpec(v.type) || {};
+      if (CHOP_NO.has(spec.cls) || v.isPolice || v.military || v.kind !== 'car' || v.missionOwned) return 0;
+      const base = (spec.topSpeed || 45) * 40 + (spec.accel || 0.5) * 900;
+      const value = base * (CHOP_MUL[spec.cls] || 0.85) * (0.3 + 0.7 * Math.max(0, v.health) / 1000);
+      return Math.round((value * (v.type === this.chopWanted() ? 2 : 1)) / 10) * 10;
+    }
+
+    /** The model on Otto's list this ten minutes of play. */
+    chopWanted() {
+      const ids = this._chopIds || (this._chopIds = VH.CarModels.list().filter((id) => {
+        const t = VH.CarModels.TYPES[id];
+        return t && !t.kind && !CHOP_NO.has(t.cls) && !t.military && t.cls !== 'van';
+      }));
+      if (!ids.length) return null;
+      return ids[Math.floor((this.game.playTime || 0) / 600) % ids.length];
+    }
+
+    _chopCheck(dt) {
+      const g = this.game;
+      const pl = g.places && g.places.get(CHOP_PLACE);
+      const p = g.player;
+      const v = p.inVehicle ? p.vehicle : null;
+      if (!pl || !v || g.missions && g.missions.run) {
+        this._chop = null;
+        return;
+      }
+      const near = Math.hypot(v.pos.x - pl.x, v.pos.z - pl.z) < CHOP_R;
+      if (!near) {
+        this._chop = null;
+        return;
+      }
+      if (!this._chop || this._chop.v !== v) {
+        const price = this.chopValue(v);
+        this._chop = { v, t: 0, price, sold: false };
+        g.hud.showToast(price ? "Big Otto pays " + VH.util.formatMoney(price) + ' for this ' + v.name + '. Stop to sell it.' : "Otto won't touch this one. Too hot.");
+      }
+      const c = this._chop;
+      if (c.sold || !c.price) return;
+      if (g.police && g.police.level > 0) {
+        if (!c.told) {
+          c.told = true;
+          g.hud.showToast('Not with the cops on you. Lose them first.');
+        }
+        return;
+      }
+      c.t = v.speed < 1 ? c.t + dt : 0;
+      if (c.t < 1.5) return;
+      c.sold = true;
+      g.giveMoney(c.price, 'chop shop');
+      if (g.audio && g.audio.cash) g.audio.cash();
+      g.hud.notify({ title: "Big Otto's Scrapyard", text: v.name + ' sold for ' + VH.util.formatMoney(c.price) + '. Next on his list: ' + ((VH.CarModels.TYPES[this.chopWanted()] || {}).name || 'anything clean') + '.', icon: '$', tone: 'good' });
+      this.carsSold = (this.carsSold || 0) + 1;
+      this.cash += c.price;
+      g.vehicles.exitVehicle();
+      setTimeout(() => {
+        if (g.player.vehicle !== v && !v.removed) g.vehicles.remove(v);
+      }, 2500);
+    }
+
     // ------------------------------------------------------------ ATMs
     _startHack(item) {
       const g = this.game;
@@ -1298,6 +1366,8 @@
     // ---------------------------------------------------------- contract
     blips(out, missionRunning) {
       if (!this.ok) return; // shown during jobs too: they're places, not distractions
+      const chop = this.game.places && this.game.places.get(CHOP_PLACE);
+      if (chop) out.push({ x: chop.x, z: chop.z, type: 'store', label: "Big Otto's · buys stolen cars (wants: " + ((VH.CarModels.TYPES[this.chopWanted()] || {}).name || 'anything') + ')', noRim: true });
       for (const s of this.list) {
         if (!this.isOpen(s)) continue;
         const k = kindOf(s);
@@ -1308,13 +1378,13 @@
 
     stats() {
       if (!this.ok) return [];
-      return [['Shops held up', String(this.robbed)], ['ATMs hacked', String(this.atms || 0)], ['Cash from hold-ups and ATMs', VH.util.formatMoney(this.cash)]];
+      return [['Shops held up', String(this.robbed)], ['ATMs hacked', String(this.atms || 0)], ['Cars sold to Otto', String(this.carsSold || 0)], ['Cash from hold-ups and ATMs', VH.util.formatMoney(this.cash)]];
     }
 
     serialize() {
       const until = {};
       for (const k of Object.keys(this.until)) if (this.until[k] > this.game.playTime) until[k] = Math.round(this.until[k]);
-      return { until, robbed: this.robbed, cash: this.cash, atms: this.atms || 0 };
+      return { until, robbed: this.robbed, cash: this.cash, atms: this.atms || 0, carsSold: this.carsSold || 0 };
     }
 
     load(data) {
@@ -1323,6 +1393,7 @@
       this.robbed = data.robbed || 0;
       this.cash = data.cash || 0;
       this.atms = data.atms || 0;
+      this.carsSold = data.carsSold || 0;
       this.active = null;
       this.hack = null;
     }
