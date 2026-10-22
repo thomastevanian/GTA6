@@ -86,7 +86,7 @@
       .replace('#include <begin_vertex>', `#include <begin_vertex>
         ${chunk.main}
         ${depthOnly ? '' : `
-        vCrowd = vhSlotColor(vhSlot) * aShade;
+        vCrowd = vhSlotColor(vhSlot) * (aShade * 1.08);
         vRough = vhRough(vhSlot);
         vMetal = vhMetal(vhSlot);`}`);
     if (!depthOnly) {

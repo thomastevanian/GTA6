@@ -149,6 +149,14 @@
         hair = r < 0.55 ? HAIR.short : r < 0.7 ? HAIR.buzz : r < 0.8 ? HAIR.bald : r < 0.88 ? HAIR.pony : r < 0.95 ? HAIR.afro : HAIR.mohawk;
       }
     }
+    // Uniforms and crews dress alike whatever else the look says.
+    if (cop) { O = TOP.cop; B = BOT.jeans; SH = SHOE.dress; if (hat === HAT.cap) hat = HAT.police; }
+    else if (army) { O = TOP.soldier; B = BOT.jeans; SH = SHOE.boot; if (hat === HAT.cap || hat === HAT.beanie) hat = HAT.helmet; }
+    else if (thug) {
+      if (O !== TOP.tank && O !== TOP.hoodie && O !== TOP.tee) O = rnd(2) < 0.55 ? TOP.tank : TOP.hoodie;
+      if (B === BOT.skirt) B = BOT.jeans;
+      if (hat === HAT.cap && rnd(5) < 0.4) hat = HAT.bandana;
+    }
     // A hat leaves no room for a tall hairdo.
     if (hat !== HAT.none && hat !== HAT.bandana) {
       if (hair === HAIR.afro) hair = HAIR.short;
@@ -258,7 +266,7 @@
       case 20: return mulc(P.hair, 0.9, 0.9, 0.9);
       case 21: return k(0.75, 0.55, 0.12);
       case 22: return out.copy(P.shirt);
-      case 23: return mulc(P.top, 0.78, 0.78, 0.78).addScalar(0.01);
+      case 23: return mulc(P.top, 0.9, 0.9, 0.9).addScalar(0.012);
       case 24: return S >= 1 ? out.copy(P.top) : out.copy(P.skin);
       case 25: return S >= 2 ? out.copy(P.top) : out.copy(P.skin);
       case 26: return st.B === BOT.skirt ? out.copy(P.skin) : out.copy(P.bottom);
@@ -625,7 +633,7 @@
   function blueprint(detail) {
     if (_bp[detail]) return _bp[detail];
     const hi = detail !== 'lo';
-    const SEG = hi ? { torso: 14, limb: 8, head: 14, hand: 7, shoe: 10, fine: 6, hair: 14 } : { torso: 8, limb: 5, head: 9, hand: 5, shoe: 7, fine: 4, hair: 9 };
+    const SEG = hi ? { torso: 12, limb: 7, head: 12, hand: 6, shoe: 9, fine: 5, hair: 12 } : { torso: 8, limb: 5, head: 9, hand: 5, shoe: 7, fine: 4, hair: 9 };
     const parts = [];
     const part = (joint, feat, fn) => {
       const g = newG();
@@ -659,8 +667,11 @@
     part('pelvis', 'pockets', (g) => {
       for (const s of [1, -1]) {
         box(g, 0.06, 0.066, 0.005, { slot: S.bottom, shade: 0.78, m: M(s * 0.062, -0.03, -0.0945, -0.05, s * 0.28, 0) });
-        box(g, 0.05, 0.012, 0.004, { slot: S.bottom, shade: 0.85, m: M(s * 0.094, 0.025, 0.083, 0, s * -0.65, 0) });
+        const pz = (x) => 0.103 * Math.sqrt(1 - Math.pow(x / 0.164, 2)) + 0.002;
+        pathTube(g, [[s * 0.125, 0.048, pz(0.125)], [s * 0.112, 0.012, pz(0.112)], [s * 0.085, -0.03, pz(0.085)], [s * 0.052, -0.052, pz(0.052)]], [0.0028, 0.0028, 0.0028, 0.0028], { seg: 3, slot: S.bottom, shade: 0.62 });
       }
+      // Belt loops.
+      for (const x of [-0.12, -0.06, 0.06, 0.12]) box(g, 0.01, 0.045, 0.005, { slot: S.bottom, shade: 0.7, m: M(x, 0.055, 0.105 * Math.sqrt(1 - Math.pow(x / 0.164, 2)) + 0.004, 0, Math.asin(x / 0.17) * 0.9) });
     });
     part('pelvis', 'oCop', (g) => {
       // Duty belt with holster, cuffs, magazine pouch and baton ring.
@@ -744,6 +755,22 @@
       const t0 = torsoAt(-0.03), t1 = torsoAt(0.03);
       tube(g, [rg(-0.04, t0.rx + 0.007, t0.rz + 0.007), rg(0.03, t1.rx + 0.007, t1.rz + 0.007)], { seg: SEG.torso, slot: S.trim });
       occlude(g, f, [{ x: 0, y: 0.5, z: 0.05, r: 0.05, k: 0.3 }]);
+      if (hi) {
+        // Stitched seams: back yoke, spine, sides, shoulders.
+        const seamLine = (pts) => pathTube(g, pts, pts.map(() => 0.0032), { seg: 3, slot: S.trim, shade: 0.7 });
+        const back = (x, y) => { const t = torsoAt(y); const u = clamp(x / t.rx, -0.97, 0.97); return t.cz - t.rz * Math.sqrt(1 - u * u) - 0.002; };
+        const yoke = [];
+        for (let i = 0; i <= 8; i++) { const x = -0.17 + i * 0.0425; yoke.push([x, 0.37, back(x, 0.37)]); }
+        seamLine(yoke);
+        seamLine([[0, 0.5, back(0, 0.5)], [0, 0.37, back(0, 0.37)], [0, 0.2, back(0, 0.2)], [0, 0.06, back(0, 0.06)]]);
+        for (const s of [1, -1]) {
+          const side = [];
+          for (const y of [0.36, 0.26, 0.16, 0.06]) { const t = torsoAt(y); side.push([s * (t.rx + 0.002), y, t.cz]); }
+          seamLine(side);
+          const t5 = torsoAt(0.47);
+          seamLine([[s * 0.07, 0.515, 0.0], [s * 0.13, 0.5, 0.0], [s * (t5.rx + 0.004), 0.47, 0.0]]);
+        }
+      }
     });
     part('spine', 'oHoodie', (g) => {
       pathTube(g, [[0.09, 0.525, 0.03], [0.082, 0.52, -0.05], [0, 0.505, -0.105], [-0.082, 0.52, -0.05], [-0.09, 0.525, 0.03]], [0.026, 0.034, 0.036, 0.034, 0.026], { seg: SEG.fine, slot: S.top, shade: 0.88 });
@@ -753,13 +780,13 @@
     part('spine', 'oCop', (g) => {
       const f = g.pos.length / 3;
       // Shirt collar and tie, badge, pockets, epaulettes, shoulder radio.
-      tube(g, [rg(0.5, 0.085, 0.086, 0, { a0: 0.45, a1: TAU - 0.45 }), rg(0.53, 0.076, 0.078, 0, { a0: 0.45, a1: TAU - 0.45 }), rg(0.55, 0.072, 0.074, 0, { a0: 0.5, a1: TAU - 0.5 })], { seg: SEG.fine * 2, slot: S.shirt, dbl: true });
+      tube(g, [rg(0.5, 0.085, 0.086, 0, { a0: 0.45, a1: TAU - 0.45 }), rg(0.53, 0.078, 0.08, 0, { a0: 0.45, a1: TAU - 0.45 }), rg(0.553, 0.086, 0.088, 0, { a0: 0.55, a1: TAU - 0.55 })], { seg: SEG.fine * 2, slot: S.shirt, dbl: true });
       pathTube(g, [[0, 0.5, 0.082], [0, 0.4, chestZ(0, 0.4) + 0.006], [0, 0.26, chestZ(0, 0.26) + 0.006]], [0.011, 0.014, 0.008], { seg: 4, slot: S.dark, flat: 0.5 });
-      box(g, 0.032, 0.04, 0.007, { slot: S.badge, m: M(0.092, 0.32, chestZ(0.092, 0.32) + 0.004, 0, chestYaw(0.092, 0.32)) });
-      box(g, 0.05, 0.016, 0.005, { slot: S.metal, m: M(-0.092, 0.3, chestZ(0.092, 0.3) + 0.003, 0, -chestYaw(0.092, 0.3)) });
+      box(g, 0.04, 0.048, 0.008, { slot: S.badge, m: M(0.092, 0.32, chestZ(0.092, 0.32) + 0.005, 0, chestYaw(0.092, 0.32)) });
+      box(g, 0.06, 0.018, 0.006, { slot: S.eyeW, m: M(-0.092, 0.3, chestZ(0.092, 0.3) + 0.004, 0, -chestYaw(0.092, 0.3)) });
       for (const s of [1, -1]) {
-        box(g, 0.052, 0.055, 0.006, { slot: S.top, shade: 0.8, m: M(s * 0.092, 0.24, chestZ(0.092, 0.24) + 0.003, 0, s * chestYaw(0.092, 0.24)) });
-        box(g, 0.05, 0.016, 0.07, { slot: S.trim, shade: 0.9, m: M(s * 0.145, 0.482, 0.0, 0, 0, s * -0.3) });
+        box(g, 0.056, 0.06, 0.007, { slot: S.shirt, m: M(s * 0.092, 0.2, chestZ(0.092, 0.2) + 0.004, 0, s * chestYaw(0.092, 0.2)) });
+        box(g, 0.05, 0.016, 0.07, { slot: S.shirt, m: M(s * 0.145, 0.482, 0.0, 0, 0, s * -0.3) });
       }
       box(g, 0.04, 0.07, 0.024, { slot: S.dark, shade: 0.9, m: M(0.1, 0.42, 0.095, 0.1, -0.5, 0) });
       pathTube(g, [[0.1, 0.45, 0.1], [0.12, 0.5, 0.06], [0.07, 0.52, 0.02]], [0.0035, 0.0035, 0.0035], { seg: 4, slot: S.dark });
@@ -1146,7 +1173,7 @@ ${vis}        return true;
         if (s == 20) return iHair * 0.9;
         if (s == 21) return vec3(0.75, 0.55, 0.12);
         if (s == 22) return iShirt;
-        if (s == 23) return iTop * 0.78 + vec3(0.01);
+        if (s == 23) return iTop * 0.9 + vec3(0.012);
         if (s == 24) return S >= 1 ? iTop : iSkin;
         if (s == 25) return S >= 2 ? iTop : iSkin;
         if (s == 26) return vhB == 2 ? iSkin : iBottom;
@@ -1313,7 +1340,7 @@ ${vis}        return true;
               ni = G.pos.length / 3;
               G.pos.push(g.pos[vi * 3], g.pos[vi * 3 + 1], g.pos[vi * 3 + 2]);
               G.nor.push(g.nor[vi * 3], g.nor[vi * 3 + 1], g.nor[vi * 3 + 2]);
-              const c = colour(vi), sh = Math.min(1.1, g.shade[vi]);
+              const c = colour(vi), sh = Math.min(1.1, g.shade[vi]) * 1.08;
               G.col.push(c.r * sh, c.g * sh, c.b * sh);
               if (!G.map.has(g)) G.map.set(g, new Map());
               G.map.get(g).set(vi, ni);
