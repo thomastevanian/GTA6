@@ -1,0 +1,369 @@
+/*
+ * wheel.css — the radial weapon wheel (js/ui-wheel.js) and the shared
+ * weapon icon style. Dark navy glass, a sunset highlight, Bahnschrift.
+ * Nothing here takes pointer events: the game feeds the wheel its input.
+ */
+
+.vhw {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  font-family: var(--vh-font-display);
+  color: var(--vh-text);
+  transition: opacity 0.14s ease, visibility 0s linear 0.14s;
+}
+
+.vhw.visible {
+  opacity: 1;
+  visibility: visible;
+  transition: opacity 0.1s ease;
+}
+
+.vhw-backdrop {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 50% 50%, rgba(6, 8, 20, 0.2) 0%, rgba(6, 8, 20, 0.55) 45%, rgba(4, 5, 14, 0.78) 100%);
+}
+
+.vhw-stack {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.1rem;
+}
+
+.vhw-ring {
+  position: relative;
+  width: min(34rem, 74vmin);
+  aspect-ratio: 1 / 1;
+  transform: scale(0.94);
+  transition: transform 0.18s cubic-bezier(0.2, 0.9, 0.25, 1.15);
+}
+
+.vhw.visible .vhw-ring {
+  transform: none;
+}
+
+/* The glass disc behind the segments. */
+.vhw-glass {
+  position: absolute;
+  inset: 3.2%;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 50% 30%, rgba(40, 52, 96, 0.5) 0%, transparent 60%),
+    radial-gradient(circle at 50% 50%, rgba(12, 16, 34, 0.88) 40%, rgba(8, 11, 26, 0.93) 100%);
+  box-shadow:
+    0 30px 80px rgba(0, 0, 0, 0.55),
+    0 0 0 1px rgba(255, 255, 255, 0.07),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(8px) saturate(1.15);
+}
+
+.vhw-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.vhw-track {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.06);
+  stroke-width: 2;
+}
+
+.vhw-seg {
+  stroke: rgba(255, 255, 255, 0.09);
+  stroke-width: 1.2;
+  transition: stroke 0.15s ease, opacity 0.15s ease;
+}
+
+.vhw-seg.empty {
+  opacity: 0.35;
+  stroke: rgba(255, 255, 255, 0.05);
+  stroke-dasharray: 4 5;
+}
+
+.vhw-seg.on {
+  stroke: rgba(255, 255, 255, 0.24);
+}
+
+/* The sunset highlight rotates between segments; the JS takes the short way round. */
+.vhw-hl {
+  transform-box: view-box;
+  transform-origin: 0 0;
+  transition: transform 0.13s cubic-bezier(0.25, 0.8, 0.3, 1);
+  filter: drop-shadow(0 0 14px rgba(255, 90, 130, 0.45));
+}
+
+.vhw-hl-fill {
+  opacity: 0.92;
+  transition: opacity 0.15s ease, filter 0.15s ease;
+}
+
+.vhw-hl-rim {
+  fill: none;
+  stroke-width: 5;
+  stroke-linecap: round;
+}
+
+.vhw.sel-empty .vhw-hl-fill {
+  opacity: 0.35;
+  filter: grayscale(1);
+}
+
+.vhw.sel-empty .vhw-hl {
+  filter: grayscale(1);
+  opacity: 0.7;
+}
+
+.vhw-inner {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.1);
+  stroke-width: 1.2;
+}
+
+.vhw-pointer {
+  transform-box: view-box;
+  transform-origin: 0 0;
+  fill: #ffb347;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+/* Icons, ammo and multi-weapon pips on the ring. */
+.vhw-item {
+  position: absolute;
+  width: 21%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.1rem;
+  transform: translate(-50%, -50%);
+  color: rgba(241, 244, 255, 0.88);
+  transition: color 0.12s ease, transform 0.16s cubic-bezier(0.2, 0.9, 0.25, 1.2), opacity 0.15s ease;
+}
+
+.vhw-item.on {
+  color: #1b0b16;
+  transform: translate(-50%, -50%) scale(1.12);
+}
+
+.vhw-item.empty {
+  color: rgba(241, 244, 255, 0.2);
+}
+
+.vhw-item.on.empty {
+  color: rgba(241, 244, 255, 0.5);
+}
+
+.vhw-icon {
+  width: 100%;
+  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.45));
+}
+
+.vhw-item.on .vhw-icon {
+  filter: none;
+}
+
+.vhw-count {
+  min-height: 1em;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.8;
+}
+
+.vhw-item.low .vhw-count {
+  color: var(--vh-danger);
+  opacity: 1;
+}
+
+.vhw-dots {
+  display: flex;
+  gap: 0.25rem;
+  min-height: 0.35rem;
+}
+
+.vhw-dots i {
+  width: 0.34rem;
+  height: 0.34rem;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.35;
+}
+
+.vhw-dots i.on {
+  opacity: 1;
+}
+
+/* Centre readout. */
+.vhw-center {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 40%;
+  aspect-ratio: 1 / 1;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 0 1rem;
+  text-align: center;
+  background: radial-gradient(circle at 50% 28%, rgba(34, 42, 78, 0.95) 0%, rgba(10, 13, 28, 0.97) 72%);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1), inset 0 -12px 30px rgba(0, 0, 0, 0.35);
+}
+
+.vhw-center.bump .vhw-name {
+  animation: vhw-bump 0.22s ease;
+}
+
+@keyframes vhw-bump {
+  0% { transform: translateY(4px); opacity: 0.2; }
+  100% { transform: none; opacity: 1; }
+}
+
+.vhw-slot {
+  font-size: 0.72rem;
+  letter-spacing: 0.32em;
+  text-transform: uppercase;
+  color: var(--vh-accent-2);
+  padding-left: 0.32em;
+}
+
+.vhw-name {
+  margin-top: 0.3rem;
+  max-width: 100%;
+  font-size: 1.32rem;
+  font-weight: 700;
+  line-height: 1.08;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  overflow-wrap: anywhere;
+}
+
+.vhw.sel-empty .vhw-name {
+  color: rgba(241, 244, 255, 0.45);
+}
+
+.vhw-ammo:empty {
+  display: none;
+}
+
+.vhw-ammo {
+  margin-top: 0.45rem;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.vhw-ammo b {
+  font-size: 1.9rem;
+  font-weight: 700;
+  background: var(--vh-sunset);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.vhw-ammo b.out {
+  background: none;
+  color: var(--vh-danger);
+}
+
+.vhw-ammo span {
+  margin-left: 0.3rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--vh-muted);
+}
+
+.vhw-ammo .vhw-none {
+  margin: 0;
+  font-size: 0.8rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+
+.vhw-cycle {
+  margin-top: 0.55rem;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.72rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--vh-muted);
+}
+
+.vhw-cycle em {
+  font-style: normal;
+  font-size: 1rem;
+  line-height: 1;
+  color: var(--vh-accent-2);
+}
+
+/* Control hint under the wheel. */
+.vhw-hint {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.4rem 1.1rem;
+  padding: 0.45rem 1rem;
+  border-radius: 999px;
+  background: rgba(8, 11, 24, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(241, 244, 255, 0.78);
+}
+
+.vhw-hint span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.vhw-hint kbd {
+  font-size: 0.72rem;
+  text-transform: none;
+}
+
+/* Shared weapon icon (the wheel and the HUD's current-weapon display). */
+.vh-wicon {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.hw-icon .vh-wicon {
+  width: 100%;
+  height: 100%;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vhw,
+  .vhw-ring,
+  .vhw-hl,
+  .vhw-item {
+    transition: none;
+  }
+}
+
+@media (max-height: 560px) {
+  .vhw-hint {
+    display: none;
+  }
+}

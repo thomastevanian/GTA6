@@ -1,0 +1,566 @@
+/*
+ * style.css — design tokens, base styles, the loading screen, the error
+ * overlay, buttons, the logo, dialogs and the developer overlay.
+ * HUD styles live in hud.css, menu screens in menus.css.
+ */
+
+:root {
+  --vh-bg: #070a14;
+  --vh-panel: rgba(9, 13, 26, 0.74);
+  --vh-panel-strong: rgba(9, 13, 26, 0.92);
+  --vh-line: rgba(255, 255, 255, 0.12);
+  --vh-line-strong: rgba(255, 255, 255, 0.22);
+  --vh-text: #f1f4ff;
+  --vh-muted: #9ea9c7;
+  --vh-accent: #ff4f8b;
+  --vh-accent-2: #ffb347;
+  --vh-accent-3: #35e0d0;
+  --vh-money: #7dffa8;
+  --vh-health: #5ee08a;
+  --vh-armor: #56b4ff;
+  --vh-danger: #ff5a5a;
+  --vh-warn: #ffb347;
+  --vh-font: 'Segoe UI Variable Text', 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif;
+  --vh-font-display: 'Bahnschrift', 'DIN Alternate', 'Barlow Condensed', 'Arial Narrow', 'Segoe UI', sans-serif;
+  --vh-text-scale: 1;
+  --vh-subtitle-scale: 1;
+  --vh-radius: 10px;
+  --vh-sunset: linear-gradient(100deg, #ffb347 0%, #ff7a59 38%, #ff4f8b 68%, #b04ae0 100%);
+}
+
+/* Colour-blind friendly palette: blue / amber / white instead of green / red. */
+body.cb-friendly {
+  --vh-health: #f5c518;
+  --vh-armor: #4aa3ff;
+  --vh-money: #ffffff;
+  --vh-danger: #ff9f1c;
+  --vh-accent-3: #4aa3ff;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  font-size: calc(15px * var(--vh-text-scale));
+}
+
+html,
+body {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #000;
+  color: var(--vh-text);
+  font-family: var(--vh-font);
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+
+#game-canvas {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  display: block;
+  outline: none;
+  background: #0b1020;
+}
+
+kbd {
+  display: inline-block;
+  min-width: 1.6em;
+  padding: 0.1em 0.45em;
+  border-radius: 5px;
+  border: 1px solid var(--vh-line-strong);
+  border-bottom-width: 2px;
+  background: rgba(255, 255, 255, 0.08);
+  font-family: var(--vh-font-display);
+  font-size: 0.85em;
+  font-weight: 600;
+  text-align: center;
+  color: var(--vh-text);
+}
+
+code {
+  font-family: Consolas, 'Cascadia Mono', monospace;
+  background: rgba(255, 255, 255, 0.08);
+  padding: 0.05em 0.35em;
+  border-radius: 4px;
+}
+
+/* ---------------------------------------------------------------- screens */
+.screen {
+  position: fixed;
+  inset: 0;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 0.35s ease, visibility 0s linear 0.35s;
+  z-index: 20;
+}
+
+.screen.visible {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transition: opacity 0.35s ease, visibility 0s;
+}
+
+/* ---------------------------------------------------------------- logo */
+.logo {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  line-height: 1;
+}
+
+.logo-word {
+  font-family: var(--vh-font-display);
+  font-weight: 800;
+  font-stretch: condensed;
+  font-size: 4.6rem;
+  letter-spacing: 0.08em;
+  background: var(--vh-sunset);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 0 18px rgba(255, 79, 139, 0.35));
+  transform: skewX(-6deg);
+}
+
+.logo-sub {
+  margin-top: 0.55rem;
+  font-family: var(--vh-font-display);
+  font-size: 0.95rem;
+  letter-spacing: 0.42em;
+  text-transform: uppercase;
+  color: var(--vh-muted);
+  padding-left: 0.3rem;
+}
+
+/* ---------------------------------------------------------- loading screen */
+.screen-loading {
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #06070f;
+}
+
+.loading-backdrop {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(120% 60% at 50% 105%, rgba(255, 122, 89, 0.55) 0%, rgba(255, 79, 139, 0.28) 30%, rgba(90, 40, 140, 0.18) 55%, transparent 75%),
+    linear-gradient(180deg, #05060d 0%, #0d0f24 55%, #2a1638 100%);
+}
+
+/* A skyline silhouette along the bottom of the loading screen. */
+.loading-backdrop::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 30vh;
+  background: #05060c;
+  clip-path: polygon(0% 100%, 0% 62%, 4% 62%, 4% 48%, 8% 48%, 8% 58%, 11% 58%, 11% 34%, 13% 30%, 15% 34%, 15% 56%, 19% 56%, 19% 44%, 24% 44%, 24% 64%, 28% 64%, 28% 26%, 30% 20%, 32% 26%, 32% 52%, 36% 52%, 36% 40%, 40% 40%, 40% 60%, 44% 60%, 44% 14%, 45.5% 4%, 47% 14%, 47% 46%, 51% 46%, 51% 30%, 55% 30%, 55% 58%, 59% 58%, 59% 38%, 63% 38%, 63% 66%, 67% 66%, 67% 32%, 70% 28%, 73% 32%, 73% 54%, 77% 54%, 77% 46%, 82% 46%, 82% 70%, 86% 70%, 86% 50%, 90% 50%, 90% 64%, 94% 64%, 94% 56%, 100% 56%, 100% 100%);
+}
+
+.loading-inner {
+  position: relative;
+  width: min(560px, 86vw);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  transform: translateY(-6vh);
+}
+
+.loading-inner .logo {
+  align-items: center;
+}
+
+.loading-inner .logo-word {
+  font-size: 5.2rem;
+}
+
+.loading-status {
+  margin: 2.4rem 0 0.8rem;
+  font-family: var(--vh-font-display);
+  font-size: 1.1rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+
+.progress {
+  width: 100%;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  width: 0%;
+  border-radius: 999px;
+  background: var(--vh-sunset);
+  box-shadow: 0 0 14px rgba(255, 79, 139, 0.6);
+  transition: width 0.25s ease;
+}
+
+.loading-step {
+  margin: 0.8rem 0 0;
+  min-height: 1.3em;
+  font-size: 0.9rem;
+  color: var(--vh-muted);
+}
+
+.loading-tip {
+  margin: 2.6rem 0 0;
+  max-width: 460px;
+  font-size: 0.9rem;
+  color: rgba(241, 244, 255, 0.72);
+  font-style: italic;
+}
+
+/* ----------------------------------------------------------- fatal overlay */
+.fatal {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: radial-gradient(80% 80% at 50% 30%, #1a1030 0%, #05060c 70%);
+  user-select: text;
+}
+
+.fatal.visible {
+  display: flex;
+}
+
+.fatal-box {
+  width: min(640px, 100%);
+  max-height: 100%;
+  overflow: auto;
+  padding: 28px 30px;
+  border-radius: 16px;
+  background: var(--vh-panel-strong);
+  border: 1px solid var(--vh-line);
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6);
+}
+
+.fatal-badge {
+  font-family: var(--vh-font-display);
+  font-weight: 800;
+  letter-spacing: 0.3em;
+  font-size: 0.8rem;
+  background: var(--vh-sunset);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.fatal-box h2 {
+  margin: 0.4rem 0 0.6rem;
+  font-family: var(--vh-font-display);
+  font-size: 1.7rem;
+}
+
+.fatal-message {
+  color: var(--vh-accent-2);
+  font-weight: 600;
+}
+
+.fatal-help {
+  color: var(--vh-text);
+  line-height: 1.55;
+}
+
+.fatal-help ol {
+  padding-left: 1.3rem;
+}
+
+.fatal-details {
+  margin-top: 1rem;
+  color: var(--vh-muted);
+}
+
+.fatal-details pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 0.78rem;
+  max-height: 200px;
+  overflow: auto;
+  background: rgba(0, 0, 0, 0.35);
+  padding: 10px;
+  border-radius: 8px;
+}
+
+.fatal-actions {
+  margin-top: 1.2rem;
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* ---------------------------------------------------------------- buttons */
+.btn {
+  appearance: none;
+  border: 1px solid var(--vh-line);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--vh-text);
+  font-family: var(--vh-font-display);
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  padding: 0.62rem 1.2rem;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, transform 0.15s, color 0.15s;
+}
+
+.btn:hover:not([disabled]),
+.btn:focus-visible {
+  background: rgba(255, 255, 255, 0.14);
+  border-color: var(--vh-line-strong);
+  outline: none;
+}
+
+.btn:active:not([disabled]) {
+  transform: translateY(1px);
+}
+
+.btn[disabled] {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background: var(--vh-sunset);
+  border-color: transparent;
+  color: #1b0b16;
+}
+
+.btn-primary:hover:not([disabled]),
+.btn-primary:focus-visible {
+  background: var(--vh-sunset);
+  filter: brightness(1.1);
+  box-shadow: 0 0 22px rgba(255, 79, 139, 0.45);
+}
+
+.btn-ghost {
+  background: transparent;
+}
+
+.soon-badge {
+  margin-left: 0.6rem;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  font-size: 0.66rem;
+  letter-spacing: 0.08em;
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--vh-muted);
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------- dialog */
+.dialog {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(3, 5, 12, 0.35);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.25s, visibility 0s linear 0.25s;
+}
+
+.dialog.visible {
+  opacity: 1;
+  visibility: visible;
+  transition: opacity 0.25s;
+}
+
+.dialog-box {
+  width: min(560px, 90vw);
+  padding: 24px 28px 20px;
+  border-radius: 14px;
+  background: var(--vh-panel-strong);
+  border: 1px solid var(--vh-line);
+  border-top: 3px solid var(--vh-accent-3);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.55);
+  line-height: 1.5;
+  transform: translateY(8px);
+  transition: transform 0.25s;
+}
+
+.dialog.visible .dialog-box {
+  transform: none;
+}
+
+.dialog-kicker {
+  font-size: 0.75rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--vh-accent-3);
+}
+
+.dialog-box h2 {
+  margin: 0.2rem 0 0.6rem;
+  font-family: var(--vh-font-display);
+  font-size: 1.6rem;
+}
+
+.dialog-list {
+  margin: 0.4rem 0 0.8rem;
+  padding-left: 1.1rem;
+}
+
+.dialog-list b {
+  color: var(--vh-accent-2);
+}
+
+.dialog-keys {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem 1rem;
+  padding: 0.8rem;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.05);
+  font-size: 0.88rem;
+  color: var(--vh-muted);
+}
+
+.dialog-close {
+  margin-top: 0.9rem;
+  font-size: 0.8rem;
+  color: var(--vh-muted);
+  text-align: right;
+}
+
+/* ------------------------------------------------------------- intro card */
+.intro-card {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 18vh;
+  z-index: 15;
+  text-align: center;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.intro-card.visible {
+  animation: intro-card 4.2s ease forwards;
+}
+
+.intro-place {
+  font-family: var(--vh-font-display);
+  font-size: 0.95rem;
+  letter-spacing: 0.35em;
+  text-transform: uppercase;
+  color: var(--vh-accent-2);
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.7);
+}
+
+.intro-line {
+  margin-top: 0.5rem;
+  font-family: var(--vh-font-display);
+  font-size: 2.2rem;
+  font-weight: 700;
+  text-shadow: 0 3px 18px rgba(0, 0, 0, 0.8);
+}
+
+@keyframes intro-card {
+  0% { opacity: 0; transform: translateY(12px); }
+  15% { opacity: 1; transform: none; }
+  80% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+/* ------------------------------------------------------ developer overlay */
+.debug {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  z-index: 40;
+  width: 470px;
+  max-width: calc(100vw - 24px);
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(4, 6, 14, 0.82);
+  border: 1px solid rgba(53, 224, 208, 0.35);
+  font-family: Consolas, 'Cascadia Mono', 'Courier New', monospace;
+  font-size: 12px;
+  color: #cfe9ff;
+  display: none;
+  user-select: text;
+}
+
+.debug.visible {
+  display: block;
+}
+
+.debug-title {
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  color: var(--vh-accent-3);
+  margin-bottom: 6px;
+}
+
+.debug-stats {
+  margin: 0;
+  white-space: pre;
+  line-height: 1.45;
+}
+
+.debug-graph {
+  display: block;
+  margin: 6px 0;
+  width: 240px;
+  height: 44px;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 4px;
+}
+
+.debug-log {
+  min-height: 4em;
+  line-height: 1.4;
+  color: #9fb4cc;
+}
+
+.debug-line.cmd {
+  color: #ffffff;
+}
+
+.debug-line.bad {
+  color: #ff9b9b;
+}
+
+.debug-input {
+  width: 100%;
+  margin-top: 6px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(0, 0, 0, 0.45);
+  color: #fff;
+  font: inherit;
+  outline: none;
+}
+
+.debug-input:focus {
+  border-color: var(--vh-accent-3);
+}
+
+body.reduced-flashing .progress-fill {
+  box-shadow: none;
+}
