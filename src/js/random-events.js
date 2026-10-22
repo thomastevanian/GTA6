@@ -745,7 +745,11 @@
       const r = lp.road;
       // Pulled over at the kerb side of the lane.
       const type = BROKEN_TYPES[Math.floor(Math.random() * BROKEN_TYPES.length)];
-      const v = this.v = this.car(type, lp.x, lp.z, lp.heading);
+      const hx = (VH.Vehicle.typeSpec(type).width || 1.8) / 2;
+      const lat = Math.sign(r.axis === 'z' ? lp.x - r.coord : lp.z - r.coord) || 1;
+      const edge = r.coord + lat * Math.max(0, r.width / 2 - hx - 0.35);
+      const v = this.car(type, r.axis === 'z' ? edge : lp.x, r.axis === 'z' ? lp.z : edge, lp.heading);
+      this.v = v;
       v.lightsOn = true;
       v.health = 420;
       v.model.setDamage(0.3);
@@ -801,7 +805,8 @@
         }
         // Standing by (on foot, or stopped in a car) for a few seconds; the horn counts triple.
         const veh = J.vehicle;
-        const near = veh ? dJ < 9 && veh.speed < 3 : dJ < 4.2;
+        const dCar = Math.hypot(J.pos.x - v.pos.x, J.pos.z - v.pos.z);
+        const near = veh ? Math.min(dJ, dCar) < 9 && veh.speed < 3 : dJ < 5 || dCar < 4;
         const honk = veh && veh.horn && dJ < 16 && veh.speed < 4;
         if (near || honk) {
           this.helpT += dt * (honk ? 3 : 1);
