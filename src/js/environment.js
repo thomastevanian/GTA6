@@ -81,6 +81,7 @@
     uniform float uTime;
     uniform float uNight;
     uniform float uEnvPass;
+    uniform vec3 uMoonDir;
     varying vec3 vDir;
 
     float hash12(vec2 p) {
@@ -135,6 +136,48 @@
         float star = step(0.9965, r) * (1.0 - smoothstep(0.08, 0.32, length(fract(sp) - 0.5)));
         float twinkle = 0.65 + 0.35 * sin(uTime * (2.0 + r * 5.0) + r * 60.0);
         col += vec3(0.9, 0.95, 1.0) * star * twinkle * uNight * 2.2 * (1.0 - uCloud);
+        // A second, fainter layer of stars, in a range of colours.
+        vec3 sp2 = dir * 520.0;
+        vec3 cell2 = floor(sp2);
+        float r2 = hash13(cell2 + 17.0);
+        float star2 = step(0.993, r2) * (1.0 - smoothstep(0.05, 0.3, length(fract(sp2) - 0.5)));
+        vec3 tint = mix(vec3(1.0, 0.8, 0.6), vec3(0.7, 0.85, 1.0), hash13(cell2 + 3.0));
+        col += tint * star2 * uNight * 0.9 * (1.0 - uCloud);
+        // The Milky Way: a soft band along a great circle, broken up by dark dust lanes.
+        vec3 gal = normalize(vec3(0.35, 0.8, -0.45));
+        float gd = dot(dir, gal);
+        float band = exp(-gd * gd * 22.0);
+        vec2 gp = vec2(atan(dir.z, dir.x) * 3.0, dir.y * 6.0);
+        float dust = fbm(gp * 1.7 + 4.0);
+        float cloudy = fbm(gp * 4.5);
+        float milky = band * smoothstep(0.25, 0.8, dust) * (0.55 + 0.9 * cloudy);
+        col += vec3(0.55, 0.6, 0.85) * milky * 0.28 * uNight * (1.0 - uCloud * 0.9);
+      }
+
+      // The moon: a lit disc with maria and a phase, an earthshine-lit dark side and a halo.
+      float md = dot(dir, uMoonDir);
+      if (uMoonDir.y > -0.05) {
+        float halo = pow(max(md, 0.0), 400.0) * 0.22 + pow(max(md, 0.0), 60.0) * 0.025;
+        col += vec3(0.62, 0.7, 0.95) * halo * (0.3 + 0.7 * uNight) * (1.0 - uCloud * 0.6) * smoothstep(-0.05, 0.1, uMoonDir.y);
+        float moonR = 0.028;
+        float ang = md > 0.99 ? acos(clamp(md, -1.0, 1.0)) : 1.0;
+        if (ang < moonR && uEnvPass < 0.5) {
+          vec3 up0 = abs(uMoonDir.y) < 0.95 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
+          vec3 mt = normalize(cross(up0, uMoonDir));
+          vec3 mb = cross(uMoonDir, mt);
+          vec2 uv = vec2(dot(dir, mt), dot(dir, mb)) / sin(moonR);
+          float rr = dot(uv, uv);
+          vec3 n = vec3(uv, sqrt(max(1.0 - rr, 0.0)));
+          vec3 phaseDir = normalize(vec3(0.75, 0.25, 0.6));
+          float lit = smoothstep(-0.08, 0.12, dot(n, phaseDir));
+          float maria = fbm(uv * 2.6 + 7.0);
+          float craters = vnoise(uv * 9.0) * 0.5 + vnoise(uv * 19.0) * 0.25;
+          vec3 albedo = mix(vec3(0.82, 0.82, 0.86), vec3(0.42, 0.44, 0.5), smoothstep(0.45, 0.62, maria)) * (0.85 + 0.3 * craters);
+          vec3 moonCol = albedo * (lit * 2.4 + 0.045);
+          float edge = 1.0 - smoothstep(0.92, 1.0, sqrt(rr));
+          float vis = (1.0 - uCloud * 0.75) * smoothstep(-0.05, 0.08, uMoonDir.y) * (0.25 + 0.75 * uNight);
+          col = mix(col, moonCol, edge * vis);
+        }
       }
 
       // Clouds on a virtual plane above the city.
@@ -219,6 +262,7 @@
         uCloud: { value: this.cloudCover },
         uTime: this.shared.uTime,
         uNight: { value: 0 },
+        uMoonDir: { value: new THREE.Vector3(0, -1, 0) },
       };
       const geo = new THREE.SphereGeometry(1, 48, 24);
       this.sky = new THREE.Mesh(geo, makeSkyMaterial(this.skyUniforms, false));
@@ -310,6 +354,8 @@
       const maxAlt = 66 * VH.math.DEG;
       this.sunDir.set(Math.cos(t), Math.sin(t) * Math.sin(maxAlt), Math.sin(t) * Math.cos(maxAlt) * 0.8 + 0.12).normalize();
       this.shared.uSunDir.value.copy(this.sunDir);
+      // The moon rides opposite the sun, tilted a little so it isn't always dead overhead at midnight.
+      this.skyUniforms.uMoonDir.value.set(-this.sunDir.x * 0.85 + 0.12, -this.sunDir.y * 0.95 + 0.04, -this.sunDir.z * 0.85 - 0.2).normalize();
       this._applyKeys(this.sunDir.y);
       this._envDirty = true;
     }
