@@ -23358,6 +23358,8 @@ void main() {
   const REFILL = 480; // seconds of play before a till is worth robbing again
   const AMMO_PRICE = 150; // Breakwater Arms: +100 rounds for every gun you own, +4 grenades
   const ARMOR_PRICE = 400;
+  const ATM_SECS = 6; // standing at it with the laptop out
+  const ATM_COOL = 600; // seconds of play before that ATM can be hacked again
   // The plan's shuffle. This one leaves alone the car parks the story already
   // uses (places.js steps past a shop lot anyway, but then a place would move).
   const SALT = 'shops-60';
@@ -23607,6 +23609,21 @@ void main() {
     const metal = VH.col(0x2b2f35);
     D.box('prop', s.d0, y0, v0 - 0.02, s.d0 + 0.08, y0 + DOOR_H, v0 + T + 0.02, metal);
     D.box('prop', s.d1 - 0.08, y0, v0 - 0.02, s.d1, y0 + DOOR_H, v0 + T + 0.02, metal);
+    // ATMs on the front wall (corner shops, petrol stations, two at the bank).
+    const atmKind = kindOf(s);
+    if (atmKind === 'mart' || atmKind === 'gas' || atmKind === 'bank') {
+      const spots = atmKind === 'bank' ? [s.d0 - 1.4, s.d0 - 2.7] : [s.d0 - 1.4];
+      spots.forEach((au, k) => {
+        if (au < a0 + 0.6 || au > a1 - 1.3) return;
+        D.box('prop', au, y0, v0 - 0.55, au + 0.75, y0 + 1.75, v0, VH.col(0x3a3f45));
+        D.box('prop', au - 0.02, y0 + 1.75, v0 - 0.57, au + 0.77, y0 + 1.95, v0, band);
+        D.vquad('screen', au + 0.12, v0 - 0.56, au + 0.63, v0 - 0.56, y0 + 1.15, y0 + 1.5, 0, -1, VH.col(0x6fe0c8, 1.3));
+        D.box('prop', au + 0.15, y0 + 0.85, v0 - 0.66, au + 0.6, y0 + 0.95, v0 - 0.55, VH.col(0x9aa0a6));
+        D.collide(au, 0, v0 - 0.55, au + 0.75, y0 + 1.95, v0, 'atm', VH.COLLIDE.ALL);
+        const [mx, mz] = P(f, au + 0.37, v0 - 1.1);
+        ctx.addInteractable({ id: s.id + '_atm' + k, kind: 'atm', store: s.id, x: mx, y: y0 + 1.0, z: mz, radius: 1.3, label: 'Hack the ATM' });
+      });
+    }
     // Roof: gravel, parapet, a couple of AC units.
     const r = rect(f, a0, v0 - 0.2, a1, v1);
     ctx.b.quad([r[0], yTop, r[3]], [r[2], yTop, r[3]], [r[2], yTop, r[1]], [r[0], yTop, r[1]], [0, 1, 0], VH.col(0x8f8c86), null, null, [0, 0, -1, seed]);
@@ -24075,6 +24092,7 @@ void main() {
       g.interaction.on('storeBuy', (item, player) => this._buy(item, player));
       g.interaction.on('storeAmmo', (item, player) => this._buyAmmo(item, player));
       g.interaction.on('storeArmor', (item, player) => this._buyArmor(item, player));
+      g.interaction.on('atm', (item) => this._startHack(item));
       VH.events.on('agent:died', (e) => {
         const s = this._storeOfClerk(e.agent);
         if (!s) return;
@@ -24167,6 +24185,12 @@ void main() {
           this._tipShown = true;
           g.hud.showToast('Aim a gun at the clerk to hold the shop up');
         }
+      }
+      if (this.hack) this._hackStep(dt);
+      this._atmT = (this._atmT || 0) - dt;
+      if (this._atmT <= 0) {
+        this._atmT = 1;
+        for (const it of g.interaction.items) if (it.kind === 'atm') it.enabled = g.playTime >= (this.until[it.id] || 0);
       }
       if (this.active) this._holdUp(dt, inside);
       else if (inside) this._maybeStart(inside);
@@ -24329,6 +24353,44 @@ void main() {
       return 1.5;
     }
 
+    // ------------------------------------------------------------ ATMs
+    _startHack(item) {
+      const g = this.game;
+      if (this.hack || this.active) return 1;
+      if (g.playTime < (this.until[item.id] || 0)) {
+        g.hud.showToast('This ATM is offline. Try another one.');
+        return 1;
+      }
+      this.hack = { item, t: 0, bank: (this.byId.get(item.store) || {}).brand === 'coastline' };
+      g.hud.showToast('Hacking: stay at the ATM');
+      return 0.5;
+    }
+
+    _hackStep(dt) {
+      const g = this.game;
+      const h = this.hack;
+      const p = g.player;
+      if (p.inVehicle || p.isDead || Math.hypot(p.pos.x - h.item.x, p.pos.z - h.item.z) > 1.9 || g.state !== 'playing') {
+        this.hack = null;
+        g.hud.showToast('Hack abandoned.');
+        return;
+      }
+      h.t += dt;
+      if (h.t < ATM_SECS) return;
+      const amount = Math.round((150 + Math.random() * 300) * (h.bank ? 2 : 1));
+      g.giveMoney(amount, 'atm');
+      if (g.audio && g.audio.cash) g.audio.cash();
+      g.hud.popScore('ATM HACKED', amount);
+      this.until[h.item.id] = g.playTime + ATM_COOL;
+      h.item.enabled = false;
+      this.atms = (this.atms || 0) + 1;
+      this.cash += amount;
+      // The camera above the screen got a good look at you.
+      const pol = g.police;
+      if (pol && !(g.missions && g.missions.suppressHeat)) pol._reports.push({ t: 4, heat: 1, x: h.item.x, z: h.item.z, kind: 'robbery' });
+      this.hack = null;
+    }
+
     /** Armed guards on the floor of a bank or a jeweller's (they open fire at once). */
     _spawnGuards(s, n) {
       const g = this.game;
@@ -24396,7 +24458,7 @@ void main() {
 
     _hudUpdate() {
       if (!this.hudEl) return;
-      const h = this.active;
+      const h = this.active || (this.hack && { meter: this.hack.t / ATM_SECS, paid: 0, hack: true });
       const on = !!h;
       if (on !== this._hudOn) {
         this._hudOn = on;
@@ -24408,7 +24470,12 @@ void main() {
         this._hudPct = pct;
         this.fillEl.style.width = pct + '%';
       }
-      const txt = VH.util.formatMoney(h.paid);
+      const label = h.hack ? 'HACKING ATM' : 'HOLD-UP';
+      if (label !== this._hudLabel) {
+        this._hudLabel = label;
+        this.hudEl.querySelector('span').textContent = label;
+      }
+      const txt = h.hack ? '' : VH.util.formatMoney(h.paid);
       if (txt !== this._hudCash) {
         this._hudCash = txt;
         this.cashEl.textContent = txt;
@@ -24428,13 +24495,13 @@ void main() {
 
     stats() {
       if (!this.ok) return [];
-      return [['Shops held up', String(this.robbed)], ['Cash from hold-ups', VH.util.formatMoney(this.cash)]];
+      return [['Shops held up', String(this.robbed)], ['ATMs hacked', String(this.atms || 0)], ['Cash from hold-ups and ATMs', VH.util.formatMoney(this.cash)]];
     }
 
     serialize() {
       const until = {};
       for (const k of Object.keys(this.until)) if (this.until[k] > this.game.playTime) until[k] = Math.round(this.until[k]);
-      return { until, robbed: this.robbed, cash: this.cash };
+      return { until, robbed: this.robbed, cash: this.cash, atms: this.atms || 0 };
     }
 
     load(data) {
@@ -24442,12 +24509,15 @@ void main() {
       this.until = Object.assign({}, data.until || {});
       this.robbed = data.robbed || 0;
       this.cash = data.cash || 0;
+      this.atms = data.atms || 0;
       this.active = null;
+      this.hack = null;
     }
 
     stop() {
       if (!this.ok) return;
       this.active = null;
+      this.hack = null;
       this._hudUpdate();
     }
 
