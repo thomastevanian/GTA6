@@ -77,6 +77,8 @@
       window.addEventListener('keydown', (e) => this._onKeyDown(e));
       window.addEventListener('keyup', (e) => this._onKeyUp(e));
       window.addEventListener('blur', () => this.releaseAll());
+      // Alt-Tab with a key held: its key-up never arrives, so let go of everything.
+      window.addEventListener('blur', () => this.releaseAll());
       document.addEventListener('visibilitychange', () => {
         if (document.hidden) this.releaseAll();
       });

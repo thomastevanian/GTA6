@@ -553,13 +553,17 @@
       // Weapon wheel.
       if (this.wheel) {
         const holding = inp.down('weaponWheel') && g.state === 'playing' && p.state !== 'dead';
-        if (holding && !this.wheel.isOpen) {
+        if (!holding) this._wheelLatch = false; // a click-equip keeps it shut until Tab is let go
+        if (holding && !this.wheel.isOpen && !this._wheelLatch) {
           this.wheel.open(this.wheelState());
           inp.wheelOpen = true; // input.js: follow the mouse even when it isn't captured
+          for (const a of ['moveLeft', 'moveRight', 'fire', 'weapon1', 'weapon2', 'weapon3', 'weapon4', 'weapon5', 'weapon6', 'weapon7', 'weapon8']) inp.discard(a);
           g.slowmo(9999, 0.25);
           this._wheelSlow = true;
         } else if (this.wheel.isOpen) {
-          if (holding) {
+          // A click on the wheel equips the highlighted weapon at once.
+          const clicked = holding && inp.consume('fire');
+          if (holding && !clicked) {
             // The camera ignores the mouse while the wheel is open; the wheel gets it.
             const md = inp.takeMouseDelta();
             if (md.x || md.y) this.wheel.move(md.x, md.y);
@@ -567,7 +571,15 @@
             if (wheelNotches) this.wheel.cycle(Math.sign(wheelNotches));
             const pad = inp.pad;
             if (pad && pad.connected && (Math.abs(pad.look.x) > 0.3 || Math.abs(pad.look.y) > 0.3)) this.wheel.stick(pad.look.x, pad.look.y);
+            // Keys: A/D (or the arrows) step round the wheel, 1-8 jump to a slot.
+            if (inp.consume('moveLeft')) this.wheel.step(-1);
+            if (inp.consume('moveRight')) this.wheel.step(1);
+            for (let i = 1; i <= 8; i++) if (inp.consume('weapon' + i)) this.wheel.pick(i - 1);
           } else {
+            if (clicked) {
+              inp.discard('fire'); // that click was for the wheel, not a shot
+              this._wheelLatch = true;
+            }
             const pick = this.wheel.close();
             inp.wheelOpen = false;
             if (this._wheelSlow) {

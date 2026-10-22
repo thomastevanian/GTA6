@@ -9,6 +9,8 @@
  *   wheel.move(dx, dy)     mouse deltas in pixels (pointer lock friendly)
  *   wheel.stick(x, y)      a gamepad stick, -1..1
  *   wheel.cycle(dir)       next / previous weapon inside the highlighted slot
+ *   wheel.step(dir)        move the highlight one slot round (keys)
+ *   wheel.pick(i)          highlight slot i (number keys)
  *   wheel.close()          → { slot, weaponId } for an owned weapon, or null
  *   wheel.isOpen
  *   wheel.onChange         optional callback({ slot, weaponId, reason: 'slot' | 'cycle' })
@@ -370,6 +372,26 @@
       this._vx = (x / len) * MAX_TRAVEL;
       this._vy = (y / len) * MAX_TRAVEL;
       this._aim(x, y, true);
+    }
+
+    /** Step the highlight round the wheel by one slot (keys). */
+    step(dir) {
+      if (!this.isOpen || !dir) return;
+      const n = this.slotIds.length;
+      this.pick((this.sel + (dir > 0 ? 1 : -1) + n) % n);
+    }
+
+    /** Highlight slot i (number keys, steps); the pointer follows. */
+    pick(i) {
+      if (!this.isOpen || i < 0 || i >= this.slotIds.length || i === this.sel) return;
+      const deg = (i * 360) / this.slotIds.length;
+      const r = (deg * Math.PI) / 180;
+      this._vx = Math.sin(r) * MAX_TRAVEL;
+      this._vy = -Math.cos(r) * MAX_TRAVEL;
+      this._pointer(this._vx, this._vy);
+      this._setHighlight(i);
+      this._render();
+      this._changed('slot');
     }
 
     cycle(dir) {
