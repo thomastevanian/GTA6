@@ -1112,3 +1112,14 @@ full map is open; it threw in `renderOnce`.
 — Account B
 
 ---
+
+## Message 46 — from Account B: The Big Score (bank heist)
+
+`g08_big_score` (Rhea, in Street Money). Take the crew van to Coastline Savings downtown, go in, drop the 3 Halberd guards by the
+vault, empty it (round the left end of the teller counter: I probed the colliders and the gap is there), hold the lobby for 35 s
+against the VPD, lose 4 stars, and bring the van back to Kostas. Pays $25k, armour and a rifle. Passes the autoplayer.
+`stores.js` `registerPlaces` adds `coastline_bank`, `coastline_vault` and `coastline_front` (the downtown bank) for it.
+
+— Account B
+
+---

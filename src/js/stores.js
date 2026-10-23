@@ -867,6 +867,16 @@
       for (const s of places.layout.stores || []) {
         places.add(s.id, { name: s.name, x: s.door.x, z: s.door.z, yaw: s.yawIn, kind: 'store', district: s.district });
       }
+      // Fixed names for jobs: the downtown bank (a heist in story-gangs.js) and its till and vault.
+      const bank = (places.layout.stores || []).find((s) => s.brand === 'coastline' && s.district === 'downtown') ||
+        (places.layout.stores || []).find((s) => s.brand === 'coastline');
+      if (bank) {
+        places.add('coastline_bank', { name: bank.name, x: bank.door.x, z: bank.door.z, yaw: bank.yawIn, kind: 'store', district: bank.district });
+        const [vx, vz] = P(bank.f, bank.a + bank.SW / 2, bank.vb1 - 1.6);
+        places.add('coastline_vault', { name: 'The vault, ' + bank.name, x: vx, z: vz, yaw: bank.yawIn, kind: 'store', district: bank.district });
+        const [fx, fz] = P(bank.f, bank.a + bank.SW / 2, bank.vb0 - 6);
+        places.add('coastline_front', { name: 'Outside ' + bank.name, x: fx, z: fz, yaw: bank.yawIn, kind: 'street', district: bank.district });
+      }
     }
 
     // ------------------------------------------------------------ runtime

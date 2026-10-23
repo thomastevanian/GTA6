@@ -3,8 +3,8 @@
  * Saltmarsh Salts and the Lantern Kings. Steal the cash, run the packages
  * through rival territory, hit a Halberd depot and get out with the heat on,
  * run down an armoured van, burn out a freelance Salts lab, and fly a
- * Goldline gold job out in Dex's helicopter, and run Halberd's protection
- * racket out of Westbrook.
+ * Goldline gold job out in Dex's helicopter, run Halberd's protection
+ * racket out of Westbrook, and take the Coastline Savings vault downtown.
  *
  * Every job here passes `node tools/missiontest.mjs <id>` (the headless
  * autoplayer); run it after any change.
@@ -393,6 +393,65 @@
         ['teo', '(handing Jay a fat envelope of his own) Fire, theft and Halberd. Fully comprehensive.'],
       ] },
       { setFlag: 'gangs_protection_done' },
+    ],
+  });
+
+  // ===================================================================
+  // g08 THE BIG SCORE: take the Coastline Savings vault downtown
+  // ===================================================================
+  jobs.push({
+    id: 'g08_big_score',
+    title: 'The Big Score',
+    giver: 'rhea',
+    start: 'kostas_salvage',
+    time: 10,
+    estMinutes: 12,
+    summary: 'Coastline Savings holds Halberd\'s money downtown. Rhea wants the vault, in daylight, with the whole crew.',
+    reward: { money: 25000, armor: 100, weapons: ['rifle'] },
+    steps: [
+      { scene: { at: 'kostas_salvage', cast: ['rhea', 'kostya', 'deb'] }, say: [
+        ['rhea', '(laying a bank\'s floor plan on the bonnet of a car) Coastline Savings. Downtown. Halberd banks there, and so does Voss, and so does everyone who ever took a house off a docker.'],
+        ['kostya', 'Teller line here. Vault at the back. You go round the left end of the counter. There\'s a gap. The architect was lazy.'],
+        ['deb', '(raising a hand) I drive the van. I have always wanted to drive the van.'],
+        ['jay', 'In daylight.'],
+        ['rhea', 'In daylight. At night they lock the vault on a timer. In the day the manager opens it for anyone with a pen and a smile. Take a gun instead of a pen.'],
+        ['rhea', 'In, vault, out, and Deb picks you up. You hold the lobby until she does. Not a second longer.'],
+      ] },
+      { spawnCar: 'heist_van', type: 'porter', at: 'kostas_salvage', color: 0x2b2f35, name: 'the crew van' },
+      { getIn: 'heist_van', checkpoint: true, objective: 'Take the crew van' },
+      { goto: 'coastline_front', vehicle: true, radius: 12, objective: 'Drive to Coastline Savings, downtown', say: [
+        ['deb', '(on the radio) Park on the kerb. Leave the engine running. That\'s what they do in films.'],
+      ] },
+      { music: 'tension' },
+      { goto: 'coastline_bank', vehicle: false, radius: 3, objective: 'Go in through the front doors' },
+      { heat: 3, say: [
+        ['jay', '(walking in, gun up) Morning! Everybody down! This is a withdrawal!'],
+      ] },
+      { spawn: [{ id: 'bank_guards', at: 'coastline_vault', count: 3, faction: 'halberd', weapon: 'smg', behavior: 'attack', group: 'bank_guards' }] },
+      { music: 'action' },
+      { kill: 'bank_guards', checkpoint: true, objective: 'Halberd guards by the vault. Take them out' },
+      { collect: ['coastline_vault'], item: 'vault cash', objective: 'Round the left end of the counter. Empty the vault', say: [
+        ['jay', '(stuffing bags) Pelican\'s, Halberd\'s, Voss\'s... Somebody\'s labelled all of it. That\'s nice.'],
+      ] },
+      { heat: 4 },
+      { survive: 35, objective: 'Hold the lobby until Deb brings the van round', waves: [
+        { delay: 2, at: 'coastline_front', count: 3, faction: 'vpd', weapon: 'pistol' },
+        { delay: 16, at: 'coastline_front', count: 3, faction: 'vpd', weapon: 'smg' },
+      ], say: [
+        ['deb', '(on the radio, over a siren) Round the block! I went round the block! There were a LOT of police on the block!'],
+      ] },
+      { getIn: 'heist_van', objective: 'Into the van with the money' },
+      { loseHeat: true, objective: 'Lose the police. All of them.', say: [
+        ['kostya', '(on the radio) Not the docks. Never straight to the docks. Drive till the sirens are bored.'],
+      ] },
+      { deliver: 'heist_van', to: 'kostas_salvage', timeLimit: 240, maxDamage: 0.85, objective: 'Get the money back to Kostas Salvage' },
+      { scene: { at: 'kostas_salvage', cast: ['rhea', 'kostya', 'deb'] }, say: [
+        ['deb', '(climbing out of the van, shaking) I would like to do that every day of my life.'],
+        ['kostya', '(counting) Halberd\'s payroll. Voss\'s rainy day. The councilman\'s... the councilman had a box.'],
+        ['rhea', '(closing the van doors, very calm) Every docker who lost a house gets one back. Then Halberd gets the bill for the paint.'],
+        ['rhea', '(to Jay, holding out a fat envelope and a rifle case) Your end. Buy something with a door that locks. You\'ll want one.'],
+      ] },
+      { setFlag: 'gangs_big_score_done' },
     ],
   });
 
