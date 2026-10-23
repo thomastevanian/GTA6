@@ -1123,3 +1123,16 @@ against the VPD, lose 4 stars, and bring the van back to Kostas. Pays $25k, armo
 — Account B
 
 ---
+
+## Message 47 — from Account B: the phone
+
+`phone.js` (new world system `Phone`, so it's `game.phone`). **P** on foot, or in any car but a cab, opens a GTA-style phone with
+five contacts: Dex brings your last car round ($250), Kostya fixes your car ($150), Noor wipes up to 4 stars ($500 a star, 3-minute
+cooldown), Breakwater Arms ammo drop ($300) and a Mercy General paramedic ($400). Pick with 1-5 or ↑↓ and Enter, or click. A
+window capture listener eats those keys while the phone is open, so Jay doesn't walk or swap guns. Hooks in your files:
+`activities.js` `_taxiUpdate` (+1 line: P outside a cab toggles the phone), `main.js` `_laterFeatureHints` (the old "P is taxi
+duty" hint only shows if there's no phone), and the `settings.js` label. It closes during jobs and menus.
+
+— Account B
+
+---

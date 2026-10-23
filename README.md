@@ -25,6 +25,7 @@ Handy keys: `WASD` move · `Shift` sprint · `E`/`F` enter vehicles · `Tab` wea
 - Businesses to buy (a laundrette, a car wash, a bowling alley, motels...) that pay into a safe every in-game day.
 - 45 hidden stashes of health, armour, guns and cash that come back a few minutes after you take them.
 - Gang jobs ("Street Money"), air races, stunt jumps, taxi work, random street events and peer-to-peer multiplayer (F9).
+- A phone (P): call Dex for your car, Kostya to fix it, Noor to lose the cops, an ammo drop or a paramedic.
 - Cheat codes: type them while playing. TOOLUP (weapons), PATCHUP (health and armour), PAYDAY (cash), LIEDOWN / RAISEHELL
   (wanted level), ROLLOUT (tank), FASTLANE (sports car), SAUCER (UFO), JETSET (fighter jet), SUNNYDAY / STORMY, NIGHTOWL.
 - Post-processing: ambient occlusion, sun shafts and haze, lens flare, motion blur, depth of field in photo mode.

@@ -385,6 +385,7 @@
       const taxiOpen = !this.data.taxiRequires || g.missions.completed[this.data.taxiRequires];
       // Read the key every frame, so a press outside a cab isn't saved up for the next one.
       const pressed = g.input.consume('phone');
+      if (!inCab && pressed && g.phone) g.phone.toggle(); // phone.js: Jay's contacts
       if (inCab && pressed && !g.missions.run) {
         if (!taxiOpen) {
           g.hud.showToast('The dispatcher doesn\'t know you yet. (Taxi jobs open later in the story.)');
