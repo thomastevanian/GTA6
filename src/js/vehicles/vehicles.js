@@ -874,8 +874,9 @@
       const fast = v.speed > 9;
       // Find a free spot: driver door, passenger door, behind, on the roof.
       const tries = [[v.hx + 0.75, 0.2], [-(v.hx + 0.75), 0.2], [v.hx + 0.75, -v.hz * 0.6], [0, -(v.hz + 0.9)], [0, v.hz + 0.9]];
-      let spot = null;
-      for (const [lx, lz] of tries) {
+      // A vehicle can name its own way off (a boat: onto the nearest quay).
+      let spot = v.exitSpot ? v.exitSpot() : null;
+      for (const [lx, lz] of spot ? [] : tries) {
         const w = v.localToWorld(lx, lz, {});
         const g = ph.groundHeight(w.x, w.z, v.pos.y + 1.2);
         if (Math.abs(g - v.pos.y) > 1.2) continue;

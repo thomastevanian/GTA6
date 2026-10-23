@@ -4,7 +4,8 @@
  * through rival territory, hit a Halberd depot and get out with the heat on,
  * run down an armoured van, burn out a freelance Salts lab, and fly a
  * Goldline gold job out in Dex's helicopter, run Halberd's protection
- * racket out of Westbrook, and take the Coastline Savings vault downtown.
+ * racket out of Westbrook, take the Coastline Savings vault downtown, and
+ * fish a dumped cargo out of the bay by speedboat.
  *
  * Every job here passes `node tools/missiontest.mjs <id>` (the headless
  * autoplayer); run it after any change.
@@ -452,6 +453,50 @@
         ['rhea', '(to Jay, holding out a fat envelope and a rifle case) Your end. Buy something with a door that locks. You\'ll want one.'],
       ] },
       { setFlag: 'gangs_big_score_done' },
+    ],
+  });
+
+  // ===================================================================
+  // g09 NIGHT TIDE: fish a dumped cargo out of the bay by speedboat
+  // ===================================================================
+  const BALES = [
+    { x: 640, z: 380, y: -1.1 }, { x: 735, z: 190, y: -1.1 },
+    { x: 690, z: -120, y: -1.1 }, { x: 790, z: -260, y: -1.1 },
+  ];
+  jobs.push({
+    id: 'g09_night_tide',
+    title: 'Night Tide',
+    giver: 'kostya',
+    start: 'crane_row',
+    time: 1,
+    estMinutes: 8,
+    summary: 'A freighter dumped its cargo in the bay when the coastguard showed up. Kostya wants it fished out before Halberd finds it.',
+    reward: { money: 7000, weapons: ['smg'] },
+    steps: [
+      { scene: { at: 'crane_row', cast: ['kostya', 'deb'] }, say: [
+        ['kostya', '(looking out at the black water with binoculars) The Esperanza. Panama flag. The coastguard lit her up an hour ago, and her crew threw four bales over the side.'],
+        ['deb', 'Waterproof. Floating. Bobbing about out past the pier like ducks. Very expensive ducks.'],
+        ['jay', 'What\'s in them?'],
+        ['kostya', '(lowering the binoculars) Something Halberd wants back badly enough to send boats. So: something we want first.'],
+        ['deb', '(jangling a key on a cork float) The Salts\' boat. She does a hundred on flat water. Please don\'t sink her, she\'s my favourite.'],
+      ] },
+      { spawnCar: 'salt_boat', type: 'squall', at: { x: 427.4, z: 452 }, exact: true, heading: 0, color: 0x1d2b4a, name: 'the Salts\' boat' },
+      { getIn: 'salt_boat', checkpoint: true, objective: 'Get in the Salts\' speedboat at the end of the quay' },
+      { music: 'action' },
+      { timer: 240 },
+      { collect: BALES, item: 'bales', objective: 'Fish the floating bales out of the bay before Halberd does', say: [
+        ['deb', '(on the radio) Searchlights to the north! That\'s Halberd. Faster, Jay. Faster is good.'],
+      ] },
+      { deliver: 'salt_boat', to: { x: 427.4, z: 452 }, maxDamage: 0.8, objective: 'Bring the bales back to the quay at Crane Row', say: [
+        ['kostya', '(on the radio, very calm) Four bales. Good. Now come back slowly, like a fisherman. Fishermen are never in a hurry.'],
+      ] },
+      { scene: { at: 'crane_row', cast: ['kostya', 'deb', 'rhea'] }, say: [
+        ['rhea', '(slitting a bale with a box cutter, and stopping) ...These are Halberd\'s ledgers. Bribes. Ten years of them, in a plastic bag.'],
+        ['kostya', 'Better than what I thought.'],
+        ['rhea', '(slowly) Much, much better. Jay, take a bonus. Deb, take the boat home. And nobody says "ducks" on the radio again.'],
+        ['deb', '(quietly, walking off) Ducks.'],
+      ] },
+      { setFlag: 'gangs_night_tide_done' },
     ],
   });
 

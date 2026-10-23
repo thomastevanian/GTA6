@@ -220,15 +220,23 @@
       const nx = this.pos.x + this.vel.x * dt;
       const nz = this.pos.z + this.vel.z * dt;
       const nose = this.localToWorld(0, this.hz * 0.9 * Math.sign(this.vF || 1), this._n || (this._n = {}));
-      if (!this._afloat(nx, nz) || !this._afloat(nose.x + this.vel.x * dt, nose.z + this.vel.z * dt)) {
-        const hit = this.speed;
-        this.vel.multiplyScalar(-0.3);
-        this.vF *= -0.3;
-        if (hit > 6) this.damage(hit * 6, null, 'crash');
-        if (hit > 3 && this.sys.game && this.sys.game.cameraRig && this.driver === 'player') this.sys.game.cameraRig.addShake(Math.min(0.5, hit * 0.03));
-      } else {
+      const ok = (x, z) => this._afloat(x, z) && this._afloat(nose.x + x - this.pos.x, nose.z + z - this.pos.z);
+      if (ok(nx, nz)) {
         this.pos.x = nx;
         this.pos.z = nz;
+      } else {
+        // The shore: slide along it (whichever way is still water), losing speed; a hard hit hurts.
+        const hit = this.speed;
+        if (ok(nx, this.pos.z)) {
+          this.pos.x = nx;
+          this.vel.z *= -0.2;
+        } else if (ok(this.pos.x, nz)) {
+          this.pos.z = nz;
+          this.vel.x *= -0.2;
+        } else this.vel.multiplyScalar(-0.25);
+        this.vel.multiplyScalar(0.85);
+        if (hit > 8) this.damage(hit * 5, null, 'crash');
+        if (hit > 4 && this.sys.game && this.sys.game.cameraRig && this.driver === 'player') this.sys.game.cameraRig.addShake(Math.min(0.5, hit * 0.03));
       }
       // Way out in the bay: the current pushes it back.
       if (this.pos.x > 2400) this.vel.x -= 6 * dt;
@@ -259,6 +267,22 @@
       this._afterStep(dt);
     }
 
+    /** Getting out beside a quay, the seawall or the pier: step onto it (vehicles.exitVehicle). */
+    exitSpot() {
+      const ph = this.sys.physics;
+      const w = {};
+      for (const d of [0.8, 1.6, 2.6, 3.6]) {
+        for (const [lx, lz] of [[1, 0], [-1, 0], [1, 0.5], [-1, 0.5], [1, -0.5], [-1, -0.5], [0, 1], [0, -1]]) {
+          this.localToWorld(lx * (this.hx + d), lz * (this.hz + (lx ? 0 : d)), w);
+          const g = ph.groundHeight(w.x, w.z, this.pos.y + 4);
+          if (g < this.water + 0.2) continue; // more water
+          if (ph.overlaps(w.x, w.z, 0.3, g + 0.3, g + 1.7)) continue;
+          return { x: w.x, z: w.z, y: g };
+        }
+      }
+      return null;
+    }
+
     hudInfo() {
       return { kmh: Math.abs(this.vF) * 3.6, max: this.cfg.maxF * 3.6 * 1.2, gear: this.vF < -0.3 ? 'R' : 'D' };
     }
@@ -277,11 +301,12 @@
   VH.Boat = Boat;
 
   // ------------------------------------------------------------ marina
-  // Moorings: off the boardwalk, either side of the pier, its end, and the docks.
+  // Moorings: tied up alongside the seawall below the boardwalk, along both
+  // sides of the pier, and at the docks (close enough to step aboard).
   const MOORINGS = [
-    ['squall', 437, 36, 0], ['sprite', 436, 50, 0], ['squall', 437, -38, Math.PI], ['sprite', 436, -52, Math.PI],
-    ['squall', 600, 16, Math.PI / 2], ['sprite', 597, -15, Math.PI / 2],
-    ['squall', 437, 160, 0], ['squall', 437, -170, Math.PI], ['sprite', 436, 300, 0], ['squall', 437, 470, 0],
+    ['squall', 427.4, 36, 0], ['sprite', 426.6, 50, 0], ['squall', 427.4, -38, Math.PI], ['sprite', 426.6, -52, Math.PI],
+    ['squall', 480, 9.1, Math.PI / 2], ['sprite', 530, -8.4, Math.PI / 2], ['squall', 555, -9.1, -Math.PI / 2],
+    ['squall', 427.4, 160, 0], ['squall', 427.4, -170, Math.PI], ['sprite', 426.6, 300, 0], ['squall', 427.4, 445, 0],
   ];
 
   class Marina {
@@ -300,7 +325,7 @@
     update() {
       const g = this.game;
       const p = g.player;
-      if (p.vehicle || p.state === 'dead' || p.pos.x < this.seawall + 0.5 || p.pos.y > this.water - 0.9) return;
+      if (p.vehicle || p.state === 'dead' || p.pos.x < this.seawall + 0.5 || p.pos.y > this.water - 0.2) return;
       // Jay can't swim: he hauls himself out onto the seawall.
       const x = this.seawall - 2.5;
       const z = clamp(p.pos.z, -1700, 600);

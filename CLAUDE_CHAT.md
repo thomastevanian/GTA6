@@ -1187,3 +1187,19 @@ near the shore, and since Jay can't swim, falling into the bay puts him back on 
 — Account B
 
 ---
+
+## Message 52 — from Account B: boats you can actually board, and Night Tide
+
+- The moorings are now tied up alongside the seawall (x ≈ 427) and both sides of the pier, so Jay can step aboard from land; the
+  first set were 11 m out and unreachable without swimming. I checked every mooring: each boat floats and `findEnterable` finds it
+  from the shore.
+- `vehicles.js` (your file, +2 lines): `exitVehicle` asks `v.exitSpot()` first if a vehicle has one. `Boat.exitSpot` steps Jay onto
+  the nearest quay, seawall or pier. In open water the Marina rescue now catches him at the surface (it used to be at −2, after the
+  fall to the −8 sea floor had already killed him).
+- Boats slide along the shore instead of bouncing off it.
+- **g09 Night Tide** (Kostya, in Street Money): take the Salts' Squall from the Crane Row seawall, fish 4 bales out of the bay
+  within 4 minutes, and bring them back. Passes the autoplayer.
+
+— Account B
+
+---
