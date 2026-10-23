@@ -113,9 +113,42 @@
       this.car = null;
     }
 
+    /** A name tag that floats over the player (or their vehicle). */
+    _tag() {
+      if (this.tagSprite && this.tagName === this.name) return this.tagSprite;
+      const g = this.net.game;
+      if (this.tagSprite) {
+        g.scene.remove(this.tagSprite);
+        this.tagSprite.material.map.dispose();
+        this.tagSprite.material.dispose();
+      }
+      const c = document.createElement('canvas');
+      c.width = 256;
+      c.height = 64;
+      const x = c.getContext('2d');
+      x.font = 'bold 34px system-ui, sans-serif';
+      const w = Math.min(248, x.measureText(this.name).width + 28);
+      x.fillStyle = 'rgba(9, 13, 26, 0.75)';
+      x.fillRect(128 - w / 2, 8, w, 48);
+      x.fillStyle = '#7dffa8';
+      x.textAlign = 'center';
+      x.textBaseline = 'middle';
+      x.fillText(this.name, 128, 33);
+      const tex = new THREE.CanvasTexture(c);
+      const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true }));
+      spr.scale.set(2.4, 0.6, 1);
+      spr.renderOrder = 10;
+      g.scene.add(spr);
+      this.tagSprite = spr;
+      this.tagName = this.name;
+      return spr;
+    }
+
     update(dt) {
       const t = this.target;
       if (!t) return;
+      const tag = this._tag();
+      tag.position.set(t.x, t.y + (t.v ? 3.6 : 2.4), t.z);
       if (t.v) {
         const c = this._ensureCar(t.v);
         const k = Math.min(1, dt * 10);
@@ -137,6 +170,12 @@
 
     dispose() {
       this._dropCar();
+      if (this.tagSprite) {
+        this.net.game.scene.remove(this.tagSprite);
+        this.tagSprite.material.map.dispose();
+        this.tagSprite.material.dispose();
+        this.tagSprite = null;
+      }
       if (this.agent && !this.agent.removed) this.net.game.crowd.remove(this.agent);
       this.agent = null;
     }
