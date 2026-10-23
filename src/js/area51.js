@@ -40,6 +40,9 @@
   const CONTROL = { x: -1250, z: -1230 };
   const DISHES = [[-1240, -1520], [-1190, -1490]];
   const BUNKER = { x0: -1210, x1: -1160, z0: -1650, z1: -1612, h: 6 };
+  // Sublevel 3: the lab inside the bunker mound, entered by a trench to the blast door on its east side.
+  const FLOOR = 0.2; // the lab floor sits a kerb's height up
+  const LAB = { x0: -1211.5, x1: -1160, z0: -1650.5, z1: -1611.5, h: 4.2, dz0: -1633.5, dz1: -1628.5 };
   const FUEL = [[-1180, -1090], [-1160, -1090]];
   const SAUCER = { x: -1431, z: -1535 };
   const TOWERS = [[-1552, -1692], [-1552, -1038], [-1118, -1692], [-1118, -1038], [-1118, -1397], [-1118, -1333], [-1335, -1692], [-1335, -1038]];
@@ -198,6 +201,123 @@
     }
   }
 
+  /**
+   * The bunker: a stepped concrete mound with the Sublevel 3 lab inside it.
+   * The steps are split round a trench that leads to the blast door (east).
+   */
+  function buildBunker(world) {
+    const ctx = world.ctxAt((BUNKER.x0 + BUNKER.x1) / 2, (BUNKER.z0 + BUNKER.z1) / 2);
+    const cut = LAB.x1 + 1.5; // the trench starts at the outer face of the lab's east wall
+    for (let i = 0; i < 4; i++) {
+      const x0 = BUNKER.x0 - i * 2.5;
+      const x1 = BUNKER.x1 + i * 2.5;
+      const z0 = BUNKER.z0 - i * 1.5;
+      const z1 = BUNKER.z1 + i * 1.5;
+      const h = BUNKER.h - i * 1.4;
+      const col = VH.col(i % 2 ? 0x9a978d : 0xa8a59a);
+      // Steps lower than the lab ceiling must not cross the room: build them round it.
+      const hole = h < LAB.h + 0.3 ? [LAB.x0 - 0.3, LAB.z0 - 0.3, LAB.x1 + 1.5, LAB.z1 + 0.3] : null;
+      const put = (a0, b0, a1, b1) => {
+        if (a1 - a0 < 0.01 || b1 - b0 < 0.01) return;
+        if (!hole || a1 <= hole[0] || a0 >= hole[2] || b1 <= hole[1] || b0 >= hole[3]) {
+          ctx.concrete.box(a0, 0, b0, a1, h, b1, col);
+          return;
+        }
+        if (b0 < hole[1]) ctx.concrete.box(a0, 0, b0, a1, h, hole[1], col);
+        if (b1 > hole[3]) ctx.concrete.box(a0, 0, hole[3], a1, h, b1, col);
+        const c0 = Math.max(b0, hole[1]);
+        const c1 = Math.min(b1, hole[3]);
+        if (a0 < hole[0]) ctx.concrete.box(a0, 0, c0, hole[0], h, c1, col);
+        if (a1 > hole[2]) ctx.concrete.box(hole[2], 0, c0, a1, h, c1, col);
+      };
+      if (x1 <= cut) {
+        put(x0, z0, x1, z1);
+        continue;
+      }
+      put(x0, z0, cut, z1);
+      put(cut, z0, x1, LAB.dz0);
+      put(cut, LAB.dz1, x1, z1);
+    }
+    // Solid all round the room, open down the trench.
+    const ox0 = BUNKER.x0 - 7.5;
+    const ox1 = BUNKER.x1 + 7.5;
+    const oz0 = BUNKER.z0 - 4.5;
+    const oz1 = BUNKER.z1 + 4.5;
+    const solid = (x0, z0, x1, z1, y0, y1) => world.physics.addBox(x0, y0 || 0, z0, x1, y1 || BUNKER.h, z1, 'building', F().ALL);
+    solid(ox0, oz0, LAB.x0, oz1);
+    solid(LAB.x0, oz0, cut, LAB.z0);
+    solid(LAB.x0, LAB.z1, cut, oz1);
+    solid(LAB.x1, LAB.z0, cut, LAB.dz0);
+    solid(LAB.x1, LAB.dz1, cut, LAB.z1);
+    solid(cut, oz0, ox1, LAB.dz0);
+    solid(cut, LAB.dz1, ox1, oz1);
+    solid(LAB.x0, LAB.z0, LAB.x1, LAB.z1, LAB.h, BUNKER.h); // the ceiling
+    solid(LAB.x1, LAB.dz0, cut, LAB.dz1, 4.0, BUNKER.h); // the lintel over the door
+    // Trench floor and the door frame.
+    K().pave(world, cut, LAB.dz0, ox1 + 2, LAB.dz1, 0x7d7d7d, 0.016);
+    for (let z = LAB.dz0, n = 0; z < LAB.dz1; z += 1.0, n++) K().mark(world, cut - 0.2, z, cut + 0.8, z + 1.0, n % 2 ? 0x1a1a1a : 0xf2c500, 0.03);
+    ctx.prop.box(LAB.x1, 4.0, LAB.dz0 - 0.4, cut, 4.6, LAB.dz1 + 0.4, VH.col(0x4a525c));
+    ctx.screen.box(cut + 0.02, 4.1, (LAB.dz0 + LAB.dz1) / 2 - 0.25, cut + 0.1, 4.4, (LAB.dz0 + LAB.dz1) / 2 + 0.25, VH.col(0xff3030, 2.4));
+    buildLab(world, ctx);
+  }
+
+  /** Inside Sublevel 3: specimen tanks, an autopsy table, computers, crates. */
+  function buildLab(world, ctx) {
+    const L = LAB;
+    const y0 = FLOOR + 0.01;
+    const H = L.h;
+    const wallC = VH.col(0xd7dbe0);
+    const dado = VH.col(0x6b727a);
+    const lamp = VH.col(0xf0fbff, 1.5);
+    const surf = ctx.interior ? 'interior' : 'prop';
+    const S = ctx[surf];
+    // Floor, ceiling and the four walls, all facing in.
+    // A raised floor (the ground-detail layer covers anything lower), walkable.
+    S.topRect(L.x0, L.z0, L.x1, L.z1, FLOOR, VH.col(0xc9ced4));
+    for (let x = L.x0 + 4; x < L.x1; x += 4) S.topRect(x, L.z0, x + 0.06, L.z1, FLOOR + 0.004, VH.col(0x9aa0a6)); // floor seams
+    world.physics.addBox(L.x0, 0, L.z0, L.x1, FLOOR, L.z1, 'floor', F().SOLID);
+    ctx.prop.box(L.x0, H, L.z0, L.x1, H + 0.05, L.z1, VH.col(0xe8ecef), { bottom: true });
+    for (let x = L.x0 + 3; x < L.x1 - 2; x += 5) for (let z = L.z0 + 3; z < L.z1 - 2; z += 6) ctx.screen.box(x, H - 0.03, z, x + 2.2, H - 0.01, z + 0.5, lamp);
+    S.box(L.x0 - 0.3, 0, L.z0, L.x0, H, L.z1, wallC);
+    S.box(L.x0, 0, L.z0 - 0.3, L.x1, H, L.z0, wallC);
+    S.box(L.x0, 0, L.z1, L.x1, H, L.z1 + 0.3, wallC);
+    S.box(L.x1, 0, L.z0, L.x1 + 0.3, H, L.dz0, wallC);
+    S.box(L.x1, 0, L.dz1, L.x1 + 0.3, H, L.z1, wallC);
+    S.box(L.x1, 4.0, L.dz0, L.x1 + 0.3, H, L.dz1, wallC);
+    S.box(L.x0, 0, L.z0, L.x1, 1.0, L.z0 + 0.05, dado);
+    S.box(L.x0, 0, L.z1 - 0.05, L.x1, 1.0, L.z1, dado);
+    // Specimen tanks along the north wall: glowing green, something floating in each.
+    for (let i = 0; i < 5; i++) {
+      const x = L.x0 + 6 + i * 8;
+      const z = L.z0 + 2.4;
+      ctx.prop.cylinder(x, 0, z, 1.3, 1.3, 0.4, 16, VH.col(0x3a3f45), true, VH.col(0x3a3f45));
+      ctx.prop.cylinder(x, 3.4, z, 1.3, 1.3, 0.6, 16, VH.col(0x3a3f45), true, VH.col(0x3a3f45));
+      ctx.screen.box(x - 1.0, 0.4, z - 1.0, x + 1.0, 3.4, z + 1.0, VH.col(0x7dffb2, 0.75));
+      ctx.prop.box(x - 0.3, 1.0, z - 0.2, x + 0.3, 2.6, z + 0.2, VH.col(0x3c5a44));
+      ctx.prop.box(x - 0.25, 2.6, z - 0.25, x + 0.25, 3.0, z + 0.25, VH.col(0x4a6e52));
+      world.physics.addBox(x - 1.3, 0, z - 1.3, x + 1.3, 4.0, z + 1.3, 'tank', F().ALL);
+    }
+    // The autopsy table in the middle, a grey visitor under the lamp.
+    const tx = (L.x0 + L.x1) / 2;
+    const tz = (L.z0 + L.z1) / 2 - 2;
+    ctx.prop.box(tx - 1.2, 0, tz - 0.5, tx + 1.2, 0.9, tz + 0.5, VH.col(0xb6bdc6));
+    ctx.prop.box(tx - 0.9, 0.9, tz - 0.22, tx + 0.6, 1.08, tz + 0.22, VH.col(0x9aa79a));
+    ctx.prop.box(tx + 0.6, 0.9, tz - 0.3, tx + 1.1, 1.3, tz + 0.3, VH.col(0x9aa79a));
+    ctx.screen.box(tx - 1.6, H - 0.6, tz - 1.0, tx + 1.6, H - 0.55, tz + 1.0, VH.col(0xffffff, 2.2));
+    world.physics.addBox(tx - 1.2, 0, tz - 0.5, tx + 1.2, 1.1, tz + 0.5, 'counter', F().ALL);
+    // A bank of computers along the south wall.
+    for (let x = L.x0 + 3; x < L.x1 - 8; x += 3.2) {
+      const z = L.z1 - 1.0;
+      ctx.prop.box(x, 0, z - 0.6, x + 2.6, 0.85, z + 0.6, VH.col(0x4a525c));
+      ctx.prop.box(x + 0.4, 0.85, z + 0.2, x + 2.2, 1.6, z + 0.35, VH.col(0x23272d));
+      ctx.screen.box(x + 0.5, 0.95, z + 0.18, x + 2.1, 1.5, z + 0.2, VH.col(0x6fe0c8, 1.3));
+      world.physics.addBox(x, 0, z - 0.6, x + 2.6, 1.6, z + 0.6, 'counter', F().ALL);
+    }
+    // Crates and a hazard line round the table.
+    K().crates(world, L.x0 + 3, (L.z0 + L.z1) / 2 + 3, 6, 61);
+    for (const [x0, z0, x1, z1] of [[tx - 4, tz - 3, tx + 4, tz - 2.8], [tx - 4, tz + 2.8, tx + 4, tz + 3], [tx - 4, tz - 3, tx - 3.8, tz + 3], [tx + 3.8, tz - 3, tx + 4, tz + 3]]) S.box(x0, y0, z0, x1, y0 + 0.01, z1, VH.col(0xf2c500));
+  }
+
   /** A radar mast; the dish itself is a runtime object (it turns). */
   function radarMast(world, x, z) {
     const ctx = world.ctxAt(x, z);
@@ -281,11 +401,8 @@
         ctx.prop.cylinder(x, 0, z, 6, 6, 8, 20, VH.col(0xd0d3d6), true, VH.col(0xb6b9bc));
         world.physics.addBox(x - 5, 0, z - 5, x + 5, 8, z + 5, 'tank', F().ALL);
       }
-      const bctx = world.ctxAt((BUNKER.x0 + BUNKER.x1) / 2, (BUNKER.z0 + BUNKER.z1) / 2);
-      for (let i = 0; i < 4; i++) bctx.concrete.box(BUNKER.x0 - i * 2.5, 0, BUNKER.z0 - i * 1.5, BUNKER.x1 + i * 2.5, BUNKER.h - i * 1.4, BUNKER.z1 + i * 1.5, VH.col(i % 2 ? 0x9a978d : 0xa8a59a), { skip: { s: i > 0, n: i > 0 } });
-      bctx.prop.box(BUNKER.x1 - 0.05, 0, (BUNKER.z0 + BUNKER.z1) / 2 - 3, BUNKER.x1 + 0.4, 5, (BUNKER.z0 + BUNKER.z1) / 2 + 3, VH.col(0x2b2f36)); // blast door
-      world.physics.addBox(BUNKER.x0 - 7.5, 0, BUNKER.z0 - 4.5, BUNKER.x1 + 7.5, BUNKER.h, BUNKER.z1 + 4.5, 'building', F().ALL);
-      signs.push({ x: BUNKER.x1 + 0.6, y: 6.2, z: (BUNKER.z0 + BUNKER.z1) / 2, yaw: Math.PI / 2, w: 8, h: 1.2, lines: ['SUBLEVEL 3 · NO ACCESS'], style: 'monolith' });
+      buildBunker(world);
+      signs.push({ x: LAB.x1 + 1.6, y: 4.9, z: (LAB.dz0 + LAB.dz1) / 2, yaw: Math.PI / 2, w: 6.5, h: 1.0, lines: ['SUBLEVEL 3 · NO ACCESS'], style: 'monolith' });
       // Warning signs every so often along the outside of the fence.
       for (let z = BASE.z0 + 60; z < BASE.z1 - 40; z += 110) if (Math.abs(z - CENTER.z) > 40) signs.push({ x: BASE.x1 + 0.4, y: 1.8, z, yaw: Math.PI / 2, w: 4.2, h: 1.6, lines: ['RESTRICTED AREA', 'NO TRESPASSING'], style: 'brand', posts: true });
       for (let x = BASE.x0 + 60; x < BASE.x1 - 40; x += 110) signs.push({ x, y: 1.8, z: BASE.z1 + 0.4, yaw: 0, w: 4.2, h: 1.6, lines: ['RESTRICTED AREA', 'NO TRESPASSING'], style: 'brand', posts: true });
@@ -446,6 +563,12 @@
         g.scene.add(dish);
         this.dishes.push(dish);
       }
+      // The blast door of Sublevel 3: it slides up as Jay comes close.
+      this.door = new THREE.Mesh(new THREE.BoxGeometry(0.3, 4.0, LAB.dz1 - LAB.dz0), new THREE.MeshStandardMaterial({ color: 0x2b2f36, roughness: 0.5, metalness: 0.6 }));
+      this.door.position.set(LAB.x1 + 0.7, 2.0, (LAB.dz0 + LAB.dz1) / 2);
+      this.door.castShadow = true;
+      g.scene.add(this.door);
+      this._doorK = 0;
       // Alarm beacons: a red lamp and a rotating beam on each, shown only during the alarm.
       this.beacons = [];
       const lampMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(6, 0.3, 0.2) });
@@ -471,6 +594,7 @@
       const g = this.game;
       this._t += dt;
       this.dishes.forEach((d, i) => { d.rotation.y += dt * (0.7 + i * 0.25); });
+      this._updateLab(dt);
       for (let i = 0; i < this.beacons.length; i++) {
         const b = this.beacons[i];
         b.visible = this.alarm;
@@ -532,6 +656,30 @@
       }
     }
 
+    /** Sublevel 3: the door, and the first time in, the loot and the guards waiting for you. */
+    _updateLab(dt) {
+      const g = this.game;
+      const p = g.player;
+      if (this.door) {
+        const near = Math.hypot(p.pos.x - (LAB.x1 + 1), p.pos.z - (LAB.dz0 + LAB.dz1) / 2) < 7;
+        this._doorK += ((near ? 1 : 0) - this._doorK) * Math.min(1, dt * 2.5);
+        this.door.position.y = 2.0 + this._doorK * 3.6;
+      }
+      const inside = !p.inVehicle && p.pos.y < LAB.h && p.pos.x > LAB.x0 && p.pos.x < LAB.x1 && p.pos.z > LAB.z0 && p.pos.z < LAB.z1;
+      if (!inside || this._labDone) return;
+      this._labDone = true;
+      this._raise();
+      g.hud.notify({ title: 'Sublevel 3', text: 'Briefcases of hush money. Grab them and get out.', icon: '👽', tone: 'bad' });
+      const tz = (LAB.z0 + LAB.z1) / 2;
+      for (let i = 0; i < 6; i++) g.combat.addPickup('cash', null, 900, LAB.x0 + 5 + i * 7, 0.7, tz + 6, 0);
+      g.combat.addPickup('armor', null, 100, LAB.x0 + 4, 0.7, tz - 6, 0);
+      const look = Object.assign({}, GUARD_LOOK, { skin: VH.Crowd.randomLook().skin });
+      for (const [x, z] of [[LAB.x0 + 8, tz], [LAB.x0 + 20, LAB.z1 - 4], [LAB.x0 + 32, tz - 5], [LAB.x1 - 6, LAB.z0 + 5]]) {
+        const a = g.combat.spawnEnemy(x, z, { look, faction: 'area51', weapon: 'rifle', alert: true, hostile: true, accuracy: 0.5, health: 130, armor: 70, name: 'Guard' });
+        this.guards.push({ a, post: { x, z } });
+      }
+    }
+
     _spawnGuards() {
       const g = this.game;
       const Brain = K().soldierBrain();
@@ -584,6 +732,7 @@
       this.alarm = false;
       this.warn = -1;
       this._clearT = 0;
+      this._labDone = false;
     }
   }
 
