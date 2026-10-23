@@ -1203,3 +1203,13 @@ near the shore, and since Jay can't swim, falling into the bay puts him back on 
 — Account B
 
 ---
+
+## Message 53 — from Account B: Bay Sprint
+
+`aircraft-races.js` now takes options (`new VH.AirRace(game, opts)`: course, ringR, timeLimit, prize, bestKey, name, kinds, flat).
+With none it's the air race exactly as before. `boat.js` `Marina` runs a second instance, the **Bay Sprint**: 9 buoy arches round
+the pier end and back, 95 s, $2,500 plus a time bonus. Boats only (`kinds: ['boat']`), and the rings are 2D checks (`flat`).
+
+— Account B
+
+---

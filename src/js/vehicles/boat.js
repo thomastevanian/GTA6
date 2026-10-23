@@ -7,9 +7,10 @@
  * the plane and it leans into turns. The shore stops it: it bumps off the
  * seawall and the quays, and a boat dragged onto land just sits there.
  *
- * Also VH.Marina, a small world system: boats moored off the boardwalk, by
- * the pier and at the docks (fixed spots: they come back), and since Jay
- * can't swim, a fall into the bay puts him back on the seawall.
+ * Also VH.Marina, a small world system: boats moored along the seawall, the
+ * pier and the docks (fixed spots: they come back), the Bay Sprint boat race
+ * (an aircraft-races.js course of buoy rings), and since Jay can't swim, a
+ * fall into the bay puts him back on the seawall.
  */
 (function () {
   'use strict';
@@ -309,6 +310,9 @@
     ['squall', 427.4, 160, 0], ['squall', 427.4, -170, Math.PI], ['sprite', 426.6, 300, 0], ['squall', 427.4, 445, 0],
   ];
 
+  // The Bay Sprint: a buoy-ring course round the pier end and back (aircraft-races.js runs it).
+  const SPRINT = [[470, 40], [560, 140], [700, 230], [830, 90], [700, 0], [780, -150], [620, -260], [480, -200], [455, -50]];
+
   class Marina {
     constructor(game) {
       this.game = game;
@@ -320,9 +324,14 @@
         if (ph.groundHeight(x, z, this.water + 0.2) >= this.water - 0.6) continue; // a quay or a pier deck there
         game.vehicles.addFixedSpot({ type, x, z, yaw, r: type === 'squall' ? 6 : 4, y: this.water - TYPES[type].draft });
       }
+      this.race = VH.AirRace ? new VH.AirRace(game, {
+        course: SPRINT.map(([x, z]) => [x, this.water + 0.4, z]), ringR: 9, timeLimit: 95, prize: 2500,
+        bestKey: 'vicehaven.baysprint.best', name: 'Bay Sprint', kinds: ['boat'], flat: true, icon: '🚤', verb: 'drive a boat',
+      }) : null;
     }
 
-    update() {
+    update(dt) {
+      if (this.race) this.race.update(dt);
       const g = this.game;
       const p = g.player;
       if (p.vehicle || p.state === 'dead' || p.pos.x < this.seawall + 0.5 || p.pos.y > this.water - 0.2) return;
@@ -334,11 +343,16 @@
       g.hud.showToast('Jay can\'t swim. He hauls himself out onto the seawall, soaked.');
     }
 
-    reset() {}
+    reset() {
+      if (this.race) this.race.reset();
+    }
 
-    stop() {}
+    stop() {
+      if (this.race) this.race.stop();
+    }
 
-    blips(out) {
+    blips(out, missionRunning) {
+      if (this.race && !missionRunning) this.race.blips(out);
       const p = this.game.player.pos;
       if (p.x < this.seawall - 260) return;
       for (const v of this.game.vehicles.list) {
