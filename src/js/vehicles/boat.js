@@ -313,6 +313,29 @@
   // The Bay Sprint: a buoy-ring course round the pier end and back (aircraft-races.js runs it).
   const SPRINT = [[470, 40], [560, 140], [700, 230], [830, 90], [700, 0], [780, -150], [620, -260], [480, -200], [455, -50]];
 
+  /** A police boat's helm: head for Jay, ease off when alongside. */
+  class PatrolDriver {
+    constructor(game) {
+      this.game = game;
+    }
+
+    update(v) {
+      const p = this.game.player;
+      const t = p.vehicle || p;
+      const dx = t.pos.x - v.pos.x;
+      const dz = t.pos.z - v.pos.z;
+      const d = Math.hypot(dx, dz);
+      const delta = wrapAngle(Math.atan2(dx, dz) - v.yaw);
+      v.input.steer = clamp(delta * 1.6, -1, 1);
+      v.input.accel = d > 30 ? 1 : d > 14 ? 0.55 : 0.15;
+      if (Math.abs(delta) > 2.2 && d < 25) v.input.accel = -0.4; // overshot: back off and come round
+      v.input.boost = 0;
+    }
+  }
+
+  const PATROL_COLOR = 0x1c2a44;
+  const LIGHT_GEO = new THREE.BoxGeometry(0.55, 0.16, 0.22);
+
   class Marina {
     constructor(game) {
       this.game = game;
@@ -324,6 +347,8 @@
         if (ph.groundHeight(x, z, this.water + 0.2) >= this.water - 0.6) continue; // a quay or a pier deck there
         game.vehicles.addFixedSpot({ type, x, z, yaw, r: type === 'squall' ? 6 : 4, y: this.water - TYPES[type].draft });
       }
+      this.patrol = []; // police boats out after Jay
+      this._patrolT = 0;
       this.race = VH.AirRace ? new VH.AirRace(game, {
         course: SPRINT.map(([x, z]) => [x, this.water + 0.4, z]), ringR: 9, timeLimit: 95, prize: 2500,
         bestKey: 'vicehaven.baysprint.best', name: 'Bay Sprint', kinds: ['boat'], flat: true, icon: '🚤', verb: 'drive a boat',
@@ -332,6 +357,7 @@
 
     update(dt) {
       if (this.race) this.race.update(dt);
+      this._patrolUpdate(dt);
       const g = this.game;
       const p = g.player;
       if (p.vehicle || p.state === 'dead' || p.pos.x < this.seawall + 0.5 || p.pos.y > this.water - 0.2) return;
@@ -343,20 +369,102 @@
       g.hud.showToast('Jay can\'t swim. He hauls himself out onto the seawall, soaked.');
     }
 
+    // ---------------------------------------------------- harbour patrol
+    /** Wanted on the water: police boats come out (up to three), keep the heat on, and shoot from three stars. */
+    _patrolUpdate(dt) {
+      const g = this.game;
+      const p = g.player;
+      const pv = p.vehicle;
+      const lvl = g.police ? g.police.level : 0;
+      const onWater = pv && pv.kind === 'boat' && pv.pos.x > this.seawall + 4;
+      const want = onWater && lvl >= 2 ? Math.min(3, lvl - 1) : 0;
+      const at = pv || p;
+      this.patrol = this.patrol.filter((v) => {
+        if (v.removed) return false;
+        const d = Math.hypot(v.pos.x - at.pos.x, v.pos.z - at.pos.z);
+        if (v.wrecked || (!want && d > 120)) {
+          if (!v.wrecked || d > 120) {
+            g.vehicles.remove(v);
+            return false;
+          }
+          return true;
+        }
+        if (!want) {
+          v.controller = null;
+          v.driver = null;
+          return true;
+        }
+        if (v.driver !== 'ai') {
+          v.driver = 'ai';
+          v.controller = new PatrolDriver(g);
+        }
+        if (v._lights) {
+          const on = Math.floor(performance.now() / 180) % 2;
+          v._lights[0].visible = !!on;
+          v._lights[1].visible = !on;
+        }
+        // Eyes on Jay: the heat stays on; from three stars they shoot.
+        if (d < 90) g.police._sawPlayer();
+        v._fireT = (v._fireT || 1) - dt;
+        if (lvl >= 3 && d < 70 && v._fireT <= 0) {
+          v._fireT = 0.9 + Math.random() * 0.6;
+          g.police.fireFrom(v.pos.x, v.pos.y + 1.6, v.pos.z, lvl >= 4 ? 'rifle' : 'smg', 0.28);
+        }
+        return true;
+      });
+      this._patrolT -= dt;
+      if (this._patrolT > 0 || this.patrol.filter((v) => !v.wrecked).length >= want) return;
+      this._patrolT = 5;
+      const ph = g.physics;
+      for (let i = 0; i < 12; i++) {
+        const a = Math.random() * Math.PI * 2;
+        const r = 140 + Math.random() * 50;
+        const x = at.pos.x + Math.cos(a) * r;
+        const z = at.pos.z + Math.sin(a) * r;
+        if (x < this.seawall + 10 || ph.groundHeight(x, z, this.water + 0.2) >= this.water - 0.6) continue;
+        const v = g.vehicles.spawn('squall', x, z, Math.atan2(at.pos.x - x, at.pos.z - z), { color: PATROL_COLOR, persistent: true, role: 'police' });
+        v.isPolice = true;
+        v.driver = 'ai';
+        v.controller = new PatrolDriver(g);
+        v.storyName = 'Harbour Patrol';
+        // A light bar over the screen, flashing red and blue (see the patrol loop).
+        const bar = new THREE.Group();
+        const mk = (c, x) => {
+          const m = new THREE.Mesh(LIGHT_GEO, new THREE.MeshBasicMaterial({ color: c }));
+          m.position.set(x, 1.9, 0.6);
+          bar.add(m);
+          return m;
+        };
+        v._lights = [mk(new THREE.Color(5, 0.2, 0.2), -0.32), mk(new THREE.Color(0.2, 0.5, 6), 0.32)];
+        v.model.body.add(bar);
+        this.patrol.push(v);
+        if (this.patrol.length === 1) g.hud.showToast('Harbour Patrol is out. They have boats too.');
+        break;
+      }
+    }
+
+    _clearPatrol() {
+      for (const v of this.patrol) if (!v.removed && v.driver !== 'player') this.game.vehicles.remove(v);
+      this.patrol = [];
+    }
+
     reset() {
       if (this.race) this.race.reset();
+      this._clearPatrol();
     }
 
     stop() {
       if (this.race) this.race.stop();
+      this._clearPatrol();
     }
 
     blips(out, missionRunning) {
       if (this.race && !missionRunning) this.race.blips(out);
+      for (const v of this.patrol) if (!v.removed && !v.wrecked) out.push({ x: v.pos.x, z: v.pos.z, type: 'police', heading: v.yaw, flash: true });
       const p = this.game.player.pos;
       if (p.x < this.seawall - 260) return;
       for (const v of this.game.vehicles.list) {
-        if (v.kind !== 'boat' || v.removed || v.wrecked || v.driver) continue;
+        if (v.kind !== 'boat' || v.removed || v.wrecked || v.driver || v.isPolice) continue;
         if (Math.abs(v.pos.x - p.x) > 260 || Math.abs(v.pos.z - p.z) > 260) continue;
         out.push({ x: v.pos.x, z: v.pos.z, type: 'car', heading: v.yaw, label: v.name, noRim: true });
       }

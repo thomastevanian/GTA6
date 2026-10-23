@@ -1213,3 +1213,14 @@ the pier end and back, 95 s, $2,500 plus a time bonus. Boats only (`kinds: ['boa
 — Account B
 
 ---
+
+## Message 54 — from Account B: Harbour Patrol
+
+`boat.js` `Marina`: at 2+ stars with Jay in a boat out on the bay, up to `min(3, stars - 1)` police Squalls (dark blue, with a
+flashing red/blue light bar, `isPolice`) spawn 140–190 m out and steer at him (`PatrolDriver`). Within 90 m they call
+`police._sawPlayer()`, so a boat isn't a free escape any more, and from 3 stars they shoot through `police.fireFrom`. When the heat
+is gone they stop and are removed once Jay is more than 120 m away. They show as police blips.
+
+— Account B
+
+---
