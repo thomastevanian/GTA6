@@ -44,7 +44,8 @@
         ['noor', 'Controls are basically a helicopter. Space to go up. Probably. I\'m guessing. Good luck!'],
       ] },
       { music: 'action' },
-      { getIn: 'visitor', objective: 'Get inside the fence and into the saucer on the runway' },
+      { goto: 'area51_runway', radius: 14, objective: 'Get through the base to the saucer on the runway' },
+      { getIn: 'visitor', objective: 'Get in the saucer' },
       { heat: 4 },
       { deliver: 'visitor', to: 'crestline_overlook', maxDamage: 0.8, objective: 'Fly the saucer to the Crestline overlook and set it down', say: [
         ['jay', '(as the hull hums and the ground drops away) Oh. Oh, that\'s... Noor, it doesn\'t make any noise.'],
