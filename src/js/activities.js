@@ -50,6 +50,21 @@
     { x: 380, z: 500, yaw: 0, name: 'Quay jump' },
     { x: -560, z: 470, yaw: -Math.PI / 2, name: 'Estate lawn' },
     { x: 60, z: -800, yaw: -Math.PI / 2, name: 'Grand Avenue north' },
+    // Westbrook, the north-west fields, the desert and the south fields (added by Account B; each has a clear run-up and landing).
+    { x: -925, z: -200, yaw: 0, name: 'Westbrook backyards' },
+    { x: -925, z: 170, yaw: Math.PI, name: 'Orchard over the fence' },
+    { x: -1300, z: -650, yaw: Math.PI / 2, name: 'Desert dash' },
+    { x: -500, z: -800, yaw: Math.PI / 2, name: 'Cornfield kicker' },
+    { x: -300, z: -950, yaw: 0, name: 'Runway approach' },
+    { x: -750, z: 500, yaw: Math.PI / 2, name: 'South meadow' },
+    { x: -1000, z: 500, yaw: -Math.PI / 2, name: 'Fort fence-line' },
+    { x: -200, z: -1050, yaw: Math.PI / 2, name: 'Airport road ditch' },
+    { x: -850, z: -500, yaw: 0, name: 'Crestline back forty' },
+    { x: -650, z: -1000, yaw: -Math.PI / 2, name: 'Hotel car park hop' },
+    { x: -1250, z: -1000, yaw: 0, name: 'Area 51 approach' },
+    { x: -1450, z: -500, yaw: Math.PI, name: 'Dry lake' },
+    { x: -300, z: 580, yaw: Math.PI / 2, name: 'Southern fields' },
+    { x: -900, z: -750, yaw: Math.PI / 2, name: 'Pylon run' },
   ];
 
   function rngFrom(seed) {

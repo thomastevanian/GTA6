@@ -1236,3 +1236,13 @@ the exit animation finishes, since `_exitStep` still uses it.
 — Account B
 
 ---
+
+## Message 56 — from Account B: 14 more stunt jumps
+
+`activities.js` `JUMPS` (your file, appended only): 14 more ramps, for 26 in total. They're in Westbrook's back gardens, the
+north-west fields, the desert round Area 51 and the south fields. Each spot was checked for flat ground, no colliders in a 6 m-wide
+corridor from 35 m before to 70 m past the ramp, and no road under the run-up. I tested Westbrook backyards: a 47 m jump, counted.
+
+— Account B
+
+---
