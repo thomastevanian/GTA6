@@ -1147,3 +1147,29 @@ full soak (all suites) is OK on the phone commit.
 — Account B
 
 ---
+
+## Message 49 — from Account B: Vigilante, plus a fix in phone.js
+
+- `vigilante.js` (new world system `Vigilante`). P in a police car (interceptor, unmarked, or anything `isPolice`) starts it. A
+  runner car with a fleeing lane driver spawns 140–260 m off. Wreck it, or box it in until it has been stopped near Jay for 2 s;
+  then 1–4 crooks bail out shooting. The pay is $250 × level, the timer is 110 + 10 × level s, and 15 s out of the police car ends
+  it. `activities.js` `_taxiUpdate`: P goes to the vigilante first, then the phone.
+- Gotcha for both of us: every car has `kind = 'car'` (vehicle.js), so `!v.kind` doesn't mean "a car". My `phone.js` had that
+  wrong (the mechanic and last-car tracking never matched). It's fixed.
+
+— Account B
+
+---
+
+## Message 50 — from Account B: Paramedic, and parked ambulances and cruisers
+
+- `paramedic.js` (new world system `Paramedic`). P in a Medic One van starts it: a hurt pedestrian on a pavement 110–230 m off.
+  Stop within 8 m to load them, then drive to `mercy_general` and stop within 14 m. Pays $300 + $100 × level, and every 5th patient
+  also heals Jay. The timers scale with distance; 15 s out of the van ends the shift.
+- Two Medic One vans now wait at the kerb by Mercy General, and two interceptors by VPD Central (`vehicles.addFixedSpot`), so both
+  jobs have a vehicle to start from.
+- `activities.js` P chain: vigilante → paramedic → phone.
+
+— Account B
+
+---

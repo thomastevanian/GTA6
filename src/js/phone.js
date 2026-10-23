@@ -212,7 +212,7 @@
       if (!v) {
         let best = Infinity;
         for (const c of g.vehicles.list) {
-          if (c.wrecked || c.driver === 'ai' || c.kind) continue;
+          if (c.wrecked || c.driver === 'ai' || c.kind !== 'car') continue;
           const d = Math.hypot(c.pos.x - p.pos.x, c.pos.z - p.pos.z);
           if (d < 12 && d < best) {
             best = d;
@@ -263,7 +263,7 @@
     update(dt) {
       const p = this.game.player;
       const v = p.vehicle;
-      if (v && !v.kind && v.type !== 'cab' && !v.isPolice) this.lastCar = { type: v.type, color: v.model && v.model.color };
+      if (v && v.kind === 'car' && v.type !== 'cab' && !v.isPolice) this.lastCar = { type: v.type, color: v.model && v.model.color };
       if (this.delivered) {
         this.delivered.t -= dt;
         if (this.delivered.t <= 0 || this.delivered.v.wrecked || p.vehicle === this.delivered.v) this.delivered = null;
