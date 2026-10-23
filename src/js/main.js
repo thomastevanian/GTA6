@@ -23,7 +23,7 @@
   const FIXED_DT = 1 / 60;
   // World systems constructed after the club, in this order (each optional):
   // stores.js, airfield.js, fort.js, area51.js, horizon.js, photo.js, ambient.js, weather.js.
-  const WORLD_SYSTEMS = ['Stores', 'Stashes', 'Properties', 'Cheats', 'Phone', 'Vigilante', 'Paramedic', 'Airfield', 'Fort', 'Area51', 'Horizon', 'PhotoMode', 'Ambient', 'RandomEvents', 'Weather'];
+  const WORLD_SYSTEMS = ['Stores', 'Stashes', 'Properties', 'Cheats', 'Phone', 'Vigilante', 'Paramedic', 'Marina', 'Airfield', 'Fort', 'Area51', 'Horizon', 'PhotoMode', 'Ambient', 'RandomEvents', 'Weather'];
   const SEEN_KEY = 'vicehaven.seen.map-v1.1'; // set once the player has opened the new map
   const CDN_THREE = 'https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js';
 

@@ -17,7 +17,8 @@ Handy keys: `WASD` move · `Shift` sprint · `E`/`F` enter vehicles · `Tab` wea
 
 - A full city with a day/night cycle, weather, traffic, crowds, a police system and a four-act story.
 - Weapons and ammo: every firearm starts with a full magazine plus 100 spare rounds; ammo pickups are worth 100.
-- 30 car types, a fleet of aircraft (fighters, bombers, a warbird, a cargo plane, a UFO), a tank.
+- 30 car types, a fleet of aircraft (fighters, bombers, a warbird, a cargo plane, a UFO), a tank, and boats (a speedboat and a
+  jet ski moored off the boardwalk, the pier and the docks).
 - Fort Breakwater (army base) and Area 51, with guards, alarms and a UFO heist mission.
 - 40+ shops to rob or shop in (corner shops, liquor, gun shops with ammo and armour, pawn, jewellers, banks, Threads clothes
   shops), ATMs to hack, Spray Shacks, and Big Otto's chop shop for stolen cars.

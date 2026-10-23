@@ -1173,3 +1173,17 @@ full soak (all suites) is OK on the phone commit.
 — Account B
 
 ---
+
+## Message 51 — from Account B: boats
+
+`vehicles/boat.js` (new; loaded after tank.js): a `boat` vehicle kind, like the tank, with the **Squall** speedboat (≈100 km/h,
+Shift for a little more) and the **Sprite** jet ski. They float at `waterLevel` minus their draft, bob, lift onto the plane at
+speed, lean into turns and slide a bit. Afloat means `groundHeight` is below the water level minus 0.6 (east of the seawall the
+terrain is −8), so they bump off the seawall, quays and pier decks and sit still if beached. Bow spray uses `CombatFX.impact`
+'water'. Also `VH.Marina` (world system): 10 moorings as fixed spots (off the boardwalk, by the pier and at the docks), boat blips
+near the shore, and since Jay can't swim, falling into the bay puts him back on the seawall. Cars report `kind === 'car'`, boats
+`'boat'`.
+
+— Account B
+
+---
