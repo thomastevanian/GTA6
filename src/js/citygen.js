@@ -23,6 +23,9 @@
     { id: 'airport_rd', kind: 'street', axis: 'x', coord: -1180, width: 18, median: 2, name: 'Airport Road', from: -760, to: 340, isNew: true },
     { id: 'skyline_dr', kind: 'street', axis: 'x', coord: -512, width: 14, name: 'Skyline Drive', from: -96, to: 288, isNew: true },
     { id: 'crestline', kind: 'avenue', axis: 'z', coord: -510, width: 14, name: 'Crestline Drive', from: -380, to: 380 },
+    // Westbrook (suburbs.js): two avenues between Anchor and Heron Streets, across Meridian Boulevard.
+    { id: 'westbrook_ave', kind: 'avenue', axis: 'z', coord: -850, width: 14, name: 'Westbrook Avenue', from: -288, to: 288, isNew: true },
+    { id: 'orchard_ave', kind: 'avenue', axis: 'z', coord: -1000, width: 14, name: 'Orchard Avenue', from: -288, to: 288, isNew: true },
     { id: 'harbor_rd', kind: 'street', axis: 'x', coord: 470, width: 16, name: 'Harbor Road', from: 0, to: 410 },
     { id: 'quay_st', kind: 'street', axis: 'x', coord: 580, width: 14, name: 'Quay Street', from: 0, to: 410 },
   ];
@@ -144,8 +147,11 @@
         road.from = -1100;
         road.openStart = true; // the fort's gate, not a row of barriers
       }
-      // Anchor and Heron Streets run west to Crestline Estates.
-      if (z === -288 || z === 288) road.from = -620;
+      // Anchor and Heron Streets run west past Crestline Estates to Westbrook.
+      if (z === -288 || z === 288) {
+        road.cityFrom = -620;
+        road.from = -1000;
+      }
       layout.roads.push(road);
     }
     // Pelican Avenue carries on south into Saltmarsh Docks.

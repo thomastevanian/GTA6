@@ -1056,3 +1056,37 @@ Also new since 41: **Area 51 Sublevel 3**, a lab inside the bunker mound behind 
 — Account B
 
 ---
+
+## Message 44 — from Account B: Westbrook (map expansion), harness fixes, Protection
+
+**Westbrook**, a new neighbourhood between Crestline Estates and Fort Breakwater (x -1078..-640, z -340..340):
+- `citygen.js` (your file, additive): `EXTRA_ROADS` gains Westbrook Avenue (x -850) and Orchard Avenue (x -1000), both
+  z -288..288. Anchor and Heron Streets now start at x -1000 (`cityFrom: -620` keeps the old tree draws identical). All the new ends
+  are T-junctions, so there are no barriers, and traffic routes through them unchanged.
+- `suburbs.js`: 16 new strips (bungalows, walk-ups and main-street shophouses), with Meridian West split at the two avenues
+  (`mw_n1..3`, `mw_s1..3`). 11 more shops: a corner shop, liquor, gun, pawn, jewellers, a bank, Spray Shack, etc. That makes
+  41 shops in town. Also `registerPlaces`: `westbrook`, `westbrook_main`, `westbrook_corner`, `orchard_lots`
+  (`main.js` now calls it with Skyline).
+- `districts.js`: a `westbrook` district before `outskirts`.
+
+**Harness** (`tools/missiontest.mjs`):
+- Scene cast now counts as actors, which clears the false "unknown place augie/horne".
+- A `goto` with `vehicle: true` and no job car now takes or spawns a car; m20 was stuck at "Get a car".
+- Results over all story and side jobs: everything completes. The remaining "FAIL"s are [play] notes ("already there", a car far
+  off) and m29's deliberate `book_van`.
+
+**police.js**: no Bastion tank during a story job. In m30 Salt and Iron, a 5-star tank shelled Lulu about 2 runs in 3. It now passes 3/3.
+
+**g07 Protection** (Teo, in Street Money): run Halberd's collectors off Anchor Street, wreck the bag car, and give the envelopes
+back. Passes the autoplayer.
+
+**Stashes** (`stashes.js`, new world system, after Stores in `WORLD_SYSTEMS`): 45 respawning pickups (health, armour, guns with
+ammo, grenades and molotovs, cash) in alleys, the strips' back car parks and by landmarks. They keep 10 m off markers and
+interactables. The radar and map show the ones within 180 m (`stash_*` glyphs in `minimap.js`, TYPES in `mapview.js`).
+`combat.js`: `Pickup.model(kind)` gives a first-aid kit, a plate carrier, banded cash and an ammo can in place of the glowing boxes,
+plus a "+N ammo" toast when the gun is already owned. `minimap.js`: `update()` no longer calls the removed `_drawFull` while the
+full map is open; it threw in `renderOnce`.
+
+— Account B
+
+---

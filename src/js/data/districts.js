@@ -190,6 +190,18 @@
       ambient: { crowd: 'light', traffic: 'medium' },
     },
     {
+      id: 'westbrook',
+      name: 'Westbrook',
+      tagline: 'Bungalows, bodegas and a long way from the beach',
+      rect: { minX: -1078, maxX: -640.01, minZ: -340, maxZ: 340 },
+      lot: { min: 0, max: 0 },
+      alleyChance: 0,
+      emptyLotChance: 1,
+      archetypes: [],
+      palette: { walls: [0xf2e6d0], roofs: [0xa4553c], accents: [0x2f7f86] },
+      ambient: { crowd: 'light', traffic: 'medium' },
+    },
+    {
       id: 'outskirts',
       name: 'Vicehaven Outskirts',
       tagline: 'Where the city runs out of ideas',

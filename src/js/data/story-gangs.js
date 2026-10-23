@@ -3,7 +3,8 @@
  * Saltmarsh Salts and the Lantern Kings. Steal the cash, run the packages
  * through rival territory, hit a Halberd depot and get out with the heat on,
  * run down an armoured van, burn out a freelance Salts lab, and fly a
- * Goldline gold job out in Dex's helicopter.
+ * Goldline gold job out in Dex's helicopter, and run Halberd's protection
+ * racket out of Westbrook.
  *
  * Every job here passes `node tools/missiontest.mjs <id>` (the headless
  * autoplayer); run it after any change.
@@ -342,6 +343,56 @@
         ['dex', '(after a long moment) ...Yes.'],
       ] },
       { setFlag: 'gangs_last_flight_done' },
+    ],
+  });
+
+  // ===================================================================
+  // g07 PROTECTION: run Halberd's collectors out of Westbrook
+  // ===================================================================
+  jobs.push({
+    id: 'g07_protection',
+    title: 'Protection',
+    giver: 'teo',
+    start: 'lantern_alley',
+    time: 19,
+    estMinutes: 8,
+    summary: 'Halberd has started selling "insurance" to the corner shops out in Westbrook. Teo wants the shopkeepers\' money back.',
+    reward: { money: 4500, armor: 50 },
+    steps: [
+      { scene: { at: 'lantern_alley', cast: ['teo', 'wick'] }, say: [
+        ['teo', '(peeling an orange with a pocket knife) You know Westbrook? Out past the estates. Bungalows, bodegas, a laundrette that\'s been closing down since 1998.'],
+        ['wick', 'My aunt lives there. She makes a casserole that could stop a bullet.'],
+        ['teo', 'Halberd has been going door to door on Anchor Street. Fire insurance. Shop windows are very flammable this year, apparently.'],
+        ['jay', 'And you want to sell them a better policy.'],
+        ['teo', '(a thin smile) I want them to stop paying anyone. The collectors are on Anchor Street right now. The bag car waits round the corner on Westbrook Avenue.'],
+        ['wick', 'Get my aunt\'s forty dollars back. She was very upset. She made a casserole about it.'],
+      ] },
+      { spawnCar: 'kings_ride', type: 'lowrider', at: 'lantern_alley', color: 0x5a1f8c },
+      { getIn: 'kings_ride', checkpoint: true, objective: 'Take the Kings\' lowrider' },
+      { goto: 'westbrook_main', vehicle: true, radius: 25, objective: 'Drive out to Anchor Street in Westbrook' },
+      { spawn: [{ id: 'collectors', at: 'westbrook_main', count: 4, faction: 'halberd', weapon: 'pistol', behavior: 'guard', group: 'collectors' }] },
+      { music: 'action' },
+      { kill: 'collectors', checkpoint: true, objective: 'Run the Halberd collectors off Anchor Street', say: [
+        ['jay', '(stepping out of the car) Evening. I\'m from the other insurance company.'],
+      ] },
+      { heat: 2 },
+      { spawnCar: 'bag_car', type: 'mesa', at: 'westbrook_corner', color: 0x23262b, name: 'the bag car' },
+      { chase: 'bag_car', mode: 'wreck', route: ['orchard_lots', 'westbrook', 'westbrook_main', 'westbrook_corner'], objective: 'The bag car is bolting. Wreck it', say: [
+        ['wick', '(on the phone) Black SUV! That\'s them! My aunt says the driver didn\'t even say thank you!'],
+      ] },
+      { wait: 2.5 },
+      { spawn: [{ id: 'bagmen', at: 'bag_car', count: 2, faction: 'halberd', weapon: 'smg', behavior: 'attack', group: 'bagmen' }] },
+      { kill: 'bagmen', objective: 'The bagmen bailed out with the envelopes. Drop them.' },
+      { collect: ['bagmen_0', 'bagmen_1'], item: 'envelopes', objective: 'Pick up the shopkeepers\' envelopes' },
+      { loseHeat: true, objective: 'Lose the cops' },
+      { goto: 'westbrook_main', radius: 6, objective: 'Take the envelopes back to the shops on Anchor Street' },
+      { scene: { at: 'westbrook_main', cast: ['teo', 'wick'] }, say: [
+        ['wick', '(handing envelopes over a counter, one at a time, like a postman) Forty dollars. Sixty. A hundred and... is this a coupon?'],
+        ['teo', '(to Jay, watching the street) Halberd will be back. Not this week. When they come back, the shopkeepers will call us first.'],
+        ['jay', 'That\'s the real policy, isn\'t it.'],
+        ['teo', '(handing Jay a fat envelope of his own) Fire, theft and Halberd. Fully comprehensive.'],
+      ] },
+      { setFlag: 'gangs_protection_done' },
     ],
   });
 

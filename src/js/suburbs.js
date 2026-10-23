@@ -4,13 +4,17 @@
  * field: offices and apartments, then motels, diners and hotels up Grand
  * Avenue to the airport; yards, workshops, a diner and a petrol station
  * along Meridian Boulevard to Fort Breakwater; airport hotels and car
- * rental on Airport Road.
+ * rental on Airport Road; and Westbrook, the bungalows and main-street
+ * shops on Orchard and Westbrook Avenues and the west ends of Anchor and
+ * Heron Streets.
  *
  *   VH.Suburbs.plan(layout)        lays out the strips and their lots
  *                                  (layout.strips) right after CityGen,
  *                                  keeps trees off them (layout.config.zones)
  *                                  and adds a petrol station and a corner
  *                                  shop to layout.stores
+ *   VH.Suburbs.registerPlaces(world, p) westbrook, westbrook_main,
+ *                                  westbrook_corner, orchard_lots
  *   VH.Suburbs.build(world, layout) kerbed pavements, the buildings (the
  *                                  city's own generator), street lights,
  *                                  trees and benches
@@ -49,6 +53,9 @@
     yards: { look: 'yards', lots: [['office', 3, [2, 3]], ['shophouse', 3, [1, 2]], ['parking', 3]] },
     fortside: { look: 'motels', lots: [['shophouse', 4, [1, 2]], ['apartment', 2, [2, 2]], ['parking', 2]] },
     hotels: { look: 'hotels', lots: [['hotel', 4, [5, 9]], ['office', 2, [3, 5]], ['shophouse', 2, [1, 2]], ['parking', 2]] },
+    // Westbrook: bungalows and walk-ups on the avenues, a main street of shops on Anchor and Heron.
+    westbrook: { look: 'homes', lots: [['villa', 4, [1, 2]], ['apartment', 3, [2, 4]], ['shophouse', 1, [1, 2]], ['parking', 1]] },
+    westmain: { look: 'motels', alt: 'homes', lots: [['shophouse', 4, [1, 2]], ['apartment', 3, [2, 4]], ['office', 1, [2, 3]], ['parking', 2]] },
   };
 
   /*
@@ -62,16 +69,53 @@
     { id: 'gn_w', road: 'Grand Avenue', axis: 'z', edge: -13, out: -1, a0: -1086, a1: -662, mix: (a) => (a > -900 ? 'north' : 'airport') },
     { id: 'gn_e1', road: 'Grand Avenue', axis: 'z', edge: 13, out: 1, a0: -1086, a1: -860, mix: (a) => (a > -940 ? 'north' : 'airport') },
     { id: 'gn_e2', road: 'Grand Avenue', axis: 'z', edge: 13, out: 1, a0: -740, a1: -662, mix: () => 'north' },
-    { id: 'mw_n', road: 'Meridian Boulevard', axis: 'x', edge: -9, out: -1, a0: -1072, a1: -652, mix: (a) => (a < -960 ? 'fortside' : 'yards') },
-    { id: 'mw_s', road: 'Meridian Boulevard', axis: 'x', edge: 9, out: 1, a0: -1072, a1: -652, mix: (a) => (a < -960 ? 'fortside' : 'yards') },
+    // Meridian West, broken at Orchard (x -1000) and Westbrook (x -850) Avenues.
+    { id: 'mw_n1', road: 'Meridian Boulevard', axis: 'x', edge: -9, out: -1, a0: -1072, a1: -1010, mix: () => 'fortside' },
+    { id: 'mw_n2', road: 'Meridian Boulevard', axis: 'x', edge: -9, out: -1, a0: -990, a1: -860, mix: (a) => (a < -960 ? 'fortside' : 'yards') },
+    { id: 'mw_n3', road: 'Meridian Boulevard', axis: 'x', edge: -9, out: -1, a0: -840, a1: -652, mix: () => 'yards' },
+    { id: 'mw_s1', road: 'Meridian Boulevard', axis: 'x', edge: 9, out: 1, a0: -1072, a1: -1010, mix: () => 'fortside' },
+    { id: 'mw_s2', road: 'Meridian Boulevard', axis: 'x', edge: 9, out: 1, a0: -990, a1: -860, mix: (a) => (a < -960 ? 'fortside' : 'yards') },
+    { id: 'mw_s3', road: 'Meridian Boulevard', axis: 'x', edge: 9, out: 1, a0: -840, a1: -652, mix: () => 'yards' },
+    // Westbrook (x -1045..-640 between Anchor and Heron Streets). The avenue
+    // strips stop short of Meridian's strips (z +-43) and run to the cross
+    // streets; the street strips stop short of the avenue strips' corners.
+    { id: 'wb_wn', road: 'Westbrook Avenue', axis: 'z', edge: -857, out: -1, a0: -281, a1: -47, mix: () => 'westbrook' },
+    { id: 'wb_ws', road: 'Westbrook Avenue', axis: 'z', edge: -857, out: -1, a0: 47, a1: 281, mix: () => 'westbrook' },
+    { id: 'wb_en', road: 'Westbrook Avenue', axis: 'z', edge: -843, out: 1, a0: -281, a1: -47, mix: () => 'westbrook' },
+    { id: 'wb_es', road: 'Westbrook Avenue', axis: 'z', edge: -843, out: 1, a0: 47, a1: 281, mix: () => 'westbrook' },
+    { id: 'or_wn', road: 'Orchard Avenue', axis: 'z', edge: -1007, out: -1, a0: -281, a1: -47, mix: () => 'westbrook' },
+    { id: 'or_ws', road: 'Orchard Avenue', axis: 'z', edge: -1007, out: -1, a0: 47, a1: 281, mix: () => 'westbrook' },
+    { id: 'or_en', road: 'Orchard Avenue', axis: 'z', edge: -993, out: 1, a0: -281, a1: -47, mix: () => 'westbrook' },
+    { id: 'or_es', road: 'Orchard Avenue', axis: 'z', edge: -993, out: 1, a0: 47, a1: 281, mix: () => 'westbrook' },
+    { id: 'an_n1', road: 'Anchor Street', axis: 'x', edge: -295, out: -1, a0: -993, a1: -857, mix: () => 'westmain' },
+    { id: 'an_n2', road: 'Anchor Street', axis: 'x', edge: -295, out: -1, a0: -843, a1: -650, mix: () => 'westmain' },
+    { id: 'an_s1', road: 'Anchor Street', axis: 'x', edge: -281, out: 1, a0: -955, a1: -895, mix: () => 'westmain' },
+    { id: 'an_s2', road: 'Anchor Street', axis: 'x', edge: -281, out: 1, a0: -805, a1: -650, mix: () => 'westmain' },
+    { id: 'hr_s1', road: 'Heron Street', axis: 'x', edge: 295, out: 1, a0: -993, a1: -857, mix: () => 'westmain' },
+    { id: 'hr_s2', road: 'Heron Street', axis: 'x', edge: 295, out: 1, a0: -843, a1: -650, mix: () => 'westmain' },
+    { id: 'hr_n1', road: 'Heron Street', axis: 'x', edge: 281, out: -1, a0: -955, a1: -895, mix: () => 'westmain' },
+    { id: 'hr_n2', road: 'Heron Street', axis: 'x', edge: 281, out: -1, a0: -805, a1: -650, mix: () => 'westmain' },
     { id: 'ar_w', road: 'Airport Road', axis: 'x', edge: -1171, out: 1, a0: -755, a1: -410, mix: () => 'hotels' },
     { id: 'ar_e', road: 'Airport Road', axis: 'x', edge: -1171, out: 1, a0: 38, a1: 335, mix: () => 'hotels' },
   ];
 
   // Extra shops on the strips (appended to layout.stores, so city shop ids keep their numbers).
   const SHOPS = [
-    { strip: 'mw_s', near: -860, brand: 'tidal' },
+    { strip: 'mw_s3', near: -760, brand: 'tidal' },
     { strip: 'gn_w', near: -1010, brand: 'kwikpik' },
+    // Westbrook's main streets and avenues: something to buy, or rob, on every corner.
+    { strip: 'an_n2', near: -760, brand: 'sunrise' },
+    { strip: 'an_s2', near: -700, brand: 'lustre' },
+    { strip: 'an_n1', near: -930, brand: 'bottlebay' },
+    { strip: 'hr_s2', near: -720, brand: 'coastline' },
+    { strip: 'hr_n2', near: -760, brand: 'gullmart' },
+    { strip: 'hr_s1', near: -920, brand: 'pawn' },
+    { strip: 'wb_en', near: -160, brand: 'arms' },
+    { strip: 'wb_ws', near: 170, brand: 'hilo' },
+    { strip: 'wb_es', near: 120, brand: 'tidal' },
+    { strip: 'or_en', near: -140, brand: 'kwikpik' },
+    { strip: 'or_ws', near: 200, brand: 'sprayshack' },
+    { strip: 'or_wn', near: -200, brand: 'bottlebay' },
   ];
 
   function hashString(s) {
@@ -211,6 +255,14 @@
       }
     },
 
+    /** Westbrook's named spots, for the GPS and the jobs set there (story-gangs.js). */
+    registerPlaces(world, places) {
+      places.add('westbrook', { name: 'Westbrook', x: -872, z: -150, yaw: Math.PI / 2, kind: 'street', district: 'westbrook' });
+      places.add('westbrook_main', { name: 'Anchor Street, Westbrook', x: -760, z: -278.2, yaw: Math.PI, kind: 'street', district: 'westbrook' });
+      places.add('westbrook_corner', { name: 'Westbrook and Meridian', x: -840.8, z: 62, yaw: -Math.PI / 2, kind: 'street', district: 'westbrook' });
+      places.add('orchard_lots', { name: 'Orchard Avenue', x: -1009.2, z: 160, yaw: Math.PI / 2, kind: 'street', district: 'westbrook' });
+    },
+
     // ============================================================== build
     build(world, layout) {
       const strips = layout.strips || [];
@@ -268,7 +320,7 @@
       const [x, z] = at(S, a, 0.7);
       world.addProp('streetlight', x, KERB, z, yaw, 1);
     }
-    const tree = S.id.startsWith('mw') ? 'tree' : 'palmTall';
+    const tree = /^(mw|wb|or)/.test(S.id) ? 'tree' : 'palmTall';
     for (let a = S.a0 + 21; a < S.a1 - 6; a += 26) {
       if (storeAt(a) || rng.next() < 0.15) continue; // keep shop forecourts open
       const [x, z] = at(S, a, 1.6);

@@ -111,7 +111,11 @@ function lintInPage(id) {
     checkSay(s.say, where);
     if (s.scene) {
       checkPlace(s.scene.at, where);
-      for (const c of s.scene.cast || []) if (!chars.has(typeof c === 'string' ? c : c.id)) issues.push(where + ': unknown cast "' + c + '"');
+      for (const c of s.scene.cast || []) {
+        const id = typeof c === 'string' ? c : c.id;
+        if (!chars.has(id)) issues.push(where + ': unknown cast "' + c + '"');
+        actors.add(id); // a scene brings its cast on as actors (missions.js _scene)
+      }
     }
     if (s.spawnCar) {
       if (!VH.Vehicle.typeSpec(s.type)) issues.push(where + ': unknown car type "' + s.type + '" (would spawn a halcyon)');
@@ -311,7 +315,10 @@ function tickInPage({ chunk, watch }) {
         else if (carId && p.vehicle !== carOf(carId)) { enter(carOf(carId)); break; }
         else if (step.vehicle === true && !p.vehicle) {
           const mine = [...run.cars.values()].find((v) => live(v) && !v.noEnter && v.driver !== 'ai');
-          if (mine) { enter(mine); break; }
+          // No mission car: take the nearest one, or one off the lot (like a player would).
+          const near = mine ? null : g.vehicles.findEnterable(p.pos.x, p.pos.z, 60);
+          enter(mine || (near && near.v) || g.vehicles.spawn('halcyon', p.pos.x + 4, p.pos.z, 0, {}));
+          break;
         }
         if (g.vehicles.entering) break;
         const r = step.radius || (step.vehicle ? 7 : 3.2);

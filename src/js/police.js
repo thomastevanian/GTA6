@@ -718,7 +718,9 @@
       // 4 stars: SWAT vans join the patrol cars. 5 stars: more of them, and the army's scouts.
       let type = 'interceptor';
       const tanks = this.units.filter((u) => !u.removed && !u.wrecked && u.kind === 'tank').length;
-      if (this.level >= 5 && !tanks && Math.random() < 0.3 && VH.Vehicle.typeSpec('bastion')) type = 'bastion';
+      // No tank during a story job: its scripted chases are tuned for cruisers and Bulwarks.
+      const story = this.game.missions && this.game.missions.run;
+      if (this.level >= 5 && !tanks && !story && Math.random() < 0.3 && VH.Vehicle.typeSpec('bastion')) type = 'bastion';
       else if (this.level >= 4 && Math.random() < (this.level >= 5 ? 0.4 : 0.3) && VH.Vehicle.typeSpec('bulwark')) type = 'bulwark';
       else if (this.level >= 5 && Math.random() < 0.3 && VH.Vehicle.typeSpec('scout')) type = 'scout';
       else if (Math.random() < 0.2 && VH.Vehicle.typeSpec('unmarked')) type = 'unmarked';

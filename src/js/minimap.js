@@ -104,6 +104,10 @@
     ['challenge', 'Challenge'],
     ['landmark', 'Landmark'],
     ['store', 'Corner shop'],
+    ['stash_health', 'Health stash'],
+    ['stash_armor', 'Armour stash'],
+    ['stash_weapon', 'Weapon stash'],
+    ['stash_cash', 'Cash stash'],
     ['plane', 'Aircraft'],
     ['tank', 'Military vehicle'],
     ['waypoint', 'Your waypoint'],
@@ -291,6 +295,12 @@
     g.closePath();
   }
 
+  function stashTile(g, col) {
+    g.beginPath();
+    g.arc(0, 0, 5.4, 0, TAU);
+    inkThenFill(g, col, 2.6);
+  }
+
   const GLYPHS = {
     player(g) {
       glow(g, 16, '255,79,139', 0.4);
@@ -374,6 +384,40 @@
       g.textAlign = 'center';
       g.textBaseline = 'middle';
       g.fillText('$', 0, 1.8);
+    },
+    // Stashes (stashes.js): a small tile in the colour of what's in it.
+    stash_health(g) {
+      stashTile(g, '#3ee07a');
+      g.fillStyle = '#ffffff';
+      g.fillRect(-1, -3.6, 2, 7.2);
+      g.fillRect(-3.6, -1, 7.2, 2);
+    },
+    stash_armor(g) {
+      stashTile(g, '#4aa8ff');
+      g.beginPath();
+      g.moveTo(0, -3.8);
+      g.lineTo(3.2, -2.4);
+      g.lineTo(2.6, 1.6);
+      g.lineTo(0, 3.8);
+      g.lineTo(-2.6, 1.6);
+      g.lineTo(-3.2, -2.4);
+      g.closePath();
+      g.fillStyle = '#ffffff';
+      g.fill();
+    },
+    stash_weapon(g) {
+      stashTile(g, '#ffb03a');
+      g.fillStyle = INK;
+      g.fillRect(-3.8, -2.2, 7.2, 2);
+      g.fillRect(-3.8, -2.2, 2.2, 5.6);
+    },
+    stash_cash(g) {
+      stashTile(g, '#7dffa8');
+      g.fillStyle = INK;
+      g.font = '700 8px ' + FONT;
+      g.textAlign = 'center';
+      g.textBaseline = 'middle';
+      g.fillText('$', 0, 0.6);
     },
     // Aircraft, drawn nose-up and turned to face their heading.
     plane(g) {
@@ -1522,10 +1566,7 @@
         this._reducedCheck = 0.5;
         this._reduced = document.body.classList.contains('reduced-flashing');
       }
-      if (this._fullOpen) {
-        this._drawFull();
-        return;
-      }
+      if (this._fullOpen) return; // mapview.js draws the full map (updateFull)
       if (!this._visible) return;
       this._acc += dt;
       const dpr = clamp(window.devicePixelRatio || 1, 1, 3);

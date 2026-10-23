@@ -23,7 +23,7 @@
   const FIXED_DT = 1 / 60;
   // World systems constructed after the club, in this order (each optional):
   // stores.js, airfield.js, fort.js, area51.js, horizon.js, photo.js, ambient.js, weather.js.
-  const WORLD_SYSTEMS = ['Stores', 'Airfield', 'Fort', 'Area51', 'Horizon', 'PhotoMode', 'Ambient', 'RandomEvents', 'Weather'];
+  const WORLD_SYSTEMS = ['Stores', 'Stashes', 'Airfield', 'Fort', 'Area51', 'Horizon', 'PhotoMode', 'Ambient', 'RandomEvents', 'Weather'];
   const SEEN_KEY = 'vicehaven.seen.map-v1.1'; // set once the player has opened the new map
   const CDN_THREE = 'https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js';
 
@@ -259,7 +259,7 @@
       if (VH.Docks && this.world.docks) VH.Docks.registerPlaces(this.world.docks, this.places);
       if (VH.Estates && this.world.estates) VH.Estates.registerPlaces(this.world.estates, this.places);
       // The places beyond the old city limits, and the corner shops.
-      for (const k of ['Skyline'].concat(WORLD_SYSTEMS)) if (VH[k] && VH[k].registerPlaces) VH[k].registerPlaces(this.world, this.places);
+      for (const k of ['Skyline', 'Suburbs'].concat(WORLD_SYSTEMS)) if (VH[k] && VH[k].registerPlaces) VH[k].registerPlaces(this.world, this.places);
       this.places.finish();
       this.missions = new VH.MissionEngine(this);
       this.interaction.on('mission', (item) => {

@@ -136,11 +136,7 @@
       const g = new THREE.Group();
       let model = null;
       if (kind === 'weapon' && VH.WeaponModels) model = (VH.WeaponModels.pickup || VH.WeaponModels.build)(id);
-      if (!model) {
-        const color = kind === 'health' ? new THREE.Color(0.3, 2.2, 0.7) : kind === 'armor' ? new THREE.Color(0.4, 1.0, 3) : kind === 'cash' ? new THREE.Color(0.4, 2.4, 0.8) : new THREE.Color(2.5, 1.7, 0.4);
-        model = new THREE.Mesh(kind === 'armor' ? new THREE.BoxGeometry(0.34, 0.42, 0.12) : kind === 'health' ? new THREE.BoxGeometry(0.36, 0.26, 0.2) : new THREE.BoxGeometry(0.3, 0.2, 0.2),
-          new THREE.MeshStandardMaterial({ color: 0x222222, emissive: color, roughness: 0.4 }));
-      }
+      if (!model) model = Pickup.model(kind);
       g.add(model);
       const ringMat = Pickup._ring || (Pickup._ring = new THREE.MeshBasicMaterial({ color: new THREE.Color(1.8, 1.1, 0.3), transparent: true, opacity: 0.7, blending: THREE.AdditiveBlending, depthWrite: false }));
       const ring = new THREE.Mesh(Pickup._ringGeo || (Pickup._ringGeo = new THREE.RingGeometry(0.42, 0.5, 32).rotateX(-Math.PI / 2)), ringMat);
@@ -150,6 +146,63 @@
       this.group = g;
       this.model = model;
       combat.game.scene.add(g);
+    }
+
+    /** A little model for health, armour, cash and ammo (shared geometry and materials). */
+    static model(kind) {
+      const M = Pickup._mats || (Pickup._mats = {
+        white: new THREE.MeshStandardMaterial({ color: 0xf2f2ee, emissive: new THREE.Color(0.25, 0.25, 0.25), roughness: 0.5 }),
+        red: new THREE.MeshStandardMaterial({ color: 0xd8202a, emissive: new THREE.Color(0.9, 0.05, 0.08), roughness: 0.5 }),
+        vest: new THREE.MeshStandardMaterial({ color: 0x2a3340, emissive: new THREE.Color(0.05, 0.12, 0.3), roughness: 0.8 }),
+        strap: new THREE.MeshStandardMaterial({ color: 0x5a7fb0, emissive: new THREE.Color(0.2, 0.45, 1.2), roughness: 0.6 }),
+        note: new THREE.MeshStandardMaterial({ color: 0x6fae6a, emissive: new THREE.Color(0.12, 0.45, 0.12), roughness: 0.7 }),
+        band: new THREE.MeshStandardMaterial({ color: 0xf0e2b0, emissive: new THREE.Color(0.4, 0.35, 0.15), roughness: 0.6 }),
+        ammo: new THREE.MeshStandardMaterial({ color: 0x4b5320, emissive: new THREE.Color(0.25, 0.22, 0.05), roughness: 0.7 }),
+        brass: new THREE.MeshStandardMaterial({ color: 0xd8a640, emissive: new THREE.Color(0.9, 0.6, 0.15), roughness: 0.35, metalness: 0.6 }),
+      });
+      const g = new THREE.Group();
+      const box = (w, h, d, m, x, y, z) => {
+        const b = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m);
+        b.position.set(x || 0, y || 0, z || 0);
+        b.castShadow = true;
+        g.add(b);
+        return b;
+      };
+      if (kind === 'health') {
+        // A first-aid kit: white case, red cross on both faces, a handle.
+        box(0.4, 0.28, 0.14, M.white);
+        for (const s of [1, -1]) {
+          box(0.06, 0.18, 0.01, M.red, 0, 0, s * 0.075);
+          box(0.18, 0.06, 0.01, M.red, 0, 0, s * 0.075);
+        }
+        box(0.14, 0.03, 0.04, M.white, 0, 0.17, 0);
+      } else if (kind === 'armor') {
+        // A plate carrier: front panel, shoulder straps, a glowing trim.
+        box(0.34, 0.4, 0.07, M.vest);
+        box(0.36, 0.05, 0.08, M.strap, 0, -0.12, 0);
+        box(0.07, 0.12, 0.07, M.vest, -0.11, 0.25, 0);
+        box(0.07, 0.12, 0.07, M.vest, 0.11, 0.25, 0);
+        box(0.2, 0.12, 0.02, M.strap, 0, 0.06, 0.045);
+      } else if (kind === 'cash') {
+        // Three banded bricks of notes.
+        for (let i = 0; i < 3; i++) {
+          const y = -0.06 + i * 0.07;
+          const b = box(0.3, 0.06, 0.14, M.note, (i - 1) * 0.02, y, (i % 2) * 0.03);
+          b.rotation.y = (i - 1) * 0.25;
+          const band = box(0.06, 0.065, 0.145, M.band, (i - 1) * 0.02, y, (i % 2) * 0.03);
+          band.rotation.y = b.rotation.y;
+        }
+      } else {
+        // An ammo can with a few rounds standing on the lid.
+        box(0.32, 0.2, 0.16, M.ammo);
+        box(0.2, 0.03, 0.04, M.ammo, 0, 0.115, 0);
+        for (let i = 0; i < 3; i++) {
+          const r = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.1, 8), M.brass);
+          r.position.set(-0.08 + i * 0.08, 0.15, 0.05);
+          g.add(r);
+        }
+      }
+      return g;
     }
 
     update(dt, player) {
@@ -638,7 +691,9 @@
         if (g.audio.cash) g.audio.cash();
         return true;
       } else if (p.kind === 'weapon') {
+        const had = !!this.inventory[p.id];
         this.giveWeapon(p.id, p.amount);
+        if (had) g.hud.showToast('+' + p.amount + ' ' + ((def(p.id) || {}).name || 'ammo'));
       } else if (p.kind === 'ammo') {
         if (!this.inventory[p.id]) return false;
         this.giveWeapon(p.id, p.amount, true);
