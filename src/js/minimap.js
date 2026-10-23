@@ -104,6 +104,8 @@
     ['challenge', 'Challenge'],
     ['landmark', 'Landmark'],
     ['store', 'Corner shop'],
+    ['property', 'Business for sale'],
+    ['property_owned', 'Your business'],
     ['stash_health', 'Health stash'],
     ['stash_armor', 'Armour stash'],
     ['stash_weapon', 'Weapon stash'],
@@ -295,6 +297,22 @@
     g.closePath();
   }
 
+  function propertyShape(g, col) {
+    g.beginPath();
+    g.moveTo(-6.4, -1.6);
+    g.lineTo(0, -7.2);
+    g.lineTo(6.4, -1.6);
+    g.lineTo(6.4, 6.4);
+    g.lineTo(-6.4, 6.4);
+    g.closePath();
+    inkThenFill(g, col, 3);
+    g.fillStyle = INK;
+    g.font = '700 8px ' + FONT;
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.fillText('$', 0, 2);
+  }
+
   function stashTile(g, col) {
     g.beginPath();
     g.arc(0, 0, 5.4, 0, TAU);
@@ -418,6 +436,13 @@
       g.textAlign = 'center';
       g.textBaseline = 'middle';
       g.fillText('$', 0, 0.6);
+    },
+    // A business (properties.js): a little shopfront, grey while it's for sale, green once it's Jay's.
+    property(g) {
+      propertyShape(g, '#c9ced8');
+    },
+    property_owned(g) {
+      propertyShape(g, '#3ee07a');
     },
     // Aircraft, drawn nose-up and turned to face their heading.
     plane(g) {

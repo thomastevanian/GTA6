@@ -79,6 +79,8 @@
     store: { name: 'Corner shop', cat: 'shops', cluster: true, labelAt: 1.15, tip: 'Snacks inside. Point a gun at the clerk to hold it up, but the police will come.' },
     shop: { name: 'Club', cat: 'shops', cluster: true, labelAt: 0.7, tip: 'Open every night.' },
     safehouse: { name: 'Safehouse', cat: 'places', labelAt: 0.5 },
+    property: { name: 'Business for sale', cat: 'shops', labelAt: 0.9, tip: 'Buy it at the FOR SALE board out front. It pays into a safe every day.' },
+    property_owned: { name: 'Your business', cat: 'shops', labelAt: 0.9, tip: 'Empty the safe at the office board out front.' },
     stash_health: { name: 'Health stash', cat: 'places', cluster: true, labelAt: 1.4, tip: 'Walk over it to pick it up. It comes back a few minutes later.' },
     stash_armor: { name: 'Armour stash', cat: 'places', cluster: true, labelAt: 1.4, tip: 'Walk over it to pick it up. It comes back a few minutes later.' },
     stash_weapon: { name: 'Weapon stash', cat: 'places', cluster: true, labelAt: 1.4, tip: 'Walk over it to pick it up. It comes back a few minutes later.' },

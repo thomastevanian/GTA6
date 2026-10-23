@@ -59,6 +59,7 @@
     pawn: { name: 'Lucky Strike Pawn', sign: ['LUCKY STRIKE', 'PAWN · CASH 4 GOLD'], bg: ['#d4a017', '#9a6f0a'], fg: '#1a1a1a', band: 0xc4920f, trim: 0x1a1a1a, shirt: 0x6b4a2e, kind: 'pawn' },
     lustre: { name: 'Lustre Jewellers', sign: ['LUSTRE', 'FINE JEWELLERY'], bg: ['#f4f0e6', '#cfc6b0'], fg: '#1d2b4a', band: 0xe9e3d3, trim: 0x1d2b4a, shirt: 0x1d2b4a, kind: 'jewel' },
     sprayshack: { name: 'Spray Shack', sign: ['SPRAY SHACK', 'RESPRAY · REPAIRS'], bg: ['#2ad4c4', '#127a8c'], fg: '#ffffff', band: 0x1aa6a6, trim: 0xff4f8b, shirt: 0x1aa6a6, kind: 'spray' },
+    threads: { name: 'Threads', sign: ['THREADS', 'CLOTHING · SHOES'], bg: ['#ff6fa8', '#8c2d6b'], fg: '#ffffff', band: 0xd94f8c, trim: 0xffe0ef, shirt: 0x2d2d33, kind: 'clothes' },
     coastline: { name: 'Coastline Savings', sign: ['COASTLINE SAVINGS', 'BANK · ATM'], bg: ['#1d4fb8', '#0f2f73'], fg: '#ffffff', band: 0x1d4fb8, trim: 0xf2c94c, shirt: 0x1c2a44, kind: 'bank' },
   };
   // How each kind of shop is held up: cash (base + up to extra), seconds of
@@ -69,6 +70,7 @@
     gas: { base: 420, extra: 380, secs: 5.5, heat: 2, fight: 0.2, guards: 0 },
     liquor: { base: 450, extra: 400, secs: 6, heat: 2, fight: 0.35, guards: 0 },
     pawn: { base: 900, extra: 700, secs: 8, heat: 3, fight: 0.4, guards: 0 },
+    clothes: { base: 380, extra: 350, secs: 6, heat: 2, fight: 0.15, guards: 0 },
     guns: { base: 700, extra: 500, secs: 7, heat: 3, fight: 1, guards: 0 },
     jewel: { base: 1800, extra: 1400, secs: 9, heat: 3, fight: 0, guards: 1 },
     bank: { base: 3500, extra: 3000, secs: 12, heat: 4, fight: 0, guards: 2 },
@@ -83,7 +85,19 @@
   const SPRAY_COLORS = [0xd8262e, 0x1d4fb8, 0xf2c500, 0x1faa6b, 0xf1f2ef, 0x1c1c1f, 0xff4f8b, 0x13b5b1, 0x8a3fd1, 0xc4561d, 0x9aa1a8];
   const kindOf = (s) => BRANDS[s.brand].kind || (s.gas ? 'gas' : 'mart');
   // Dealt over the non-mart shops (every other one), in this order.
-  const SPECIALS = ['arms', 'lustre', 'pawn', 'bottlebay', 'arms', 'pawn', 'bottlebay', 'lustre', 'bottlebay', 'arms'];
+  const SPECIALS = ['arms', 'lustre', 'pawn', 'bottlebay', 'arms', 'pawn', 'bottlebay', 'lustre', 'bottlebay', 'arms', 'threads', 'threads'];
+
+  // Threads' rail (Humanoid look overrides on Jay's own; 'jacket' is the top's colour).
+  const OUTFITS = [
+    { id: 'classic', name: 'Driving jacket', price: 0, look: {} },
+    { id: 'hoodie', name: 'Night hoodie', price: 120, look: { outfit: 'hoodie', jacket: 0x1d1f26, jacketTrim: 0xff4f8b, shirt: 0x1d1f26, leather: false } },
+    { id: 'beach', name: 'Beach shirt', price: 90, look: { outfit: 'shirt', jacket: 0xf2a03a, jacketTrim: 0x1fa3a3, shirt: 0xffffff, pants: 0xd8c8a0, bottomStyle: 'shorts', glasses: 'sun', leather: false } },
+    { id: 'track', name: 'Teal tracksuit', price: 150, look: { outfit: 'hoodie', jacket: 0x1fa3a3, jacketTrim: 0xffffff, shirt: 0xffffff, pants: 0x1fa3a3, hat: 'cap', leather: false } },
+    { id: 'tank', name: 'Tank top', price: 60, look: { outfit: 'tank', jacket: 0xf4f1ea, shirt: 0xf4f1ea, pants: 0x3a5f8c, bottomStyle: 'shorts', hat: 'bandana', leather: false } },
+    { id: 'polo', name: 'Clubhouse polo', price: 180, look: { outfit: 'polo', jacket: 0x2d6b4f, jacketTrim: 0xf4f1ea, shirt: 0x2d6b4f, pants: 0xd8c8a0, shoeStyle: 'dress', leather: false } },
+    { id: 'night', name: 'Night-out black', price: 400, look: { outfit: 'shirt', jacket: 0x14161c, jacketTrim: 0x2a2d35, shirt: 0x14161c, pants: 0x14161c, shoes: 0x111111, shoeStyle: 'dress', glasses: 'sun', leather: false } },
+    { id: 'biker', name: 'Black biker leathers', price: 650, look: { outfit: 'jacket', jacket: 0x121212, jacketTrim: 0x2a2a2a, shirt: 0x3a3a3a, pants: 0x1a1d22, hat: 'beanie', shoeStyle: 'boot', glasses: 'sun', leather: true } },
+  ];
   const MARTS = ['sunrise', 'gullmart', 'hilo', 'kwikpik'];
   // Shops per district (the docks and estates have their own builders).
   const QUOTA = { oldmarket: 9, harborpoint: 9, palmcrescent: 6, downtown: 4 };
@@ -485,6 +499,10 @@
       ctx.addInteractable({ id: s.id + '_ammo', kind: 'storeAmmo', store: s.id, x: ax, y: y0 + 1.0, z: az, radius: 1.3, label: 'Buy ammo for every gun', price: AMMO_PRICE });
       ctx.addInteractable({ id: s.id + '_armor', kind: 'storeArmor', store: s.id, x: rx, y: y0 + 1.0, z: rz, radius: 1.3, label: 'Buy body armour', price: ARMOR_PRICE });
     }
+    if (kind === 'clothes') {
+      const [tx, tz] = P(f, c1 + 0.55, (cv0 + cv1) / 2);
+      ctx.addInteractable({ id: s.id + '_outfit', kind: 'storeOutfit', store: s.id, x: tx, y: y0 + 1.0, z: tz, radius: 1.7, label: 'Try on: ' + OUTFITS[1].name, price: OUTFITS[1].price });
+    }
     if (s.gas) buildForecourt(world, ctx, s, D);
     return yTop + 1.0;
   }
@@ -558,6 +576,31 @@
           D.box('interior', u + 0.43, y0 + 1.35, fv + 0.42, u + 0.52, y0 + 2.1, fv + 0.48, wood);
         }
       }
+    } else if (kind === 'clothes') {
+      // Shirts on the back wall in every colour, two rails and a mannequin.
+      const shirts = [0xff6fa8, 0x1fa3a3, 0xf2a03a, 0x14161c, 0xf4f1ea, 0x2d6b4f, 0x3d7be0, 0xd93b48];
+      for (let row = 0; row < 2; row++) {
+        const y = y0 + 1.0 + row * 0.85;
+        D.box('interior', fu0 + 0.2, y + 0.55, fv + 0.36, i1 - 0.2, y + 0.58, fv + 0.42, VH.col(0xb8bcc2));
+        for (let u = fu0 + 0.3; u < i1 - 0.5; u += 0.36) D.box('interior', u, y, fv + 0.3, u + 0.3, y + 0.52, fv + 0.46, VH.col(rng.pick(shirts)));
+      }
+      for (let k = 0; k < 2; k++) {
+        const v = mv0 + 0.4 + k * 1.6;
+        if (v + 0.3 > mv1) break;
+        D.box('interior', mu0, y0 + 1.45, v, mu1 - 1.4, y0 + 1.5, v + 0.05, VH.col(0xb8bcc2));
+        D.box('interior', mu0, y0, v, mu0 + 0.05, y0 + 1.5, v + 0.05, VH.col(0xb8bcc2));
+        D.box('interior', mu1 - 1.45, y0, v, mu1 - 1.4, y0 + 1.5, v + 0.05, VH.col(0xb8bcc2));
+        for (let u = mu0 + 0.2; u < mu1 - 1.6; u += 0.22) D.box('interior', u, y0 + 0.75, v - 0.2, u + 0.06, y0 + 1.42, v + 0.25, VH.col(rng.pick(shirts)));
+        D.collide(mu0, 0, v - 0.2, mu1 - 1.4, y0 + 1.5, v + 0.25, 'shelf', FLAGS);
+      }
+      // A mannequin in this season's colour by the window.
+      const mu = mu1 - 0.6;
+      const mv = mv0 + 0.4;
+      D.box('interior', mu - 0.25, y0, mv - 0.25, mu + 0.25, y0 + 0.08, mv + 0.25, dark);
+      D.box('interior', mu - 0.06, y0 + 0.08, mv - 0.06, mu + 0.06, y0 + 0.9, mv + 0.06, VH.col(0xe8e2d6));
+      D.box('interior', mu - 0.24, y0 + 0.9, mv - 0.14, mu + 0.24, y0 + 1.55, mv + 0.14, VH.col(0xff6fa8));
+      D.box('interior', mu - 0.1, y0 + 1.55, mv - 0.1, mu + 0.1, y0 + 1.82, mv + 0.1, VH.col(0xe8e2d6));
+      D.collide(mu - 0.25, 0, mv - 0.25, mu + 0.25, y0 + 1.8, mv + 0.25, 'prop', FLAGS);
     }
     void i0;
   }
@@ -836,6 +879,8 @@
       this.until = {}; // store id -> playTime when the till is full again
       this.robbed = 0;
       this.cash = 0;
+      this.outfit = 'classic'; // what Jay's wearing (Threads)
+      this.wardrobe = new Set(['classic']); // outfits he owns
       this.clerks = new Map(); // store id -> agent
       this.killed = new Set(); // shops whose clerk was killed: shut until the till refills
       this.active = null;
@@ -852,6 +897,7 @@
       g.interaction.on('storeBuy', (item, player) => this._buy(item, player));
       g.interaction.on('storeAmmo', (item, player) => this._buyAmmo(item, player));
       g.interaction.on('storeArmor', (item, player) => this._buyArmor(item, player));
+      g.interaction.on('storeOutfit', (item, player) => this._tryOn(item, player));
       g.interaction.on('atm', (item) => this._startHack(item));
       VH.events.on('agent:died', (e) => {
         const s = this._storeOfClerk(e.agent);
@@ -1326,6 +1372,53 @@
       return 1.2;
     }
 
+    // ------------------------------------------------------- clothes
+    /** The next outfit on Threads' rail after the one Jay's wearing. */
+    _nextOutfit() {
+      const i = OUTFITS.findIndex((o) => o.id === this.outfit);
+      return OUTFITS[(i + 1) % OUTFITS.length];
+    }
+
+    /** Label every Threads counter with what's next on the rail. */
+    _syncOutfitItems() {
+      const next = this._nextOutfit();
+      const owned = this.wardrobe.has(next.id);
+      for (const it of this.game.interaction.items) {
+        if (it.kind !== 'storeOutfit') continue;
+        it.label = (owned ? 'Change into: ' : 'Buy and wear: ') + next.name;
+        it.price = owned ? undefined : next.price;
+      }
+      const cur = this.game.interaction.current;
+      if (cur && cur.kind === 'storeOutfit') VH.events.emit('interaction:focus', { item: cur });
+    }
+
+    /** Dress Jay (the model keeps its joints, so a gun in hand stays put). */
+    _wear(id) {
+      const o = OUTFITS.find((x) => x.id === id) || OUTFITS[0];
+      this.outfit = o.id;
+      const m = this.game.player.model;
+      if (m && m.setLook) m.setLook(Object.assign({}, VH.Humanoid.JAY_LOOK, o.look));
+    }
+
+    _tryOn(item, player) {
+      const g = this.game;
+      const next = this._nextOutfit();
+      if (!this.wardrobe.has(next.id)) {
+        if (player.money < next.price) {
+          VH.events.emit('notify', { title: 'Not enough cash', text: next.name + ' costs ' + VH.util.formatMoney(next.price) + '.', icon: '✕', tone: 'bad' });
+          return 1;
+        }
+        player.money -= next.price;
+        VH.events.emit('money:changed', { delta: -next.price, reason: next.name });
+        this.wardrobe.add(next.id);
+      }
+      this._wear(next.id);
+      if (g.audio.pickup) g.audio.pickup();
+      g.hud.showToast(next.name + (next.id === 'classic' ? ': the old jacket back on' : ''));
+      this._syncOutfitItems();
+      return 0.8;
+    }
+
     // ---------------------------------------------------------- HUD
     _buildHud() {
       const el = document.createElement('div');
@@ -1371,7 +1464,7 @@
       for (const s of this.list) {
         if (!this.isOpen(s)) continue;
         const k = kindOf(s);
-        const tag = k === 'spray' ? ' · lose the cops' : k === 'guns' ? ' · ammo & armour' : k === 'bank' ? ' · bank' : k === 'jewel' ? ' · jeweller' : k === 'pawn' ? ' · pawn shop' : '';
+        const tag = k === 'spray' ? ' · lose the cops' : k === 'clothes' ? ' · clothes' : k === 'guns' ? ' · ammo & armour' : k === 'bank' ? ' · bank' : k === 'jewel' ? ' · jeweller' : k === 'pawn' ? ' · pawn shop' : '';
         out.push({ x: s.door.x, z: s.door.z, type: 'store', label: BRANDS[s.brand].name + tag, noRim: true });
       }
     }
@@ -1384,7 +1477,7 @@
     serialize() {
       const until = {};
       for (const k of Object.keys(this.until)) if (this.until[k] > this.game.playTime) until[k] = Math.round(this.until[k]);
-      return { until, robbed: this.robbed, cash: this.cash, atms: this.atms || 0, carsSold: this.carsSold || 0 };
+      return { until, robbed: this.robbed, cash: this.cash, atms: this.atms || 0, carsSold: this.carsSold || 0, outfit: this.outfit, wardrobe: [...this.wardrobe] };
     }
 
     load(data) {
@@ -1396,6 +1489,9 @@
       this.carsSold = data.carsSold || 0;
       this.active = null;
       this.hack = null;
+      this.wardrobe = new Set(['classic'].concat(data.wardrobe || []));
+      this._wear(this.wardrobe.has(data.outfit) ? data.outfit : 'classic');
+      if (this.ok) this._syncOutfitItems();
     }
 
     stop() {
@@ -1417,6 +1513,9 @@
       this.cash = 0;
       this._tipShown = false;
       this._lastInside = null;
+      this.wardrobe = new Set(['classic']);
+      this._wear('classic');
+      this._syncOutfitItems();
     }
   }
 

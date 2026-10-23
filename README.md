@@ -19,6 +19,14 @@ Handy keys: `WASD` move · `Shift` sprint · `E`/`F` enter vehicles · `Tab` wea
 - Weapons and ammo: every firearm starts with a full magazine plus 100 spare rounds; ammo pickups are worth 100.
 - 30 car types, a fleet of aircraft (fighters, bombers, a warbird, a cargo plane, a UFO), a tank.
 - Fort Breakwater (army base) and Area 51, with guards, alarms and a UFO heist mission.
+- 40+ shops to rob or shop in (corner shops, liquor, gun shops with ammo and armour, pawn, jewellers, banks, Threads clothes
+  shops), ATMs to hack, Spray Shacks, and Big Otto's chop shop for stolen cars.
+- Westbrook, a west-side neighbourhood of bungalows and main-street shops between Crestline and the army base.
+- Businesses to buy (a laundrette, a car wash, a bowling alley, motels...) that pay into a safe every in-game day.
+- 45 hidden stashes of health, armour, guns and cash that come back a few minutes after you take them.
+- Gang jobs ("Street Money"), air races, stunt jumps, taxi work, random street events and peer-to-peer multiplayer (F9).
+- Cheat codes: type them while playing. TOOLUP (weapons), PATCHUP (health and armour), PAYDAY (cash), LIEDOWN / RAISEHELL
+  (wanted level), ROLLOUT (tank), FASTLANE (sports car), SAUCER (UFO), JETSET (fighter jet), SUNNYDAY / STORMY, NIGHTOWL.
 - Post-processing: ambient occlusion, sun shafts and haze, lens flare, motion blur, depth of field in photo mode.
 
 ## Developing

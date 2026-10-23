@@ -116,6 +116,8 @@
     { strip: 'or_en', near: -140, brand: 'kwikpik' },
     { strip: 'or_ws', near: 200, brand: 'sprayshack' },
     { strip: 'or_wn', near: -200, brand: 'bottlebay' },
+    { strip: 'mw_s2', near: -930, brand: 'threads' },
+    { strip: 'gn_w', near: -800, brand: 'threads' },
   ];
 
   function hashString(s) {

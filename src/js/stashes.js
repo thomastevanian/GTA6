@@ -173,7 +173,15 @@
       }
     }
 
-    reset() {}
+    /** A new game: every stash is back. */
+    reset() {
+      this.taken = 0;
+      for (const s of this.list) {
+        s.pk.hiddenT = 0;
+        s.pk.group.visible = true;
+        s.wasHidden = false;
+      }
+    }
 
     stop() {}
 

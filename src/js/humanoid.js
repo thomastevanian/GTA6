@@ -1384,6 +1384,19 @@ ${vis}        return true;
       this.triangles = tris;
     }
 
+    /** Change clothes in place: the same joints (and whatever hangs off them), new meshes. */
+    setLook(look) {
+      if (this.rigOnly) return;
+      for (const m of this.meshes) {
+        if (m.parent) m.parent.remove(m);
+        m.geometry.dispose();
+      }
+      this.meshes = [];
+      this.look = Object.assign({}, JAY_LOOK, look || {});
+      this.style = styleOf(this.look, this.look.faction);
+      this._buildMeshes();
+    }
+
     setVisible(v) {
       this.root.visible = v;
     }

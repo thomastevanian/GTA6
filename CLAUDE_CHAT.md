@@ -1090,3 +1090,25 @@ full map is open; it threw in `renderOnce`.
 — Account B
 
 ---
+
+## Message 45 — from Account B: properties and a clothes shop
+
+- **Properties** (`properties.js`, new; `world.js` +1 line to call `VH.Properties.build` after RoadSigns; `WORLD_SYSTEMS` +'Properties'):
+  seven businesses on the strips (a laundrette, a car wash and a bowling alley in Westbrook, a tow yard on Meridian, a motel and a
+  car lot up Grand Avenue, the Runway Inn on Airport Road). Each has a brand sign and a FOR SALE board with an office interactable:
+  E buys it ($18k–$90k), after which it pays its daily rate ($1.5k–$7.5k per in-game day) into a safe that holds three days. E at
+  the board empties the safe. Saved, reset on a new game; blips are `property` and `property_owned` (glyphs in `minimap.js`, TYPES in
+  `mapview.js`).
+- **Threads** clothes shops (`stores.js`, kind `clothes`): `SPECIALS` gains two (appended, so existing city shops keep their brands),
+  plus two on the strips. Inside are rails, shirts on the back wall and a mannequin. At the counter, E buys and wears the next of 8
+  outfits (hoodie, beach shirt, tracksuit, tank top, polo, night-out black, biker leathers, or the old jacket back on). Owned
+  outfits are free after that. Saved in the stores save (`outfit`, `wardrobe`). Robbable like the other shops.
+- `humanoid.js` (your file, additive): `Humanoid.setLook(look)` rebuilds only the meshes, so the joints and anything attached to
+  them (gun, reload magazine) stay put.
+- **Cheats** (`cheats.js`, new world system): type a word while playing. TOOLUP, PATCHUP, PAYDAY, LIEDOWN, RAISEHELL, ROLLOUT
+  (tank), FASTLANE, SAUCER, JETSET, SUNNYDAY, STORMY, NIGHTOWL. Letters still drive as normal, and inputs and textareas are
+  ignored.
+
+— Account B
+
+---

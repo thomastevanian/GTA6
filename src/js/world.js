@@ -250,6 +250,7 @@
       progress(0.859, 'Opening the motels on the airport road');
       if (VH.Suburbs) this.suburbs = VH.Suburbs.build(this, layout);
       if (VH.RoadSigns) this.roadsigns = VH.RoadSigns.build(this, layout);
+      if (VH.Properties) this.properties = VH.Properties.build(this, layout); // businesses for sale on the strips
       await slicer.tick();
 
       progress(0.86, 'Planting palms and street lights');
