@@ -1,0 +1,336 @@
+/*
+ * dialogue.css — subtitles, cutscene letterbox, blackout scenes, phone
+ * calls, the police radio and choice prompts.
+ */
+
+.dlg {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 30;
+  font-family: var(--vh-font);
+}
+
+/* Subtitles */
+.dlg-sub {
+  position: absolute;
+  left: 50%;
+  bottom: 12%;
+  max-width: min(900px, 80vw);
+  transform: translateX(-50%);
+  text-align: center;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  font-size: calc(1.2rem * var(--vh-subtitle-scale));
+  line-height: 1.4;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.95), 0 0 18px rgba(0, 0, 0, 0.7);
+}
+
+.dlg-sub.show {
+  opacity: 1;
+}
+
+.dlg-name {
+  font-family: var(--vh-font-display);
+  font-size: 0.82em;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  margin-bottom: 0.15rem;
+}
+
+.dlg-text i {
+  color: var(--vh-muted);
+  font-style: italic;
+  font-size: 0.86em;
+  opacity: 0.8;
+  margin: 0 0.35em 0 0.1em;
+}
+
+.dlg.scene .dlg-sub {
+  bottom: 7.5%;
+  font-size: calc(1.35rem * var(--vh-subtitle-scale));
+}
+
+/* Letterbox bars for cutscenes */
+.dlg-letterbox .bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 11vh;
+  background: #000;
+  transition: transform 0.7s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.dlg-letterbox .bar.top {
+  top: 0;
+  transform: translateY(-100%);
+}
+
+.dlg-letterbox .bar.bottom {
+  bottom: 0;
+  transform: translateY(100%);
+}
+
+.dlg-letterbox.on .bar {
+  transform: none;
+}
+
+body.cutscene .hud > *:not(.hud-fade):not(.hud-bigtext):not(.hud-center-banner) {
+  opacity: 0 !important;
+  transition: opacity 0.4s;
+}
+
+body.cutscene .minimap,
+body.cutscene .mm-radar {
+  opacity: 0 !important;
+}
+
+.dlg-skip {
+  position: absolute;
+  right: 2rem;
+  bottom: 3.5vh;
+  font-size: 0.75rem;
+  letter-spacing: 0.12em;
+  color: rgba(255, 255, 255, 0.45);
+  z-index: 2;
+}
+
+/* Blackout scenes: memories, interiors, the quiet moments */
+.dlg-blackout {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at center, #0a0c14 0%, #000 70%);
+  opacity: 0;
+  transition: opacity 1.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.dlg.blackout-on .dlg-blackout {
+  opacity: 1;
+}
+
+.dlg-black-text {
+  width: min(760px, 84vw);
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+}
+
+.dlg-black-text p {
+  margin: 0;
+  font-size: calc(1.3rem * var(--vh-subtitle-scale));
+  line-height: 1.55;
+  color: rgba(241, 244, 255, 0.92);
+  animation: black-line 1.4s ease both;
+}
+
+.dlg-black-text p:not(:last-child) {
+  opacity: 0.38;
+  transition: opacity 1s;
+}
+
+.dlg-black-text p.cap {
+  font-family: var(--vh-font-display);
+  font-size: calc(1rem * var(--vh-subtitle-scale));
+  letter-spacing: 0.35em;
+  text-transform: uppercase;
+  color: var(--vh-accent-2);
+  text-align: center;
+}
+
+.dlg-black-text .who {
+  font-family: var(--vh-font-display);
+  font-size: 0.72em;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  margin-right: 0.8rem;
+}
+
+.dlg-black-text i {
+  color: var(--vh-muted);
+}
+
+@keyframes black-line {
+  from { opacity: 0; transform: translateY(8px); filter: blur(3px); }
+  to { opacity: 1; transform: none; filter: none; }
+}
+
+/* Phone call */
+.dlg-phone {
+  position: absolute;
+  right: 2rem;
+  top: 38%;
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  padding: 0.7rem 1.1rem;
+  border-radius: 14px;
+  background: rgba(9, 13, 26, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  opacity: 0;
+  transform: translateX(20px);
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+.dlg.phone-on .dlg-phone {
+  opacity: 1;
+  transform: none;
+}
+
+.dlg-phone-icon {
+  font-size: 1.5rem;
+  animation: phone-ring 1.4s ease-in-out infinite;
+}
+
+.dlg-phone-who {
+  font-family: var(--vh-font-display);
+  font-weight: 700;
+  letter-spacing: 0.16em;
+}
+
+@keyframes phone-ring {
+  0%, 60%, 100% { transform: rotate(0); }
+  10%, 30%, 50% { transform: rotate(-12deg); }
+  20%, 40% { transform: rotate(12deg); }
+}
+
+/* Police radio */
+.dlg-radio {
+  /* Bottom right, above the speedometer and the district name: the left
+     side is the notifications and the radar. */
+  position: absolute;
+  right: 1.8rem;
+  bottom: 20rem;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.4rem;
+  width: min(400px, 36vw);
+}
+
+/* On the right-hand side, the captions mirror: edge on the right, sliding in from it. */
+.dlg-radio .dlg-radio-line {
+  border-left: 0;
+  border-right: 3px solid #56b4ff;
+  background: linear-gradient(270deg, rgba(10, 22, 48, 0.82), rgba(10, 22, 48, 0.3));
+  text-align: right;
+  align-items: flex-end;
+  transform: translateX(12px);
+}
+
+/* A phone call's card sits on the right too: the captions go below it meanwhile. */
+.dlg.phone-on .dlg-radio {
+  bottom: auto;
+  top: calc(38% + 4.5rem);
+}
+
+@media (max-height: 720px) {
+  .dlg-radio {
+    bottom: 19.6rem;
+  }
+  .dlg-radio-line:nth-child(n + 3) {
+    display: none;
+  }
+}
+
+.dlg-radio-line {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.5rem 0.8rem;
+  border-left: 3px solid #56b4ff;
+  border-radius: 6px;
+  background: linear-gradient(90deg, rgba(10, 22, 48, 0.82), rgba(10, 22, 48, 0.3));
+  font-size: 0.9rem;
+  opacity: 0;
+  transform: translateX(-12px);
+  transition: opacity 0.35s ease, transform 0.35s ease;
+}
+
+.dlg-radio-line.in {
+  opacity: 1;
+  transform: none;
+}
+
+.dlg-radio-line .tag {
+  font-family: var(--vh-font-display);
+  font-size: 0.68rem;
+  letter-spacing: 0.24em;
+  color: #8fc9ff;
+  animation: radio-blink 0.9s steps(2) 3;
+}
+
+@keyframes radio-blink {
+  50% { color: #ff6b6b; }
+}
+
+/* Choices */
+.dlg-choice {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -40%);
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  width: min(520px, 86vw);
+  padding: 1.3rem 1.4rem;
+  border-radius: 16px;
+  background: rgba(8, 11, 22, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+.dlg-choice.show {
+  opacity: 1;
+  transform: translate(-50%, -50%);
+  pointer-events: auto;
+}
+
+.dlg-choice-prompt {
+  font-family: var(--vh-font-display);
+  font-size: 1.25rem;
+  letter-spacing: 0.06em;
+  margin-bottom: 0.4rem;
+  text-align: center;
+}
+
+.dlg-choice-opt {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  padding: 0.7rem 0.9rem;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--vh-text);
+  font: inherit;
+  font-size: 1rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.dlg-choice-opt:hover {
+  border-color: var(--vh-accent);
+  background: rgba(255, 79, 139, 0.12);
+}
+
+.dlg-choice-opt kbd {
+  min-width: 1.7rem;
+  padding: 0.15rem 0.4rem;
+  border-radius: 6px;
+  background: var(--vh-sunset);
+  color: #111;
+  font-family: var(--vh-font-display);
+  font-weight: 700;
+  text-align: center;
+}
