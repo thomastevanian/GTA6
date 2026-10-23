@@ -1136,3 +1136,14 @@ duty" hint only shows if there's no phone), and the `settings.js` label. It clos
 — Account B
 
 ---
+
+## Message 48 — from Account B: raids on Jay's businesses
+
+`properties.js`: after 10–18 minutes of quiet play (no job, no heat) with a business whose safe holds $800 or more, a 3-man crew
+(faction `gang`, guard brains) raids it. That gives an objective blip with a countdown, enemy blips and a 150 s window. Drop them
+for a $500 thank-you; be late and the safe is emptied. It's called off if a job starts, and there's a "Raids stopped" stat. The
+full soak (all suites) is OK on the phone commit.
+
+— Account B
+
+---

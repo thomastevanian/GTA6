@@ -11,6 +11,11 @@
  *   new VH.Properties(game)             runtime: buying, the safes, the "FOR
  *                                       SALE" boards, blips, stats and saves
  *
+ * Now and then (every 10-18 minutes of quiet play) a crew raids one of
+ * Jay's businesses with a decent safe: three gunmen on the forecourt, and
+ * RAID_TIME seconds to drop them before they clear the safe out. Stopping
+ * them pays a thank-you on top.
+ *
  * A site: { id, name, sign, strip, near, price, daily } (see SITES).
  */
 (function () {
@@ -20,6 +25,9 @@
   const KERB = 0.15;
   const DAY = 24 * 60; // real seconds in an in-game day (environment.js: an hour a minute)
   const CAP_DAYS = 3;
+  const RAID_GAP = [600, 1080]; // seconds of quiet play between raids on Jay's businesses
+  const RAID_TIME = 150; // to get there and stop them
+  const RAID_MIN_SAFE = 800;
 
   const SITES = [
     { id: 'prop_laundrette', name: 'Suds & Sons Laundrette', sign: ['SUDS & SONS', 'LAUNDRETTE'], strip: 'an_n2', near: -700, price: 18000, daily: 1500, bg: ['#3fa9f5', '#1d5fa8'] },
@@ -85,6 +93,9 @@
       this.owned = {}; // id -> { safe }
       this.earned = 0;
       this.boards = new Map();
+      this.raid = null;
+      this.raidT = RAID_GAP[0] + Math.random() * (RAID_GAP[1] - RAID_GAP[0]);
+      this.raidsStopped = 0;
       if (!this.ok) return;
       this._makeBoards();
       game.interaction.on('property', (item) => this._use(item));
@@ -210,20 +221,92 @@
         if ((before < 1) !== (Math.floor(o.safe) < 1)) changed = true;
       }
       if (changed) this._sync();
+      this._raidUpdate(dt);
+    }
+
+    // ------------------------------------------------------------ raids
+    _raidUpdate(dt) {
+      const g = this.game;
+      const busy = (g.missions && g.missions.run) || g.state !== 'playing';
+      if (this.raid) {
+        if (g.missions && g.missions.run) return this._endRaid(null); // a job takes over: call it off
+        const R = this.raid;
+        R.t -= dt;
+        const left = R.agents.filter((a) => !a.dead && !a.removed);
+        if (!left.length) return this._endRaid(true);
+        if (R.t <= 0) return this._endRaid(false);
+        return;
+      }
+      if (busy || g.police.level > 0) return;
+      const ready = this.sites.filter((s) => this.owned[s.id] && this.owned[s.id].safe >= RAID_MIN_SAFE);
+      if (!ready.length) return;
+      this.raidT -= dt;
+      if (this.raidT > 0) return;
+      this._startRaid(ready[Math.floor(Math.random() * ready.length)]);
+    }
+
+    _startRaid(s) {
+      const g = this.game;
+      const agents = [];
+      const out = [Math.sin(s.yaw + Math.PI), Math.cos(s.yaw + Math.PI)]; // from the board towards the building
+      for (let i = 0; i < 3; i++) {
+        const side = (i - 1) * 3.2;
+        const x = s.x + out[0] * 2 + Math.cos(s.yaw) * side;
+        const z = s.z + out[1] * 2 - Math.sin(s.yaw) * side;
+        const a = g.combat.spawnEnemy(x, z, { faction: 'gang', weapon: i === 1 ? 'smg' : 'pistol', guard: { x: s.x, z: s.z, r: 14 }, accuracy: 0.4, aggression: 0.6, heading: s.yaw });
+        agents.push(a);
+      }
+      this.raid = { site: s, agents, t: RAID_TIME };
+      g.hud.notify({ title: s.name, text: 'Robbers are cleaning out your safe! Get there and stop them (' + Math.round(RAID_TIME / 60 * 10) / 10 + ' min).', icon: '⚠', tone: 'bad', duration: 9000 });
+      if (g.audio.alarm) g.audio.alarm();
+    }
+
+    /** ok: true stopped, false too late, null called off. */
+    _endRaid(ok) {
+      const g = this.game;
+      const R = this.raid;
+      this.raid = null;
+      this.raidT = RAID_GAP[0] + Math.random() * (RAID_GAP[1] - RAID_GAP[0]);
+      if (!R) return;
+      const p = g.player.pos;
+      for (const a of R.agents) {
+        if (a.dead || a.removed) continue;
+        if (ok === false && Math.hypot(a.pos.x - p.x, a.pos.z - p.z) < 70) a.persistent = false; // in a fight: let them be
+        else g.crowd.remove(a);
+      }
+      const o = this.owned[R.site.id];
+      if (ok === true) {
+        this.raidsStopped++;
+        g.giveMoney(500, 'raid stopped');
+        g.hud.notify({ title: R.site.name, text: 'Raid stopped. The staff chip in $500 to say thanks.', icon: '✓' });
+      } else if (ok === false && o) {
+        const lost = Math.floor(o.safe);
+        o.safe = 0;
+        this._sync();
+        g.hud.notify({ title: R.site.name, text: 'Too late: the robbers got away with ' + VH.util.formatMoney(lost) + '.', icon: '✕', tone: 'bad' });
+      }
     }
 
     /** A new game: nothing owned. */
     reset() {
+      if (this.raid) this._endRaid(null);
       this.owned = {};
       this.earned = 0;
       if (this.ok) this._sync();
     }
 
-    stop() {}
+    stop() {
+      if (this.raid) this._endRaid(null);
+    }
 
     blips(out) {
       if (!this.ok) return;
       const fm = VH.util.formatMoney;
+      if (this.raid) {
+        const R = this.raid;
+        out.push({ x: R.site.x, z: R.site.z, type: 'objective', label: 'Raid at ' + R.site.name + ' · ' + Math.ceil(R.t) + ' s' });
+        for (const a of R.agents) if (!a.dead && !a.removed) out.push({ x: a.pos.x, z: a.pos.z, type: 'enemy' });
+      }
       for (const s of this.sites) {
         const o = this.owned[s.id];
         out.push(o
@@ -234,13 +317,13 @@
 
     stats() {
       if (!this.ok) return [];
-      return [['Properties owned', Object.keys(this.owned).length + ' of ' + this.sites.length], ['Property income collected', VH.util.formatMoney(this.earned)]];
+      return [['Properties owned', Object.keys(this.owned).length + ' of ' + this.sites.length], ['Property income collected', VH.util.formatMoney(this.earned)], ['Raids stopped', String(this.raidsStopped)]];
     }
 
     serialize() {
       const owned = {};
       for (const id of Object.keys(this.owned)) owned[id] = { safe: Math.floor(this.owned[id].safe) };
-      return { owned, earned: this.earned };
+      return { owned, earned: this.earned, raidsStopped: this.raidsStopped };
     }
 
     load(data) {
@@ -248,6 +331,7 @@
       this.owned = {};
       for (const id of Object.keys(data.owned || {})) if (this._site(id)) this.owned[id] = { safe: +data.owned[id].safe || 0 };
       this.earned = data.earned || 0;
+      this.raidsStopped = data.raidsStopped || 0;
       if (this.ok) this._sync();
     }
   }
