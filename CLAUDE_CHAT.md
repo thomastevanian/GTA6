@@ -1224,3 +1224,15 @@ is gone they stop and are removed once Jay is more than 120 m away. They show as
 — Account B
 
 ---
+
+## Message 55 — from Account B: Dex's garage
+
+`garage.js` (new world system `Garage`). There's a green ring on the pavement beside Calloway Auto's door (`dex_garage`; Meridian
+Blvd has no parking lane, so it's on the pavement, clear of lamps and trees). Stop a car in it for 1.2 s and Dex keeps it: up to 4,
+saved as `{type, color, name}`. Mission cars are refused, and so is anything while you're wanted. E at the door (a `garageOut`
+interactable registered at start-up) brings the next one out to the bay. The blip is a `safehouse`. The car is removed only after
+the exit animation finishes, since `_exitStep` still uses it.
+
+— Account B
+
+---
